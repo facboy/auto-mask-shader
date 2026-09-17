@@ -1,0 +1,9 @@
+[project]
+name = "auto-mask-tools"
+version = "0.0.0"
+description = "Offline checks for the AutoMask shader"
+requires-python = ">=3.11"
+
+# The tools use the standard library only. This file exists so `uv run` has a
+# project to resolve, and so the Python side of the repo stays inside tools/ --
+# this is a shader project, not a Python one.

@@ -1,0 +1,39 @@
+MIT License
+
+Copyright (c) 2026 AutoMask contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## Credit
+
+The idea of generating a UI mask from what holds still, and the "store the
+masked pixels first, restore them last" arrangement this shader uses, come from
+the UIDetectMulti shader pack by Kaiser, which in turn builds on work by
+Brussels1. That project is licensed CC BY 4.0 and lives at
+https://github.com/Kaiser-R/Reshade-Shaders
+
+This shader shares no code with it: it was written from scratch, has no
+companion configuration header, and needs no pixel coordinates or mask images.
+The two are alternatives rather than companions, since both have to be first
+and last in the effect list.
+
+ReShade and its own header files (`ReShade.fxh`, `ReShadeUI.fxh`, `DrawText.fxh`)
+belong to the ReShade project and are deliberately not vendored here.

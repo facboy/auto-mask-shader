@@ -1,0 +1,9 @@
+# Scratch and build output from the offline shader check.
+tools/.work/
+tools/.venv/
+# uv regenerates this on every run; with no dependencies there is nothing to pin.
+tools/uv.lock
+__pycache__/
+*.pyc
+
+.idea/
