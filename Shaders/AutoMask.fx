@@ -23,14 +23,24 @@
 #endif
 
 //Uniforms
+//The deadband. It exists only to tolerate capture noise -- temporal
+//anti-aliasing, dithering, an engine's own jitter -- which makes a pixel that is
+//visually static still differ by a level or two between frames. Nothing about the
+//signal requires it: comparing two textures that hold the same pixels gives
+//exactly 0, and 0 is already under any threshold here.
+//One level out of 255 measures as 1.0, so the default of 1.0 is the strictest
+//setting that still works: a pixel that changed at all counts as motion, and only
+//a pixel that is bit-identical counts as holding still. Raise it only if a static
+//HUD refuses to form a mask because of noise; 0 disables the shader, because
+//`diff < 0` is never true.
 uniform float UIMaskEps <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "RGB step counted as a change";
-	ui_tooltip = "How far a pixel's colour may move between frames and still count as holding still. 0 disables the shader";
+	ui_tooltip = "How far a pixel may move between frames and still count as holding still. 1 is one level out of 255, i.e. any change at all counts as motion. 0 disables the shader";
 	ui_category = "AutoMask";
 	ui_min = 0.0; ui_max = 8.0;
 	ui_step = 0.1;
-> = 1.5;
+> = 1.0;
 
 uniform float UIMaskRise <
 	__UNIFORM_SLIDER_FLOAT1
@@ -59,8 +69,9 @@ uniform float UIMaskForget <
 	ui_step = 1.0;
 > = 15.0;
 
-//Dilate radius in pixels. The loop is unrolled to a fixed maximum because a
-//uniform bound cannot be unrolled, so keep the slider and the constant in step.
+//Dilate radius in pixels. The loop is bounded by a fixed maximum because a
+//uniform bound cannot bound a loop that the compiler may unroll, so keep the
+//slider and the constant in step.
 #define UIMASK_DILATE_MAX 3
 uniform float UIMaskDilate <
 	__UNIFORM_SLIDER_FLOAT1
@@ -80,26 +91,28 @@ uniform float UIMaskEdge <
 	ui_step = 1.0;
 > = 40.0;
 
-//The stillness gate. The world normally carries motion, so a frame with almost
-//none means the world view is not being drawn and anything that looks stable is
-//stable for the wrong reason.
+//The stillness gate. Off by default, and that is deliberate: standing still is
+//exactly when a HUD should be detected, so freezing the accumulator on a still
+//frame stops the mask forming in the most common case. It exists only for the
+//one scene it was written for -- an interior with no ambient animation at all --
+//and it should stay off unless that is what you are looking at.
 uniform float UIMaskMotion <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Motion needed for a live frame (percent)";
-	ui_tooltip = "Below this much of the screen moving, the map is held instead of advanced. 0 turns the gate off";
+	ui_tooltip = "Below this much of the screen moving, the map is held instead of advanced. Off at 0, which is the default; turn it on only if a scene with nothing animating in it fills the mask with scenery";
 	ui_category = "AutoMask";
 	ui_min = 0.0; ui_max = 100.0;
 	ui_step = 0.5;
-> = 2.0;
+> = 0.0;
 
 uniform float UIMaskSettle <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Still frames tolerated before the hold starts";
-	ui_tooltip = "How long a scene that has stopped keeps being looked at before the map locks. Keep this x 'Confidence gained' under 0.5, or the world reaches mask confidence while the shader is still watching it";
+	ui_tooltip = "How long a scene that has stopped keeps being looked at before the map locks. Must be long enough for a panel to form, so it needs to exceed 0.5 divided by 'Confidence gained'";
 	ui_category = "AutoMask";
 	ui_min = 0.0; ui_max = 120.0;
 	ui_step = 1.0;
-> = 4.0;
+> = 12.0;
 
 //Targets
 //The accumulator ping-pongs because a target cannot be read while it is written,
@@ -158,7 +171,8 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	float3 now = tex2D(ReShade::BackBuffer, texcoord).rgb;
 	float3 before = tex2D(AutoHistory, texcoord).rgb;
 	float3 diff = abs(now - before) * 255.0;
-	float stable = max(diff.r, max(diff.g, diff.b)) < UIMaskEps ? 1.0 : 0.0;
+	float maxDiff = max(diff.r, max(diff.g, diff.b));
+	float stable = maxDiff < UIMaskEps ? 1.0 : 0.0;
 
 	float4 prev = tex2D(AutoAccumA, texcoord);
 	float conf = prev.r;
@@ -321,22 +335,48 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 }
 
 #if UIMaskDiagnostics == 1
-	//Paints the map on its own, thresholded so there is no ambiguous middle:
-	//green where a pixel is protected, blue where it is not. A red wash means the
-	//gate is holding the map on this frame, which is the state that stops it
-	//advancing -- without that showing, a held map and a slow one look the same.
+	//Diagnostics gain: multiplies the raw frame-to-frame difference so the noise
+	//floor is visible. Not a tuning knob -- it changes nothing but this view.
+	uniform float UIDebugGain <
+		__UNIFORM_SLIDER_FLOAT1
+		ui_label = "Diagnostics: difference gain";
+		ui_tooltip = "Brightens the raw per-pixel difference in the overlay, so a change too small to see but large enough to stop a pixel accumulating becomes visible";
+		ui_category = "AutoMask";
+		ui_min = 1.0; ui_max = 64.0;
+		ui_step = 1.0;
+	> = 8.0;
+
+	//Reads the difference out of the accumulator instead of recomputing it. That is
+	//the whole point of drawing it: an independent recomputation could disagree with
+	//what the accumulate actually saw, and then this view would be reporting on
+	//itself rather than on the shader. .b is the still flag, so red is the raw
+	//changed-ness the verdict was derived from.
+	//
+	//Blue is confidence on its way to protected, drawn at twice scale so that 0.5
+	//-- the value the green threshold sits at -- is a full-strength blue. That
+	//separates the two ways nothing can turn green: confidence never rising at all
+	//(no blue anywhere) versus rising but never reaching the threshold (blue
+	//appears, green does not).
 	float4 PS_DebugMap(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	{
+		float4 state = tex2D(AutoAccumA, texcoord);
 		float mask = step(0.5, tex2D(AutoMap, texcoord).r);
-		float held = tex2D(AutoAccumA, texcoord).a >= UIMaskSettle ? 1.0 : 0.0;
-		float3 color = lerp(float3(0.0, 0.0, 0.6), float3(0.1, 1.0, 0.1), mask);
-		return float4(lerp(color, float3(1.0, 0.15, 0.05), held * 0.6), 1.0);
+		float changed = saturate((1.0 - state.b) * UIDebugGain);
+		float conf = saturate(state.r * 2.0);
+		return float4(changed, mask, conf, 1.0);
 	}
 
 	//Blends that over the frame so the game underneath is still recognisable.
+	//
+	//It reads texAutoHistory for the frame, not the back buffer. The back buffer has
+	//been through the anti-bloom pass by this point, which has blacked every masked
+	//pixel, so compositing over it made the overlay's colours depend on whether
+	//anti-bloom was compiled in -- which is not something a diagnostics view should
+	//ever do. texAutoHistory holds the untouched frame, written by PS_StoreFrame
+	//before anti-bloom runs, so the picture underneath is the game as it arrived.
 	float4 PS_DebugOverlay(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	{
-		return lerp(tex2D(ReShade::BackBuffer, texcoord), float4(tex2D(AutoDebug, texcoord).rgb, 1.0), 0.7);
+		return lerp(tex2D(AutoHistory, texcoord), float4(tex2D(AutoDebug, texcoord).rgb, 1.0), 0.7);
 	}
 #endif
 

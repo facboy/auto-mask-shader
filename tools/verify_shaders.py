@@ -64,10 +64,18 @@ VARIANTS = (
     ("antibloom-off-diagnostics", {"UIMaskAntiBloom": "0", "UIMaskDiagnostics": "1"}),
 )
 
-# An annotation block is a run of `key = value;` pairs, where the value runs to
-# the next `;`. That shape keeps the pattern away from ordinary `<` comparisons
-# while still matching values that span several string literals.
-ANNOTATION = re.compile(r'<\s*(?:[A-Za-z_]\w*\s*=\s*[^;]+?\s*;\s*)+>')
+# An annotation block is `< ... >` containing `key = value;` pairs and possibly a
+# bare macro such as `__UNIFORM_SLIDER_FLOAT1`. It is NOT matched by walking to
+# the next `;`, because a value can legitimately contain one -- a tooltip with a
+# semicolon in its prose broke that assumption and left `ui_type = "slider";`
+# un-stripped, which fxc then rejected with "unrecognized identifier 'ui_type'".
+# So a quoted value is matched whole, semicolons and all, and the lookahead keeps
+# the pattern off ordinary `<` comparisons.
+ANNOTATION = re.compile(
+    r'<(?=[^<>]*=)'                                                  # annotations always have an `=`
+    r'(?:\s*(?:__UNIFORM_\w+'                                        # bare macro token
+    r'|[A-Za-z_]\w*\s*=\s*(?:"[^"]*"|[^;>])*\s*;))*'                 # key = value;
+    r'\s*>')
 # Deliberately NOT line-anchored: a generated entry point can sit mid-line.
 ENTRY_POINT = re.compile(
     r'(?:float4|float3|float2|void)\s+(\w+)\s*\([^)]*\)\s*:\s*SV_Target')
@@ -186,6 +194,13 @@ def strip_render_metadata(text: str) -> str:
     symbol would surface as a compile error -- loud, not silent.
     """
     text = ANNOTATION.sub("", text)
+    # Loud guard: if any annotation residue survives, fxc reports it as an
+    # unrecognized identifier far from the cause (`ui_type` with no hint that a
+    # tooltip broke the strip). Fail here instead, naming the construct.
+    residue = re.search(r'\b(ui_\w+|__UNIFORM_\w+)\s*=', text)
+    if residue:
+        sys.exit("FAIL -- annotation stripping left %r in the source; the "
+                 "annotation pattern is wrong" % residue.group(0))
     return re.sub(r"(?sm)^[ \t]*technique\b.*\Z", "", text)
 
 
