@@ -382,10 +382,17 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	//been through the anti-bloom pass by this point, which has blacked every masked
 	//pixel, so compositing over it made the overlay's colours depend on whether
 	//anti-bloom was compiled in -- which is not something a diagnostics view should
-	//ever do. texAutoHistory holds the untouched frame, written by PS_StoreFrame
-	//before anti-bloom runs, so the picture underneath is the game as it arrived.
+	//ever do.
+	//
+	//The magenta block in the bottom-left corner is deliberate: it is always drawn,
+	//regardless of what the mask or the difference come out as. Without a fixed
+	//marker, "the overlay is not running" and "the overlay is running and showing
+	//nothing" look identical on screen, and they need completely different fixes.
 	float4 PS_DebugOverlay(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	{
+		if (texcoord.x < 0.02 && texcoord.y > 0.98){
+			return float4(1.0, 0.0, 1.0, 1.0);
+		}
 		return lerp(tex2D(AutoHistory, texcoord), float4(tex2D(AutoDebug, texcoord).rgb, 1.0), 0.7);
 	}
 #endif
