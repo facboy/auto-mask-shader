@@ -18,6 +18,10 @@
 	#define UIMaskDiagnostics	0		// [0 or 1] 1 draws the generated map over the frame
 #endif
 
+#ifndef UIMaskAntiBloom
+	#define UIMaskAntiBloom		1		// [0 or 1] 1 blacks the masked pixels in the frame the other effects see
+#endif
+
 //Uniforms
 uniform float UIMaskEps <
 	__UNIFORM_SLIDER_FLOAT1
@@ -109,6 +113,13 @@ sampler AutoAccumB { Texture = texAutoAccumB; };
 //The frame the stability test compares against, one frame behind the live one.
 texture texAutoHistory { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
 sampler AutoHistory { Texture = texAutoHistory; };
+
+//The masked pixels as they were, kept so the restore pass can put them back after
+//the user's other effects have run. This has to be the *stored* result, not the
+//frame: by the time the restore pass runs, the frame has the black from the
+//anti-bloom pass in it, and it has been through every other effect too.
+texture texAutoFrame { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
+sampler AutoFrame { Texture = texAutoFrame; };
 
 //The finished HUD map: .r is the HUD/non-HUD value, and everything else reads it.
 texture texAutoMap { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
@@ -256,6 +267,15 @@ float4 PS_Dilate(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targ
 	return float4(mask.xxx, 1.0);
 }
 
+//Keeps the frame where the map says HUD, into its own target, so the restore pass
+//has the real pixels to put back once the anti-bloom pass has blacked them and the
+//user's other effects have run.
+float4 PS_Store(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+{
+	float mask = step(0.5, tex2D(AutoMap, texcoord).r);
+	return float4(tex2D(ReShade::BackBuffer, texcoord).rgb * mask, 1.0);
+}
+
 //Stores the untouched frame for the next frame's comparison. This has to run
 //after PS_Accum, which compares against the *previous* frame: storing first would
 //compare the frame against itself and every pixel would read as still.
@@ -264,9 +284,27 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 	return tex2D(ReShade::BackBuffer, texcoord);
 }
 
-float4 PS_PassThrough(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+#if UIMaskAntiBloom == 1
+	//Blacks the masked pixels in the frame the rest of the chain sees, so a bloom
+	//pass downstream finds no HUD brightness to bleed over the scene. Unmasked
+	//pixels pass through untouched. The HUD is not lost: what is stored above is
+	//the real thing, and the restore pass puts it back.
+	float4 PS_AntiBloom(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+	{
+		float3 frame = tex2D(ReShade::BackBuffer, texcoord).rgb;
+		float mask = step(0.5, tex2D(AutoMap, texcoord).r);
+		return float4(frame * (1.0 - mask), 1.0);
+	}
+#endif
+
+//Puts the stored HUD pixels back on top after the user's other effects have run,
+//leaving everything else as the live frame.
+float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
-	return tex2D(ReShade::BackBuffer, texcoord);
+	float3 live = tex2D(ReShade::BackBuffer, texcoord).rgb;
+	float3 stored = tex2D(AutoFrame, texcoord).rgb;
+	float mask = step(0.5, tex2D(AutoMap, texcoord).r);
+	return float4(lerp(live, stored, mask), 1.0);
 }
 
 #if UIMaskDiagnostics == 1
@@ -316,9 +354,21 @@ technique AutoMask
 	}
 	pass {
 		VertexShader = PostProcessVS;
+		PixelShader = PS_Store;
+		RenderTarget = texAutoFrame;
+	}
+	pass {
+		VertexShader = PostProcessVS;
 		PixelShader = PS_StoreFrame;
 		RenderTarget = texAutoHistory;
 	}
+
+	#if UIMaskAntiBloom == 1
+		pass {
+			VertexShader = PostProcessVS;
+			PixelShader = PS_AntiBloom;
+		}
+	#endif
 
 	#if UIMaskDiagnostics == 1
 		pass {
@@ -337,6 +387,6 @@ technique AutoMask_Restore
 {
 	pass {
 		VertexShader = PostProcessVS;
-		PixelShader = PS_PassThrough;
+		PixelShader = PS_Restore;
 	}
 }
