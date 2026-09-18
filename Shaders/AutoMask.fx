@@ -25,40 +25,46 @@
 //Uniforms
 //The deadband. It exists only to tolerate capture noise -- temporal
 //anti-aliasing, dithering, an engine's own jitter -- which makes a pixel that is
-//visually static still differ by a level or two between frames. Nothing about the
-//signal requires it: comparing two textures that hold the same pixels gives
-//exactly 0, and 0 is already under any threshold here.
-//One level out of 255 measures as 1.0, so the default of 1.0 is the strictest
-//setting that still works: a pixel that changed at all counts as motion, and only
-//a pixel that is bit-identical counts as holding still. Raise it only if a static
-//HUD refuses to form a mask because of noise; 0 disables the shader, because
-//`diff < 0` is never true.
+//visually static still differ between frames. Nothing about the signal requires
+//it: comparing two textures that hold the same pixels gives exactly 0, and 0 is
+//already under any threshold here.
+//The units are 1/255 of the colour range, but do NOT assume one level is the
+//smallest possible change: that holds only on an 8-bit frame, and it was measured
+//false here -- lowering this below 1 visibly reduces how many pixels test as
+//stable, so sub-level differences exist in practice. Treat it as a continuous
+//tolerance. 0 disables the shader, because `diff < 0` is never true.
 uniform float UIMaskEps <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "RGB step counted as a change";
-	ui_tooltip = "How far a pixel may move between frames and still count as holding still. 1 is one level out of 255, i.e. any change at all counts as motion. 0 disables the shader";
+	ui_tooltip = "How far a pixel may move between frames and still count as holding still, in units of 1/255 of the colour range. Raise it if a static HUD will not form a mask; lower it if moving scenery still accumulates. 0 disables the shader";
 	ui_category = "AutoMask";
 	ui_min = 0.0; ui_max = 8.0;
 	ui_step = 0.1;
 > = 1.0;
 
+//Confidence gained per still frame. With the default of 0.25, two consecutive
+//still frames put a pixel over the 0.5 protection threshold -- a HUD is protected
+//almost as soon as it stops moving, which is the behaviour the whole idea rests
+//on. It was 0.07, needing eight frames, and combined with a fall nearly three
+//times as fast as the rise that meant a pixel had to be still nearly every single
+//frame or never accumulate at all. That is why nothing ever reached the threshold.
 uniform float UIMaskRise <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Confidence gained per still frame";
-	ui_tooltip = "Lower takes more frames of stillness before a pixel is treated as HUD";
+	ui_tooltip = "How quickly a pixel earns protection once it stops moving. At 0.25 two still frames are enough; lower it to demand a longer run of stillness";
 	ui_category = "AutoMask";
-	ui_min = 0.005; ui_max = 0.5;
+	ui_min = 0.005; ui_max = 1.0;
 	ui_step = 0.005;
-> = 0.07;
+> = 0.25;
 
 uniform float UIMaskFall <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Confidence lost per changing frame";
-	ui_tooltip = "Higher clears a region faster once the world starts moving over it again";
+	ui_tooltip = "Higher clears a region faster once the world starts moving over it again. Keep it above 'Confidence gained' or the mask will linger over moving scenery";
 	ui_category = "AutoMask";
-	ui_min = 0.005; ui_max = 0.5;
+	ui_min = 0.005; ui_max = 1.0;
 	ui_step = 0.005;
-> = 0.2;
+> = 0.5;
 
 uniform float UIMaskForget <
 	__UNIFORM_SLIDER_FLOAT1
@@ -352,11 +358,15 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	//itself rather than on the shader. .b is the still flag, so red is the raw
 	//changed-ness the verdict was derived from.
 	//
-	//Blue is confidence on its way to protected, drawn at twice scale so that 0.5
-	//-- the value the green threshold sits at -- is a full-strength blue. That
-	//separates the two ways nothing can turn green: confidence never rising at all
-	//(no blue anywhere) versus rising but never reaching the threshold (blue
-	//appears, green does not).
+	//Blue is confidence, drawn at twice scale so that 0.5 -- the value the green
+	//threshold sits at -- is full-strength blue. Half-strength blue is therefore
+	//the point where a pixel is one still frame from being protected.
+	//
+	//Green needs both things to be true: confidence at 0.5 (blue full) *and* the
+	//pixel's confidence over the map threshold. If blue goes full-strength and
+	//green still does not appear, the fault is past the accumulator -- in the map
+	//pass, or in which target PS_Accum is bound to. That distinction is the whole
+	//reason this instrument exists; green alone cannot show it.
 	float4 PS_DebugMap(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	{
 		float4 state = tex2D(AutoAccumA, texcoord);
