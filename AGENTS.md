@@ -66,6 +66,27 @@ that opens into an already-paused scene is still scanned before the map locks. I
 accumulator; it never changes whether a pixel is HUD, and per-pixel stability is still the only
 verdict. What it is *not*: a camera-motion gate, and not a freeze that overwrites the map.
 
+Stillness is only a hint, though — the world holds still too — and motion is proof, so the per-pixel
+signal is trusted asymmetrically. A change that lasts longer than the hold is **remembered**: it is
+what the game re-rendering from a new viewpoint looks like, and no panel is drawn that way. The memory
+lives in the sign of the accumulator's confidence, negative and clamped to the deepest a single move
+can reach, and a still frame pays it back one frame's worth at a time — so the two ends of the shader
+run on their own timescales: ~2 still frames to protect (fast, or a HUD is never captured) against
+`UIMaskMoveMemory` still frames to recover from a move (slow, so it outlasts a camera movement).
+`UIMaskMoveMemory` is therefore a duration rather than a confidence budget, and 0 restores the old
+behaviour exactly. Movement that fits inside the hold is still bridged and never banked, which is what
+keeps a draining bar or a scrolling list protected; movement past the hold costs the element its
+protection until the debt clears. The magnitude is graded — `smoothstep(UIMaskEps, UIMaskEps * 4)`
+rather than a step — so a pixel nudging at the deadband owes almost nothing while one the camera swung
+past owes the lot; a linear ramp would hand the full memory to the pixels where capture noise lives.
+
+Two interactions are worth knowing. The gate halts the accumulator, so it halts the heal as well: the
+debt stops being paid while the map is held, and resumes when anything moves again. That is bounded by
+the settle window — those frames still advance, so at least `UIMaskSettle` frames of repayment always
+happen first — and it only arises with the gate switched on, which is off by default. And the heal is
+one frame's worth of `UIMaskFall` per still frame regardless of the slider, which is what keeps the
+memory a duration the user can reason about rather than a confidence number they have to convert.
+
 ### The `.fx` constraints that shape the design
 
 - **A render target cannot be read while it is written.** There are no atomics and no compute
@@ -81,8 +102,8 @@ Load-bearing, and follows from what each pass reads:
 
 1. `PS_Accum` — builds the new confidence against the *previous* frame, **before** the history store. It
    also applies the stillness gate, reading the statistic the previous frame left behind.
-2. The two sub-resolution passes that average the still flag — after the accumulate, since their only
-   input is what it just wrote, and read on the next frame.
+2. The two sub-resolution passes that average the motion magnitude — after the accumulate, since their
+   only input is what it just wrote, and read on the next frame.
 3. `PS_Copy`, `PS_Dilate` — the ping-pong back-edge and the boundary close, also before the store.
    `PS_Dilate` is one pass: a 2D max over a tiny fixed neighbourhood, stopping where the luma step
    read from `BackBuffer` exceeds `UIMaskEdge`. Reading the frame there is safe only because it is
@@ -169,6 +190,13 @@ The compile check needs `fxc.exe`, which is a Windows binary run under WSL:
   standing still somewhere with fire or water in view. The one that settles the stillness gate's
   settle window is a menu opened in a scene the game has already paused. Reviewing a screen capture
   is the next best thing.
+  The move memory adds two scenarios of its own, and they are the pair the whole setting is balanced
+  between: pan the camera across detailed scenery and then stop, with no interface in view — nothing
+  the camera swept over should be grabbed as HUD for `UIMaskMoveMemory` frames; and then the same,
+  with an animating element on screen the whole time — a draining bar or a scrolling list that moves
+  for longer than `UIMaskForget` — which should lose its protection to the memory, and get it back
+  once the animation stops. If both behave, the setting is doing what it says. Checking the overlay's
+  alpha channel is the cheap way to see the memory being spent, since it is the only view of it.
 
 ## What this shader cannot do
 
@@ -184,6 +212,10 @@ discovered:
   the panel to be scanned, short enough not to hand a quiet room a free run of accumulation. Nothing
   separates those two cases, because a paused world and a quiet room look identical to this shader,
   which is why the overlay shows the gate holding rather than leaving it to be inferred.
+  The move memory does not help here and cannot, which is the sharper way to state the limit: a wall
+  the player has been facing throughout never moved in the picture, so there is nothing to remember.
+  It catches the wall that was *walked past* and then stopped in front of, which is the common case;
+  it cannot catch the one that was never in motion to begin with.
 - **Bloom can still find an edge at the HUD contour.** Suppression removes the UI as a bloom source,
   but a hard black step against a bright scene is itself contrast. Neither this shader nor
   `UIDetectMulti` blurs that step: the pack's blend is `lerp(colorOrig, color, maskChan)`, exactly
@@ -191,7 +223,11 @@ discovered:
   softness either comes from the mask (there) or from the map (here, via `UIMaskDilate` and the luma
   stop); nothing is added by the anti-bloom pass itself.
 - **HUD that animates more than briefly** needs the hold to bridge it. That makes `UIMaskForget` the
-  most important slider rather than a nicety.
+  most important slider rather than a nicety, and it is now a hard boundary rather than a matter of
+  degree: animation that fits inside the hold is bridged and never banked, while animation that
+  outlasts it is taken for the world and costs the element its protection until `UIMaskMoveMemory`
+  still frames have passed. The two sliders are tuned against each other — `UIMaskForget` must exceed
+  the longest animation any real element performs.
 
 ## Repository rules
 
