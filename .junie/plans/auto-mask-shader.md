@@ -227,7 +227,35 @@ That block is the only long comment in the file — the rule about short, sparse
 - **No containment at all.** With no ROI, no PNG and no per-element toggle, a false positive can appear anywhere and a wrong accumulation is a full-screen symptom. The diagnostics overlay and the tunables are the only recourse, which is why the overlay ships in the first version rather than later.
 - **A wrong mask is worse than a wrong verdict.** A bad detection toggles at the wrong moment; a bad mask is continuously visible. Bias tuning toward precision — a longer hold and a tighter dilate rather than an eager mask.
 - **Both shaders want the same two slots.** Loading this alongside the companion shader puts one of them second, where it reads a partly-processed frame. Left to the user by decision, so it must be stated plainly in the README.
-- **The black step at the HUD contour.** Bloom keys on contrast, and black against a bright scene is contrast. Suppression removes the UI as a bloom source, but the boundary where the black meets the scene is itself an edge, so this trades a bleeding UI for a contour that can still glow. Neither implementation blurs that edge: the pack's blend is `lerp(colorOrig, color, maskChan)`, exactly proportional to the mask value, its sampler carries no filter override, and its masks were hard-edged in practice — so the step is the mask's own edge and nothing softens it. Ours is the same, over a map that is hard by construction. Softness would have to be authored into the mask (the pack) or come out of the map (`UIMaskDilate` and the luma stop, here); it is not something the anti-bloom pass can add.
+- **The black step at the HUD contour.** Bloom keys on contrast, and black against a bright scene is contrast. Suppression removes the UI as a bloom source, but the boundary where the black meets the scene is itself an edge, so this trades a bleeding UI for a contour that can still glow. Neither implementation blurs that edge: the pack's blend is `lerp(colorOrig, color, maskChan)`, exactly proportional to the mask value, its sampler carries no filter override, and its masks were hard-edged in practice — so the step is the mask's own edge and nothing softens it. Ours is the same, over a map that is hard by construction. Softness would have to come from the source rather than the pass, and a way to give the anti-bloom pass a soft source from the confidence field is written up as a deferred option below.
+
+### Deferred Options
+
+Considered while designing and deliberately left out of the first version, each with the evidence that
+would justify revisiting it. None of this is part of the implementation.
+
+**A soft map for the anti-bloom pass only.** The step from constant black back to a bright scene is
+itself contrast, so bloom can still find an edge at the HUD contour. Nothing in either implementation
+blurs it — the pack's blend is `lerp(colorOrig, color, maskChan)`, exactly proportional to the mask
+value, over a default unfiltered sampler, and its masks were hard-edged in practice — so the only
+softness available comes from the source: the mask there, the map here, and this map is hard by
+construction.
+
+The accumulator already holds a continuous confidence field, so a feather is available without a new
+pass or a new target. The variant is a second read of the confidence channel in `PS_AntiBloom` and a
+`lerp` weighted by it in place of the binary map value, leaving that pass one sample heavier. It is not
+in the first version for two reasons:
+
+- **It is unproven.** Whether the contour is worth softening on a bright HUD over a bright scene has
+  not been looked at in a game, and guessing wrong in a shader whose whole point is that it needs no
+  hand-configuration is the failure this project exists to avoid.
+- **It would soften the wrong thing if reused.** Anti-bloom is the only consumer that wants a soft
+  value. The store and restore passes want the hard map — an intermediate value there is a partially
+  protected pixel, which blurs the UI itself rather than the transition around it.
+
+**What would settle it.** A screen capture of a bright HUD over a bright scene with bloom active: if
+that contour glows, the soft map is worth trying and the change is small; if it does not, the pass
+stays as it is and this stays a note.
 
 # Testing
 
