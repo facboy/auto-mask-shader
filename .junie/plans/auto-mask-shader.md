@@ -65,7 +65,7 @@ Written fresh from the design worked out against that pack, but sharing no code,
 - **`.fx` constraints respected.** No compute shaders, no atomics, no mip generation, and never reading a render target while writing it — the accumulator must ping-pong with an explicit copy pass.
 - **Memory.** Five full-resolution targets — the accumulator pair, the finished map, the last frame and the stored frame — plus two sub-resolution ones for the gate: a sixteenth-size block average and a 1×1 statistic. ReShade allocates all seven unconditionally once the effect is compiled in, so the count is stated here and must be reviewed before implementation.
 - **Conventions.** LF line endings, matching the companion pack's `.fx` style; HLSL comments short and sparse; no tutorial narration.
-- **Licence.** MIT, with a credit line recording that the concept and the store/restore pattern come from Kaiser's `UIDetectMulti` and Brussels1's original work.
+- **Licence.** MIT, with a credit line recording that the concept and the store/restore pattern come from Kaiser's `UIDetectMulti` and Brussels1's original work, and that the anti-bloom pass follows the pack's `UIDM_ANTIBLOOM`.
 
 # Technical Design
 
@@ -114,7 +114,7 @@ graph TD
 | Decision | Choice | Rationale |
 | --- | --- | --- |
 | Packaging | **One self-contained `.fx`, no header** | Sliders in the ReShade panel are better UX than a file the user edits and restarts, and there is no authored data that must live in a file. |
-| Repository | **Standalone repo, MIT with credit** | Nothing here is entangled with the companion pack, and there is no shipped behaviour to preserve — so verification reduces to compile and cost, with no baseline. |
+| Repository | **Standalone repo, MIT with credit** | Nothing here is entangled with the companion pack, and there is no shipped behaviour to preserve — so verification reduces to compile and cost, with no baseline. The credit line names the pack for the concept, the store/restore pattern and the anti-bloom pass. |
 | Region of interest | **None — the map covers the whole screen** | Measured on the companion pack's real masks, protected areas reach 36% of the screen, so a box per element describes them worse than nothing. |
 | Stillness gate | **A frame-wide moving-area threshold holds the accumulator; per-pixel stability still decides every verdict** | The world usually carries motion, so a still frame means the world view is not being drawn and anything that looks stable is stable for the wrong reason. The measure is the same frame-to-frame difference the mask already uses, averaged over the screen, so it needs no camera and reads as a percentage the overlay can show. The hold starts after a short settle so a panel opening into a paused scene is still scanned before the map locks. Low by default, and zero turns it off. |
 | Activation signal | **Stability alone decides; structure shapes the boundary** | Scoring `stable * lerp(1, edge, weight)` rejected flat-shaded UI at the defaults, and most of a HUD is flat. Stability is the discriminator; the edge map's real value is geometry. |
@@ -191,7 +191,7 @@ technique AutoMask_Restore  { ... }   // placed LAST, after other effects
 
 **5. `README.md`** — placement (first and last, and that it must not be loaded alongside `UIDetectMulti`), what each slider does, the anti-bloom switch and what it is for, the diagnostics overlay, and the honest limits: semi-transparent UI is never protected, the stillness gate and its settle are the answer to a quiet interior, and it is the most expensive option in the pack next to the companion shader.
 
-**6. `LICENSE`** — MIT, with the credit line for the concept and the store/restore pattern.
+**6. `LICENSE`** — MIT, with the credit line for the concept, the store/restore pattern and the anti-bloom pass.
 
 ### File Structure
 

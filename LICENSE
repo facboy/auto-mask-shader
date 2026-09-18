@@ -24,11 +24,12 @@ SOFTWARE.
 
 ## Credit
 
-The idea of generating a UI mask from what holds still, and the "store the
-masked pixels first, restore them last" arrangement this shader uses, come from
-the UIDetectMulti shader pack by Kaiser, which in turn builds on work by
-Brussels1. That project is licensed CC BY 4.0 and lives at
-https://github.com/Kaiser-R/Reshade-Shaders
+The idea of generating a UI mask from what holds still, the "store the masked
+pixels first, restore them last" arrangement this shader uses, and the
+anti-bloom suppression it applies to the masked pixels before the rest of the
+effect chain runs, all come from the UIDetectMulti shader pack by Kaiser, which
+in turn builds on work by Brussels1. That project is licensed CC BY 4.0 and
+lives at https://github.com/Kaiser-R/Reshade-Shaders
 
 This shader shares no code with it: it was written from scratch, has no
 companion configuration header, and needs no pixel coordinates or mask images.
