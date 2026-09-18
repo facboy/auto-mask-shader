@@ -164,9 +164,11 @@ discovered:
   separates those two cases, because a paused world and a quiet room look identical to this shader,
   which is why the overlay shows the gate holding rather than leaving it to be inferred.
 - **Bloom can still find an edge at the HUD contour.** Suppression removes the UI as a bloom source,
-  but a hard black step against a bright scene is itself contrast. The pack's `UIDM_ANTIBLOOM` has the
-  same property and its authored masks can be blurred to soften it; this shader's map is binary by
-  design, so there is no soft edge to offer.
+  but a hard black step against a bright scene is itself contrast. Neither this shader nor
+  `UIDetectMulti` blurs that step: the pack's blend is `lerp(colorOrig, color, maskChan)`, exactly
+  proportional to the mask, over unfiltered samplers and masks that were hard-edged in practice. The
+  softness either comes from the mask (there) or from the map (here, via `UIMaskDilate` and the luma
+  stop); nothing is added by the anti-bloom pass itself.
 - **HUD that animates more than briefly** needs the hold to bridge it. That makes `UIMaskForget` the
   most important slider rather than a nicety.
 
