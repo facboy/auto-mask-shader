@@ -493,7 +493,30 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	float3 live = tex2D(ReShade::BackBuffer, texcoord).rgb;
 	float3 stored = tex2D(AutoFrame, texcoord).rgb;
 	float mask = step(0.5, tex2D(AutoMap, texcoord).r);
-	return float4(lerp(live, stored, mask), 1.0);
+	float3 color = lerp(live, stored, mask);
+
+	#if UIMaskDiagnostics == 1
+		//The block in the bottom-left corner belongs to this pass and not to the overlay,
+		//because this pass is what repaints the masked pixels: a marker drawn inside
+		//AutoMask was replaced by the game's own interface underneath it, and the effects
+		//between the two techniques drew over it as well. Nothing runs after this one.
+		//Without a fixed marker, "the overlay is not running" and "the overlay is running
+		//and showing nothing" look identical, and they need different fixes.
+		//Three states, three flat colours, no blending: the colour is the reading, so it
+		//is always drawn and never tinted by what the rest of the overlay is doing.
+		if (texcoord.x < 0.02 && texcoord.y > 0.98){
+			//One value for the whole screen, so the centre is as good a source as any.
+			float state = tex2D(AutoDebug, float2(0.5, 0.5)).a;
+			if (state > 0.75){
+				return float4(1.0, 0.0, 1.0, 1.0);
+			} else if (state > 0.25){
+				return float4(0.0, 1.0, 1.0, 1.0);
+			}
+			return float4(1.0, 1.0, 0.0, 1.0);
+		}
+	#endif
+
+	return float4(color, 1.0);
 }
 
 #if UIMaskDiagnostics == 1
@@ -537,9 +560,12 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	//Alpha is the screen-wide state, in three steps rather than two, because the
 	//distinction the trust window draws is the one thing the other readings cannot
 	//show. It is 1 while the world is being drawn, half while it has stopped but
-	//stillness is still believed, and 0 once it is not. Two steps would have been a
-	//lie by omission: the grace and the expiry are the first frames of every stop, and
-	//they mean opposite things about whether blue is still moving.
+	//stillness is still believed, and 0 once it is not, and the restore pass reads it
+	//for the corner marker -- so the marker needs no gate logic of its own and cannot
+	//disagree with what the overlay is showing.
+	//Two steps would have been a lie by omission: the grace and the expiry are the
+	//first frames of every stop, and they mean opposite things about whether blue is
+	//still moving.
 	//It is read from the accumulator, so it is the count this frame just wrote -- one
 	//frame ahead of the gate's own test, which reads the statistic from the frame
 	//before. That is deliberate and worth knowing when comparing the marker against
@@ -567,24 +593,12 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	//anti-bloom was compiled in -- which is not something a diagnostics view should
 	//ever do.
 	//
-	//The block in the bottom-left corner is deliberate: it is always drawn,
-	//regardless of what the mask or the motion come out as. Without a fixed
-	//marker, "the overlay is not running" and "the overlay is running and showing
-	//nothing" look identical on screen, and they need completely different fixes.
-	//Its colour is the screen-wide state, because that state decides what every other
-	//colour means and is otherwise invisible. Three readings, taking the midpoint of
-	//the blend for the middle one: magenta while the world is being drawn, a dimmer
-	//violet while it has stopped but stillness is still believed, grey once it is not.
-	//The last two are the first frames of every stop and they look identical while
-	//meaning opposite things -- whether a pixel that holds still is still earning its
-	//place -- so a two-step marker would hide exactly the window it exists to show.
+	//No corner marker here. This pass is first in the chain, so a block drawn in it is
+	//at the mercy of everything that follows -- the restore repaints masked pixels, and
+	//the effects in between treat the block as picture. The marker is drawn by the last
+	//pass instead, from the state this one leaves in alpha.
 	float4 PS_DebugOverlay(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	{
-		//One value for the whole screen, so anywhere is as good as the centre.
-		float screen = tex2D(AutoDebug, float2(0.5, 0.5)).a;
-		if (texcoord.x < 0.02 && texcoord.y > 0.98){
-			return lerp(float4(0.35, 0.35, 0.35, 1.0), float4(1.0, 0.0, 1.0, 1.0), screen);
-		}
 		return lerp(tex2D(AutoHistory, texcoord), float4(tex2D(AutoDebug, texcoord).rgb, 1.0), 0.7);
 	}
 #endif

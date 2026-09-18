@@ -98,13 +98,19 @@ screen is doing — which matters, because that is what decides whether the reds
 are a current judgement or an old one:
 
 - **Magenta** — the world is being drawn and everything else on screen is a live verdict.
-- **Violet**, a dimmer version of the same colour — the world has stopped, but stillness is still being
-  believed, so an element that holds still is still earning its place. This is the trust window. It is
-  the state a menu that pops open over a paused world gets caught in.
-- **Grey** — stillness is no longer believed. A pixel holding still earns nothing more; only something
-  that moves is still noticed, and only until the freeze.
+- **Cyan** — the world has stopped, but stillness is still being believed, so an element that holds
+  still is still earning its place. This is the trust window. It is the state a menu that pops open
+  over a paused world gets caught in.
+- **Yellow** — stillness is no longer believed. A pixel holding still earns nothing more; only
+  something that moves is still noticed, and only until the freeze.
 - Stale red and blue past the freeze are expected, not a bug: nothing is being read at all by then, so
   what you are seeing is the last thing that was decided, and the marker is what tells you so.
+
+Each of those three colours is drawn flat — no blending, no tinting — and the block is put there by the
+very last thing in the chain, so nothing can paint over it. It stays its own colour whatever the game
+or your other effects are doing underneath, including behind your own interface. It is a colour to
+read, like a traffic light, not part of the picture — which also means it is only there while both
+techniques are enabled, since the second one draws it.
 
 The marker reflects the state about to be used, one frame ahead of the decision the mask has just made,
 so do not be surprised if it changes a frame before the mask visibly does.

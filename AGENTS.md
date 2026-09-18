@@ -49,7 +49,8 @@ Two techniques, and both placements are load-bearing:
    for the stability comparison and for the frame it stores. Its last pass writes the masked pixels
    black into the live frame, so a bloom pass downstream has no UI to pick up.
 2. `AutoMask_Restore` — must be **last**. It puts the masked pixels back on top after the user's
-   other effects have run.
+   other effects have run, and it is the only pass after which nothing else writes the frame — which
+   is why the diagnostics corner marker is drawn there rather than in the overlay.
 
 This shader and `UIDetectMulti` are **alternatives, not companions**: both want those same two slots,
 so loading both means one of them reads a frame the other has already written into. That is left to
@@ -141,12 +142,17 @@ Load-bearing, and follows from what each pass reads:
    shader. Its channels are: red the graded motion, green the published mask (binary — a green pixel
    with no blue is the closing radius, not the accumulator), blue the accumulator's signed confidence
    packed around mid-blue so the memory is drawn rather than clamped away (`AutoDebug` is RGBA8 and a
-   signed value would lose its lower half), and alpha the screen state in three steps — the corner
-   block is magenta live, violet while stillness is still trusted, grey once it is not. The state is
+   signed value would lose its lower half), and alpha the screen state in three steps. The state is
    deliberately read from the accumulator, one frame ahead of the gate's own test, so it shows the
    state about to drive the next frame; the docs say so rather than pretending they coincide. Its
    strictness must match the gate's: `> UIMaskMotion`, not `step`, which is true at the threshold
    itself and would disagree on exactly the boundary frame.
+   The corner marker is **not** drawn here: it is the one thing `AutoMask_Restore` adds, reading that
+   alpha channel, because a block drawn inside `AutoMask` is repainted by the restore pass over any
+   pixel the mask covers and treated as picture by every effect in between. Three states, three flat
+   colours and no blending — magenta live, cyan while stillness is still trusted, yellow once it is
+   not — so the marker is a reading rather than part of the picture and cannot be tinted by anything
+   else on screen.
 
 ## Editing conventions
 
@@ -223,9 +229,12 @@ The compile check needs `fxc.exe`, which is a Windows binary run under WSL:
   settle window is a menu opened in a scene the game has already paused. Reviewing a screen capture
   is the next best thing.
   The world-drawn premise adds the two that matter most now: a room with nothing animating in it must
-  leave the mask empty rather than filling it, and the corner marker must be violet while a panel that
-  popped into a stopped scene is being found and grey once it has given up on it — if the marker goes
-  grey before the panel has appeared, the trust window is too short.
+  leave the mask empty rather than filling it, and the corner marker must be cyan while a panel that
+  popped into a stopped scene is being found and yellow once it has given up on it — if the marker goes
+  yellow before the panel has appeared, the trust window is too short. The marker is worth checking for
+  a second reason on any change that touches either technique: it is the only thing drawn after the
+  restore, so if it is missing or tinted, the pass that draws it has been moved or overwritten rather
+  than the mask being wrong.
   The move memory adds two scenarios of its own, and they are the pair the whole setting is balanced
   between: pan the camera across detailed scenery and then stop, with no interface in view — nothing
   the camera swept over should be grabbed as HUD for `UIMaskMoveMemory` frames; and then the same,
