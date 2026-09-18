@@ -121,6 +121,11 @@ sampler AutoHistory { Texture = texAutoHistory; };
 texture texAutoFrame { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
 sampler AutoFrame { Texture = texAutoFrame; };
 
+//The dilate runs in two passes, horizontal then vertical, so this holds the
+//half-finished result between them.
+texture texAutoDilate { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
+sampler AutoDilate { Texture = texAutoDilate; };
+
 //The finished HUD map: .r is the HUD/non-HUD value, and everything else reads it.
 texture texAutoMap { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
 sampler AutoMap { Texture = texAutoMap; };
@@ -196,9 +201,7 @@ float4 PS_Motion(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targ
 	//rather than its edge.
 	float step = 1.0 / 16.0;
 	float sum = 0.0;
-	[unroll]
 	for (int y = 0; y < 2; y++){
-		[unroll]
 		for (int x = 0; x < 2; x++){
 			float2 uv = texcoord + (float2(x, y) - 0.5) * step * 0.5;
 			sum += tex2D(AutoAccumB, uv).b;
@@ -213,9 +216,7 @@ float4 PS_Motion(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targ
 float4 PS_MotionAvg(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float sum = 0.0;
-	[unroll]
 	for (int y = 0; y < 16; y++){
-		[unroll]
 		for (int x = 0; x < 16; x++){
 			float2 uv = (float2(x, y) + 0.5) / 16.0;
 			sum += tex2D(MotionCoarse, uv).r;
@@ -233,36 +234,48 @@ float4 PS_Copy(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 }
 
 //Publishes the map everything else reads: the accumulated confidence, closed by
-//a 2D max over UIMaskDilate, stopped where the luma step read from the frame
-//exceeds UIMaskEdge so it snaps to a real contour instead of growing a fixed
-//radius into the scenery. A superset of a plain publish, and a pass-through at
-//radius zero. Reading the frame here is safe only because every pass that writes
-//it runs later.
-float4 PS_Dilate(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+//a dilate stopped where the luma step in the frame exceeds UIMaskEdge, so it
+//snaps to a real contour instead of growing a fixed radius into the scenery.
+//Split horizontally then vertically: a max over a rectangle equals a max of two
+//1D passes, and two 7-tap passes are far cheaper than one 49-tap pass.
+//No loop in this file is forced with [unroll]. ReShade's compiler rejected a
+//forced unroll here outright (X3511, "unrolled loop is too large"), while this
+//repository's offline check did not reproduce that on any installed fxc -- so
+//the offline check does not model ReShade's limit, and the safe course is not to
+//force an unroll at all. The companion pack, which is known to load in-game,
+//contains none.
+//The sliders limit the taps arithmetically rather than with `continue`, so the
+//loop body has no data-dependent control flow.
+float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float2 texel = BUFFER_PIXEL_SIZE;
-	float mask = tex2D(AutoAccumA, texcoord).r;
 	float r = floor(UIMaskDilate + 0.5);
+	float mask = tex2D(AutoAccumA, texcoord).r;
+	float lumaCentre = dot(tex2D(ReShade::BackBuffer, texcoord).rgb, float3(0.299, 0.587, 0.114));
 
-	//The radius is small by design, so the neighbourhood is a fixed unroll and the
-	//slider only limits how many of those taps are used.
-	[unroll]
-	for (int y = -UIMASK_DILATE_MAX; y <= UIMASK_DILATE_MAX; y++){
-		[unroll]
-		for (int x = -UIMASK_DILATE_MAX; x <= UIMASK_DILATE_MAX; x++){
-			float2 offset = float2(x, y);
-			if (abs(offset.x) > r || abs(offset.y) > r){continue;}
-			float2 uv = texcoord + offset * texel;
-			//A boundary between this tap and its neighbour stops the growth, and is
-			//tested whether the tap is itself mask or not: a tap past a strong edge
-			//has crossed into the scenery, not into more of the HUD.
-			float luma = dot(tex2D(ReShade::BackBuffer, uv).rgb, float3(0.299, 0.587, 0.114));
-			float lumaLeft = dot(tex2D(ReShade::BackBuffer, uv - float2(texel.x, 0.0)).rgb, float3(0.299, 0.587, 0.114));
-			float lumaUp = dot(tex2D(ReShade::BackBuffer, uv - float2(0.0, texel.y)).rgb, float3(0.299, 0.587, 0.114));
-			float edge = max(abs(luma - lumaLeft), abs(luma - lumaUp)) * 255.0;
-			if (edge > UIMaskEdge){continue;}
-			mask = max(mask, tex2D(AutoAccumA, uv).r);
-		}
+	for (int i = -UIMASK_DILATE_MAX; i <= UIMASK_DILATE_MAX; i++){
+		float2 uv = texcoord + float2(i * texel.x, 0.0);
+		float luma = dot(tex2D(ReShade::BackBuffer, uv).rgb, float3(0.299, 0.587, 0.114));
+		float edge = abs(luma - lumaCentre) * 255.0;
+		float keep = (abs(float(i)) <= r && edge <= UIMaskEdge) ? 1.0 : 0.0;
+		mask = max(mask, tex2D(AutoAccumA, uv).r * keep);
+	}
+	return float4(mask.xxx, 1.0);
+}
+
+float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+{
+	float2 texel = BUFFER_PIXEL_SIZE;
+	float r = floor(UIMaskDilate + 0.5);
+	float mask = tex2D(AutoDilate, texcoord).r;
+	float lumaCentre = dot(tex2D(ReShade::BackBuffer, texcoord).rgb, float3(0.299, 0.587, 0.114));
+
+	for (int i = -UIMASK_DILATE_MAX; i <= UIMASK_DILATE_MAX; i++){
+		float2 uv = texcoord + float2(0.0, i * texel.y);
+		float luma = dot(tex2D(ReShade::BackBuffer, uv).rgb, float3(0.299, 0.587, 0.114));
+		float edge = abs(luma - lumaCentre) * 255.0;
+		float keep = (abs(float(i)) <= r && edge <= UIMaskEdge) ? 1.0 : 0.0;
+		mask = max(mask, tex2D(AutoDilate, uv).r * keep);
 	}
 	return float4(mask.xxx, 1.0);
 }
@@ -349,7 +362,12 @@ technique AutoMask
 	}
 	pass {
 		VertexShader = PostProcessVS;
-		PixelShader = PS_Dilate;
+		PixelShader = PS_DilateH;
+		RenderTarget = texAutoDilate;
+	}
+	pass {
+		VertexShader = PostProcessVS;
+		PixelShader = PS_DilateV;
 		RenderTarget = texAutoMap;
 	}
 	pass {

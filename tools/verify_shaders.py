@@ -84,25 +84,33 @@ def sha256_file(path: Path) -> str:
 
 
 def find_fxc() -> Path:
-    """Locate fxc.exe: $FXC, then PATH, then the newest Windows Kits SDK."""
+    """Locate fxc.exe: $FXC, then PATH, then the newest Windows Kits SDK.
+
+    The choice of SDK version does not affect what this check reports. That was
+    measured rather than assumed: the shader that ReShade refused to compile
+    (X3511 on a forced unroll) compiles cleanly under every installed fxc at every
+    optimisation level, oldest and newest alike. So there is nothing to be gained
+    by preferring one version, and the newest is simply the most predictable
+    default.
+
+    The consequence is worth keeping in mind: an `ok` from this check means the
+    HLSL is well-formed and the passes are wired as documented. It does not mean
+    ReShade will accept it, and no installed fxc can tell you the difference.
+    """
     for candidate in (os.environ.get("FXC"), shutil.which("fxc.exe")):
         if candidate and Path(candidate).is_file():
             return Path(candidate)
-    kits_found = None
+    kits_found = []
     for candidate in ("/mnt/c/Program Files (x86)/Windows Kits/10/bin",
                       "/mnt/c/Program Files/Windows Kits/10/bin"):
         kits = Path(candidate)
         if kits.is_dir():
-            versions = sorted(
-                (p for p in kits.iterdir() if (p / "x64" / "fxc.exe").is_file()),
-                key=lambda p: [int(n) for n in re.findall(r"\d+", p.name)],
-            )
-            if versions:
-                kits_found = versions[-1] / "x64" / "fxc.exe"
-                break
-    if kits_found is None:
+            kits_found += [p / "x64" / "fxc.exe" for p in kits.iterdir()
+                           if (p / "x64" / "fxc.exe").is_file()]
+    if not kits_found:
         sys.exit("FAIL -- fxc.exe not found; set $FXC to its path (needs the Windows SDK)")
-    return kits_found
+    kits_found.sort(key=lambda p: [int(n) for n in re.findall(r"\d+", p.parent.parent.name)])
+    return kits_found[-1]
 
 
 def windows_path(path: Path) -> str:
