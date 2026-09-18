@@ -26,11 +26,11 @@
 uniform float UIMaskEps <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "RGB step counted as a change";
-	ui_tooltip = "How far a pixel's colour may move between frames and still count as holding still";
+	ui_tooltip = "How far a pixel's colour may move between frames and still count as holding still. 0 disables the shader";
 	ui_category = "AutoMask";
-	ui_min = 0.0; ui_max = 32.0;
+	ui_min = 0.0; ui_max = 8.0;
 	ui_step = 0.1;
-> = 4.0;
+> = 1.5;
 
 uniform float UIMaskRise <
 	__UNIFORM_SLIDER_FLOAT1
