@@ -64,8 +64,8 @@ Written fresh from the design worked out against that pack, but sharing no code,
 - **Cost is bounded and honest.** Six full-resolution passes per frame in `AutoMask` — accumulate, the two ping-pong steps, the store, the history store and the anti-bloom write — and one in `AutoMask_Restore`, plus two sub-resolution passes that average the still flag; those two together cost well under one full-resolution pass, so the gate does not change the order of magnitude. The anti-bloom pass is the one place this design costs more than the pack's: the pack switches it off with a compile-time `#if`, so the pass and its instructions vanish when it is not wanted, while a slider can only turn the effect off inside a pass that still runs. One branch and one pass is the price of keeping every knob in the ReShade panel. This is expensive for a `.fx` shader and the honest position is to say so in the README rather than hide it.
 - **`.fx` constraints respected.** No compute shaders, no atomics, no mip generation, and never reading a render target while writing it — the accumulator must ping-pong with an explicit copy pass.
 - **Memory.** Five full-resolution targets — the accumulator pair, the finished map, the last frame and the stored frame — plus two sub-resolution ones for the gate: a sixteenth-size block average and a 1×1 statistic. ReShade allocates all seven unconditionally once the effect is compiled in, so the count is stated here and must be reviewed before implementation.
-- **Conventions.** LF line endings, matching the companion pack's `.fx` style; HLSL comments short and sparse; no tutorial narration.
-- **Licence.** MIT, with a credit line recording that the concept and the store/restore pattern come from Kaiser's `UIDetectMulti` and Brussels1's original work, and that the anti-bloom pass follows the pack's `UIDM_ANTIBLOOM`.
+- **Conventions.** LF line endings, matching the companion pack's `.fx` style; HLSL comments short and sparse; no tutorial narration, with the file header below as the one exception.
+- **Licence.** MIT, with a credit line recording that the concept and the store/restore pattern come from Kaiser's `UIDetectMulti` and Brussels1's original work, and that the anti-bloom pass follows the pack's `UIDM_ANTIBLOOM`. The same credit appears in short form in the shader's own header block, not only in `LICENSE`, so it travels with the file if someone copies just the `.fx` into their ReShade folder.
 
 # Technical Design
 
@@ -160,7 +160,20 @@ technique AutoMask_Restore  { ... }   // placed LAST, after other effects
 
 ### Proposed Changes
 
-**1. `Shaders/AutoMask.fx`** — the whole shader. Pixel shaders:
+**1. `Shaders/AutoMask.fx`** — the whole shader, opening with a header block in the companion pack's ruled style:
+
+```hlsl
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//
+// AutoMask
+// License: MIT (see LICENSE)
+// Concept, store/restore pattern and anti-bloom from UIDetectMulti by Kaiser,
+// which builds on work by Brussels1. https://github.com/Kaiser-R/Reshade-Shaders
+//
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+```
+
+That block is the only long comment in the file — the rule about short, sparse comments holds everywhere below it, and there is no per-function attribution or narration. Note what it does *not* claim: this shader shares no code with the pack, so the wording credits the concept and the two borrowed mechanisms rather than describing a derivation, and it names the upstream repo rather than only the author. Pixel shaders:
 
 - `PS_Accum` — sample `BackBuffer` and read `AutoHistory`; per pixel compute `stable` from the RGB max-difference against `UIMaskEps` (the whole per-pixel activation signal) and `edge` from a central-difference luma gradient (used only by the dilate, never by the score); update confidence with rise → hold for `UIMaskForget` frames → fall, and write the raw still flag into `.b`. Read `texAutoAccumA`, write `texAutoAccumB`. It also reads the 1×1 `texMotionStat`: while that fraction is under `UIMaskMotion` the still-frame counter in `.a` rises, and once it passes `UIMaskSettle` the frame is held — confidence and hold counter written back untouched, no rise and no decay. Below the settle it behaves normally, which is the few frames a panel opening into an already-still scene needs to land in the map before the gate locks.
 - `PS_Motion` — block-average the still flag out of `texAutoAccumB` into the sixteenth-size `texMotionCoarse`.
@@ -191,7 +204,7 @@ technique AutoMask_Restore  { ... }   // placed LAST, after other effects
 
 **5. `README.md`** — placement (first and last, and that it must not be loaded alongside `UIDetectMulti`), what each slider does, the anti-bloom switch and what it is for, the diagnostics overlay, and the honest limits: semi-transparent UI is never protected, the stillness gate and its settle are the answer to a quiet interior, and it is the most expensive option in the pack next to the companion shader.
 
-**6. `LICENSE`** — MIT, with the credit line for the concept, the store/restore pattern and the anti-bloom pass.
+**6. `LICENSE`** — MIT, with the credit line for the concept, the store/restore pattern and the anti-bloom pass. The shader header repeats its essential half, since `LICENSE` can be separated from the `.fx` by a copy.
 
 ### File Structure
 

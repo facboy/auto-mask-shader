@@ -91,6 +91,11 @@ Load-bearing, and follows from what each pass reads:
 ## Editing conventions
 
 - HLSL comments are **short and sparse** (`//UINr 13`). Do not add tutorial narration to the shader.
+  The one exception is the ruled credit block at the top of `Shaders/AutoMask.fx` — title, licence and
+  the credit to Kaiser's `UIDetectMulti` and Brussels1 — which follows the companion pack's style and
+  is the only long comment in the file. Do not add per-function attribution below it.
+- The credit lives in both `LICENSE` and that header block on purpose: someone copying just the `.fx`
+  into their ReShade folder takes the attribution with it.
 - LF line endings.
 - A uniform annotation must match the declared type: `__UNIFORM_SLIDER_FLOAT1`/`_FLOAT3` for floats,
   `__UNIFORM_SLIDER_BOOL1` for bools. A mismatch is a silent ReShade UI bug.
