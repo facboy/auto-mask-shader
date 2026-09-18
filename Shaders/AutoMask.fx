@@ -321,13 +321,16 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 }
 
 #if UIMaskDiagnostics == 1
-	//Paints the map on its own: blue where the pixel is world, green where it is
-	//HUD. Nothing has been stored yet, so the map is the confidence field at this
-	//point and green comes in gradually.
+	//Paints the map on its own, thresholded so there is no ambiguous middle:
+	//green where a pixel is protected, blue where it is not. A red wash means the
+	//gate is holding the map on this frame, which is the state that stops it
+	//advancing -- without that showing, a held map and a slow one look the same.
 	float4 PS_DebugMap(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	{
-		float mask = tex2D(AutoMap, texcoord).r;
-		return float4(lerp(float3(0.0, 0.0, 0.35), float3(0.1, 1.0, 0.1), mask), 1.0);
+		float mask = step(0.5, tex2D(AutoMap, texcoord).r);
+		float held = tex2D(AutoAccumA, texcoord).a >= UIMaskSettle ? 1.0 : 0.0;
+		float3 color = lerp(float3(0.0, 0.0, 0.6), float3(0.1, 1.0, 0.1), mask);
+		return float4(lerp(color, float3(1.0, 0.15, 0.05), held * 0.6), 1.0);
 	}
 
 	//Blends that over the frame so the game underneath is still recognisable.
