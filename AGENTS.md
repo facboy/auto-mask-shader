@@ -43,7 +43,8 @@ headers.
 Two techniques, and both placements are load-bearing:
 
 1. `AutoMask` — must be **first** in the effect list. It has to see the untouched back buffer, both
-   for the stability comparison and for the frame it stores.
+   for the stability comparison and for the frame it stores. Its last pass writes the masked pixels
+   black into the live frame, so a bloom pass downstream has no UI to pick up.
 2. `AutoMask_Restore` — must be **last**. It puts the masked pixels back on top after the user's
    other effects have run.
 
@@ -82,7 +83,10 @@ Load-bearing, and follows from what each pass reads:
 3. `PS_Copy`, `PS_Dilate` — the ping-pong back-edge and the boundary close, also before the store.
 4. `PS_Store`, keeping the mapped pixels.
 5. `PS_StoreFrame`, copying the untouched frame into the history target for the next frame.
-6. The diagnostics overlay, last, and only when diagnostics are on.
+6. `PS_AntiBloom` — black the masked pixels in the live frame so a bloom pass downstream has no UI to
+   pick up. It comes after the store, which is what keeps the real UI for the restore pass; blacking
+   earlier would bank the black instead.
+7. The diagnostics overlay, last, and only when diagnostics are on.
 
 ## Editing conventions
 
@@ -154,6 +158,10 @@ discovered:
   the panel to be scanned, short enough not to hand a quiet room a free run of accumulation. Nothing
   separates those two cases, because a paused world and a quiet room look identical to this shader,
   which is why the overlay shows the gate holding rather than leaving it to be inferred.
+- **Bloom can still find an edge at the HUD contour.** Suppression removes the UI as a bloom source,
+  but a hard black step against a bright scene is itself contrast. The pack's `UIDM_ANTIBLOOM` has the
+  same property and its authored masks can be blurred to soften it; this shader's map is binary by
+  design, so there is no soft edge to offer.
 - **HUD that animates more than briefly** needs the hold to bridge it. That makes `UIMaskForget` the
   most important slider rather than a nicety.
 
