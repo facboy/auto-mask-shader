@@ -20,7 +20,7 @@ Written fresh from the design worked out against that pack, but sharing no code,
 - One generated, full-screen HUD map, accumulated from frame-to-frame stability.
 - Rise / hold / fall timing so a just-appeared or briefly-animating element stays covered.
 - One frame-wide stillness gate: a tunable moving-area threshold below which, after a short settle, the map is held instead of advanced.
-- A luma edge map that stops the closing dilate at a real HUD contour.
+- A luma edge map, computed inside the dilate from the untouched frame, that stops the closing dilate at a real HUD contour.
 - Its own store-and-restore pass pair, so it depends on no other effect's render target.
 - Anti-bloom suppression of the masked pixels, so bloom downstream does not pick the UI up.
 - A diagnostics view of the generated map.
@@ -52,7 +52,7 @@ Written fresh from the design worked out against that pack, but sharing no code,
 1. **Stable is HUD.** A pixel whose colour has barely changed since the last frame accumulates toward mask; a pixel that keeps changing does not. Nothing else in the per-pixel path gates this — no rectangle, no camera-motion gate, no per-pixel freeze. The one frame-wide exception is requirement 3: it can pause the accumulator, but it never changes a pixel's verdict.
 2. **Accumulated, not instantaneous.** Confidence rises while a pixel holds still, holds for a short grace period, then falls once it starts changing. So an element that just appeared is still covered, single-frame noise cannot punch holes in the mask, and an element that briefly animates or flickers does not drop out of it.
 3. **Frame-wide stillness holds the map.** The same frame-to-frame difference that decides each pixel is averaged over the screen. Below a tunable moving-area threshold the frame counts as still, and once it has been still for a short settle the accumulator carries its whole state over unchanged — no rise, no fall, no decay — so a quiet interior, a sky or a static backdrop cannot keep growing while the world view is not being drawn. The settle is what lets a panel that opens into an already-paused scene still be scanned for those first few frames before the map locks; freezing on the first still frame would protect only whatever was already accumulated. The measure is a fraction of the screen, not a camera estimate, and it never overwrites a per-pixel verdict.
-4. **Structure shapes the boundary, not the verdict.** Whether a pixel is mask comes from stability alone, so flat-shaded UI activates like any other — a HUD's flat bar fill is a near-black flat region and must not be rejected for being flat. The luma edge map is used only to stop the closing dilate at a real contour.
+4. **Structure shapes the boundary, not the verdict.** Whether a pixel is mask comes from stability alone, so flat-shaded UI activates like any other — a HUD's flat bar fill is a near-black flat region and must not be rejected for being flat. The luma test is used only to stop the closing dilate at a real contour, and it is computed inside the dilate from the untouched frame rather than carried from the accumulator.
 5. **One boolean, one map.** A single full-screen HUD/non-HUD value per pixel, in one full-resolution texture.
 6. **Self-contained.** The shader stores and restores the masked pixels through its own render targets, so it does not depend on `UIDetectMulti` or any other effect.
 7. **Anti-bloom suppression.** The masked pixels are written black into the frame the rest of the effect chain sees, so a bloom pass downstream cannot pick the UI up and bleed it over the scene. It happens inside `AutoMask` and after the frame has been stored, so the real UI is still banked for the restore pass and the final image is unchanged — only what the effects in between see is blacked. Exactly the pack's arrangement: it banks the masked pixels, then a second pass in the same technique overwrites them with a constant black. The whole thing is inside `#if UIMaskAntiBloom` — pass, technique entry and shader — so with it compiled out nothing runs, the same way the pack removes it. It is the one structural switch that is on by default.
@@ -96,9 +96,7 @@ graph TD
   FLG --> MSTAT[1x1 moving-area statistic]
   MSTAT -.->|still past the settle: carry state over| ACC
   ACC --> PP[ping-pong copy]
-  PP --> DIL[dilate, stopping at luma edges]
-  BB --> EDG[luma edge map]
-  EDG --> DIL
+  PP --> DIL[dilate: max over the radius, stopping at luma edges read from the frame]
   DIL --> MAP[finished HUD map]
   MAP --> STORE[store: keep frame where map says HUD]
   BB --> STORE
@@ -118,11 +116,11 @@ graph TD
 | Repository | **Standalone repo, MIT with credit** | Nothing here is entangled with the companion pack, and there is no shipped behaviour to preserve — so verification reduces to compile and cost, with no baseline. The credit line names the pack for the concept, the store/restore pattern and the anti-bloom pass. |
 | Region of interest | **None — the map covers the whole screen** | Measured on the companion pack's real masks, protected areas reach 36% of the screen, so a box per element describes them worse than nothing. |
 | Stillness gate | **A frame-wide moving-area threshold holds the accumulator; per-pixel stability still decides every verdict** | The world usually carries motion, so a still frame means the world view is not being drawn and anything that looks stable is stable for the wrong reason. The measure is the same frame-to-frame difference the mask already uses, averaged over the screen, so it needs no camera and reads as a percentage the overlay can show. The hold starts after a short settle so a panel opening into a paused scene is still scanned before the map locks. Low by default, and zero turns it off. |
-| Activation signal | **Stability alone decides; structure shapes the boundary** | Scoring `stable * lerp(1, edge, weight)` rejected flat-shaded UI at the defaults, and most of a HUD is flat. Stability is the discriminator; the edge map's real value is geometry. |
+| Activation signal | **Stability alone decides; structure shapes the boundary** | Scoring `stable * lerp(1, edge, weight)` rejected flat-shaded UI at the defaults, and most of a HUD is flat. Stability is the discriminator; the luma test's real value is geometry, and it never touches the score. |
 | Confidence dynamics | **Asymmetric: rise, hold, then fall** | Rising covers interiors and tolerates a just-appeared element; the hold bridges brief animation (a draining bar, a scrolling grid); the fall clears a region once the world moves there again. |
 | Storage | **Ping-pong pair of full-res targets plus an explicit copy pass** | Hard `.fx` constraint: a target cannot be read while written, and there are no atomics or compute shaders. |
 | Anti-bloom | **Black the masked pixels in the live frame, inside `AutoMask` and after the store** | A bloom pass downstream finds the UI still in the frame and bleeds it over the scene; writing black there takes the source away. It runs after the store deliberately, so what is banked for the restore pass is the real UI and the final image is unchanged. The mechanism is the pack's: a pass that writes `lerp(0, frame, map)`, a constant black behind the mask and the frame everywhere else. There is no blur or feather in it, here or in the pack — the blend is proportional to the mask value, so all the softness there is comes from the mask itself. |
-| Edge closure | **Separable dilate (max) stopped by the luma edge map** | Anti-aliased boundaries and text need closing, and a dilate that stops at a luma step snaps the mask to the contour instead of growing a fixed radius into the scenery. |
+| Edge closure | **A single 2D dilate (max), stopped by a luma step read from the untouched frame in the same pass** | Anti-aliased boundaries and text need closing, and a dilate that stops at a luma step snaps the mask to the contour instead of growing a fixed radius into the scenery. One pass, not two: `UIMaskDilate` is tiny by design, so a small fixed neighbourhood is cheaper than a separable pair that would need a full-resolution intermediate to write the horizontal result into. |
 | Where it runs | **Own store and restore passes, first and last** | ReShade's `.fx` dialect has no shared textures, so another effect's stored frame is unreachable. Being first is also what lets the accumulate pass see the untouched frame. |
 
 ### Data Models / Contracts
@@ -189,11 +187,11 @@ The overlay reads `BackBuffer` for the frame rather than keeping a copy of it. I
 
 That block is the only long comment in the file — the rule about short, sparse comments holds everywhere below it, and there is no per-function attribution or narration. Note what it does *not* claim: this shader shares no code with the pack, so the wording credits the concept and the two borrowed mechanisms rather than describing a derivation, and it names the upstream repo rather than only the author. Pixel shaders:
 
-- `PS_Accum` — sample `BackBuffer` and read `AutoHistory`; per pixel compute `stable` from the RGB max-difference against `UIMaskEps` (the whole per-pixel activation signal) and `edge` from a central-difference luma gradient (used only by the dilate, never by the score); update confidence with rise → hold for `UIMaskForget` frames → fall, and write the raw still flag into `.b`. Read `texAutoAccumA`, write `texAutoAccumB`. It also reads the 1×1 `texMotionStat`: while that fraction is under `UIMaskMotion` the still-frame counter in `.a` rises, and once it passes `UIMaskSettle` the frame is held — confidence and hold counter written back untouched, no rise and no decay. Below the settle it behaves normally, which is the few frames a panel opening into an already-still scene needs to land in the map before the gate locks.
+- `PS_Accum` — sample `BackBuffer` and read `AutoHistory`; per pixel compute `stable` from the RGB max-difference against `UIMaskEps` (the whole per-pixel activation signal); update confidence with rise → hold for `UIMaskForget` frames → fall, and write the raw still flag into `.b`. Read `texAutoAccumA`, write `texAutoAccumB`. It also reads the 1×1 `texMotionStat`: while that fraction is under `UIMaskMotion` the still-frame counter in `.a` rises, and once it passes `UIMaskSettle` the frame is held — confidence and hold counter written back untouched, no rise and no decay. Below the settle it behaves normally, which is the few frames a panel opening into an already-still scene needs to land in the map before the gate locks.
 - `PS_Motion` — block-average the still flag out of `texAutoAccumB` into the sixteenth-size `texMotionCoarse`.
 - `PS_MotionAvg` — reduce that to the 1×1 `texMotionStat` the next frame's `PS_Accum` reads. Two sub-resolution passes, together well under one full-resolution pass in cost.
 - `PS_Copy` — copy `B` back to `A`, the ping-pong back-edge.
-- `PS_Dilate` — separable max over `UIMaskDilate`, stopping at a luma edge; a pass-through at radius zero.
+- `PS_Dilate` — a single 2D max over `UIMaskDilate`, stopping at a luma step. It reads `BackBuffer` for the luma test, which is legitimate here because the pass runs before anything writes the frame: no edge target, no extra pass, and the accumulator stays four channels of state. A pass-through at radius zero.
 - `PS_Store` — keep the live frame where the map says HUD, into `texAutoFrame`.
 - `PS_StoreFrame` — copy the untouched frame into `texAutoHistory` for the next frame.
 - `PS_AntiBloom` — output `lerp(0, live frame, map)`: where the map says HUD the pixel is constant black, everywhere else it is the frame already rendered. That is the whole pass the pack runs under `UIDM_ANTIBLOOM`, and it is what takes the UI away as a bloom source. No blur, no feather, no radius — the pack's blend is the same proportional lerp against the mask value, so any softness in the result is the mask's, and ours is the map's. There is no runtime switch inside it: the whole pass, and its entry in the technique, sit inside `#if UIMaskAntiBloom`, so with the definition at 0 there is no pass to run and nothing to branch on. It sits after `PS_Store`, so what the restore pass puts back is still the real UI.
@@ -205,7 +203,7 @@ That block is the only long comment in the file — the rule about short, sparse
 
 1. `PS_Accum` — builds the new confidence from the current frame against the *previous* one, **before** the history store; running it after the store would compare the frame against itself and every pixel would read as still. It reads the statistic the previous frame left behind, which is what gives the gate its one-frame delay.
 2. `PS_Motion`, `PS_MotionAvg` — average the still flag `PS_Accum` has just written. They run after it because that flag is their only input, and their output is read on the *next* frame, so a held frame takes effect one frame after the motion actually stopped. One frame of latency is invisible here, and it is what keeps every pass reading only targets it is not writing.
-3. `PS_Copy`, `PS_Dilate` — the ping-pong back-edge and the boundary close, also before the store.
+3. `PS_Copy`, `PS_Dilate` — the ping-pong back-edge and the boundary close, also before the store. `PS_Dilate` reads `BackBuffer` for its luma test while reading `texAutoAccumB` for the mask, which is safe only because it is before every pass that writes the frame.
 4. `PS_Store`, keeping the mapped pixels.
 5. `PS_StoreFrame`, copying the untouched frame into `texAutoHistory` for the next frame.
 6. `PS_AntiBloom` — blacks the masked pixels in the live frame, and it has to come **after** the store rather than before it: the store is what keeps the real UI for the restore pass, so blacking earlier would bank the black instead. The whole pass and its entry in the technique are inside `#if UIMaskAntiBloom`, so this step exists only when the definition is 1.
@@ -230,6 +228,69 @@ That block is the only long comment in the file — the rule about short, sparse
 - `LICENSE` — MIT with credit (new).
 - `.gitignore` — the tool's work directory.
 - No `.fxh`, no `Textures/`, no mask PNGs.
+
+### Implementation Plan
+
+The order of work is not arbitrary. Three rules decide it: build the harness before the thing it
+measures, get the map visible before refining it, and never add a layer that can hide a fault in the
+layer below. Nothing here is testable by an agent beyond compilation, so the sequence is arranged so
+that each step is something that can be looked at in a game before the next one lands on top of it.
+
+**1. The offline check, before the shader exists.** `tools/pyproject.toml` and
+`tools/verify_shaders.py`: fetch the pinned headers, patch in the `BUFFER_*` macros, preprocess,
+compile with `fxc`, report status, instruction count and opcode histogram. Do this first because it is
+the only automated verification there will ever be, and because its worst failure mode — reporting a
+clean pass while emitting no bytecode — is far easier to design out than to discover later. Done when
+it runs against an empty `Shaders/` and says so loudly rather than passing.
+
+**2. A skeleton that compiles and does nothing.** The header block with the credit, the ReShade
+includes, one technique with a single pass that copies the frame through. No targets yet beyond what
+that pass needs. Done when the check reports `ok` and the pass order it prints matches what was
+written — the pass binding is the first thing that goes silently wrong.
+
+**3. The diagnostics overlay, early.** Counter-intuitive, and deliberate: the overlay is the only way
+to see the map, so it comes in before the map does. Build it in its two-pass shape (`PS_DebugMap` into
+`texAutoDebug`, then `PS_DebugOverlay`), guarded by `#if UIMaskDiagnostics`, and confirm it compiles in
+all four definition combinations. Every later step is then checked against something visible rather
+than inferred.
+
+**4. The accumulator, which is the whole feature.** Targets, `PS_Accum` with the stability test and
+rise → hold → fall, `PS_Copy` for the ping-pong back-edge, and the history store. Nothing else — no
+gate, no dilate, no anti-bloom, no store-and-restore yet. Done when the overlay shows a mask building
+over static HUD while the world moves, and clearing when the world moves over it. This is the step to
+spend time on: if the map is wrong here it is wrong everywhere, and every later layer makes the cause
+harder to see.
+
+**5. The dilate and the luma stop.** `PS_Dilate` last so the contour is closed before it is
+refined: one pass, a 2D max over a small fixed neighbourhood, stopping where the luma step read from
+`BackBuffer` exceeds `UIMaskEdge`. Settle `UIMaskDilate = 0` as a pass-through at the same time — a
+pass-through that has never been exercised is not a pass-through.
+
+**6. The stillness gate.** The still flag into the spare accumulator channel, `PS_Motion` and
+`PS_MotionAvg` at sixteenth and 1×1, the statistic read back in `PS_Accum`, and the settle counter.
+Deliberately after the accumulator is visibly right: a gate that holds a wrong map freezes the wrong
+thing, and telling a gate fault from an accumulate fault when they arrive together is much harder than
+adding one to a map already known to be sound.
+
+**7. Store, restore and anti-bloom.** `PS_Store` and `PS_StoreFrame` in `AutoMask`, `PS_Restore` in
+the second technique, then `PS_AntiBloom` in its `#if` guard. Done when the frame out of
+`AutoMask_Restore` matches the untouched one outside the mask, and masked pixels are black between the
+two techniques.
+
+**8. The user-facing files.** `README.md` in the same conversational voice — placement, each slider,
+the two definitions and that changing one recompiles, the overlay, and the limits — then `LICENSE`
+with the credit. Both follow the behaviour rather than predicting it, so they come last.
+
+**9. The in-game pass, which an agent cannot do.** The four scenarios from the Validation Approach —
+walking with the HUD up, a menu open, standing still in a quiet room, standing still somewhere with
+fire or water in view — plus the one that decides the settle: a menu opened in a scene the game has
+already paused. Until this has happened the shader is compiled, not verified, and the README should
+not imply otherwise.
+
+**What "done" means overall.** The check passes for every definition combination with the pass list
+matching the documented order; instruction counts and opcode histograms are recorded rather than
+claimed; the README's limits match the behaviour actually observed; and those in-game scenarios have
+been looked at by someone with the game running. Anything short of that is a shader that compiles.
 
 ### Risks
 
