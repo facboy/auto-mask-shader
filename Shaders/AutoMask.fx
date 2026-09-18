@@ -55,6 +55,27 @@ uniform float UIMaskForget <
 	ui_step = 1.0;
 > = 15.0;
 
+//Dilate radius in pixels. The loop is unrolled to a fixed maximum because a
+//uniform bound cannot be unrolled, so keep the slider and the constant in step.
+#define UIMASK_DILATE_MAX 3
+uniform float UIMaskDilate <
+	__UNIFORM_SLIDER_FLOAT1
+	ui_label = "Closing radius in pixels";
+	ui_tooltip = "Grows the mask to close anti-aliased edges and text. 0 is a pass-through";
+	ui_category = "AutoMask";
+	ui_min = 0.0; ui_max = 3.0;
+	ui_step = 1.0;
+> = 1.0;
+
+uniform float UIMaskEdge <
+	__UNIFORM_SLIDER_FLOAT1
+	ui_label = "Luma step counted as a boundary";
+	ui_tooltip = "Stops the closing radius at a real HUD contour instead of growing it out into the scenery";
+	ui_category = "AutoMask";
+	ui_min = 0.0; ui_max = 255.0;
+	ui_step = 1.0;
+> = 40.0;
+
 //Targets
 //The accumulator ping-pongs because a target cannot be read while it is written,
 //and there are no atomics or compute shaders in this dialect.
@@ -115,10 +136,39 @@ float4 PS_Copy(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	return tex2D(AutoAccumB, texcoord);
 }
 
-//Publishes the accumulated confidence as the map everything else reads.
-float4 PS_Map(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+//Publishes the map everything else reads: the accumulated confidence, closed by
+//a 2D max over UIMaskDilate, stopped where the luma step read from the frame
+//exceeds UIMaskEdge so it snaps to a real contour instead of growing a fixed
+//radius into the scenery. A superset of a plain publish, and a pass-through at
+//radius zero. Reading the frame here is safe only because every pass that writes
+//it runs later.
+float4 PS_Dilate(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
-	return float4(tex2D(AutoAccumA, texcoord).r.xxx, 1.0);
+	float2 texel = BUFFER_PIXEL_SIZE;
+	float mask = tex2D(AutoAccumA, texcoord).r;
+	float r = floor(UIMaskDilate + 0.5);
+
+	//The radius is small by design, so the neighbourhood is a fixed unroll and the
+	//slider only limits how many of those taps are used.
+	[unroll]
+	for (int y = -UIMASK_DILATE_MAX; y <= UIMASK_DILATE_MAX; y++){
+		[unroll]
+		for (int x = -UIMASK_DILATE_MAX; x <= UIMASK_DILATE_MAX; x++){
+			float2 offset = float2(x, y);
+			if (abs(offset.x) > r || abs(offset.y) > r){continue;}
+			float2 uv = texcoord + offset * texel;
+			//A boundary between this tap and its neighbour stops the growth, and is
+			//tested whether the tap is itself mask or not: a tap past a strong edge
+			//has crossed into the scenery, not into more of the HUD.
+			float luma = dot(tex2D(ReShade::BackBuffer, uv).rgb, float3(0.299, 0.587, 0.114));
+			float lumaLeft = dot(tex2D(ReShade::BackBuffer, uv - float2(texel.x, 0.0)).rgb, float3(0.299, 0.587, 0.114));
+			float lumaUp = dot(tex2D(ReShade::BackBuffer, uv - float2(0.0, texel.y)).rgb, float3(0.299, 0.587, 0.114));
+			float edge = max(abs(luma - lumaLeft), abs(luma - lumaUp)) * 255.0;
+			if (edge > UIMaskEdge){continue;}
+			mask = max(mask, tex2D(AutoAccumA, uv).r);
+		}
+	}
+	return float4(mask.xxx, 1.0);
 }
 
 //Stores the untouched frame for the next frame's comparison. This has to run
@@ -166,7 +216,7 @@ technique AutoMask
 	}
 	pass {
 		VertexShader = PostProcessVS;
-		PixelShader = PS_Map;
+		PixelShader = PS_Dilate;
 		RenderTarget = texAutoMap;
 	}
 	pass {
