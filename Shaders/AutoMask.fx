@@ -76,6 +76,27 @@ uniform float UIMaskEdge <
 	ui_step = 1.0;
 > = 40.0;
 
+//The stillness gate. The world normally carries motion, so a frame with almost
+//none means the world view is not being drawn and anything that looks stable is
+//stable for the wrong reason.
+uniform float UIMaskMotion <
+	__UNIFORM_SLIDER_FLOAT1
+	ui_label = "Motion needed for a live frame (percent)";
+	ui_tooltip = "Below this much of the screen moving, the map is held instead of advanced. 0 turns the gate off";
+	ui_category = "AutoMask";
+	ui_min = 0.0; ui_max = 100.0;
+	ui_step = 0.5;
+> = 2.0;
+
+uniform float UIMaskSettle <
+	__UNIFORM_SLIDER_FLOAT1
+	ui_label = "Still frames before the map is held";
+	ui_tooltip = "Lets a panel that opens into an already-paused scene be scanned before the gate locks";
+	ui_category = "AutoMask";
+	ui_min = 0.0; ui_max = 120.0;
+	ui_step = 1.0;
+> = 10.0;
+
 //Targets
 //The accumulator ping-pongs because a target cannot be read while it is written,
 //and there are no atomics or compute shaders in this dialect.
@@ -93,10 +114,18 @@ sampler AutoHistory { Texture = texAutoHistory; };
 texture texAutoMap { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
 sampler AutoMap { Texture = texAutoMap; };
 
+//The gate's two readings: a block average of the still flag, then a 1x1 number --
+//the fraction of the screen that moved. Both are sub-resolution, so they are
+//cheap, and the 1x1 is read by the next frame's accumulate.
+texture texMotionCoarse { Width = BUFFER_WIDTH / 16; Height = BUFFER_HEIGHT / 16; Format = RGBA8; };
+sampler MotionCoarse { Texture = texMotionCoarse; };
+texture texMotionStat { Width = 1; Height = 1; Format = RGBA8; };
+sampler MotionStat { Texture = texMotionStat; };
+
 #if UIMaskDiagnostics == 1
 	//The map is painted into its own target rather than straight onto the back
-	//buffer, which still has to be copied into the history before anything paints
-	//over it.
+//buffer, which still has to be copied into the history before anything paints
+//over it.
 	texture texAutoDebug { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
 	sampler AutoDebug { Texture = texAutoDebug; };
 #endif
@@ -104,7 +133,10 @@ sampler AutoMap { Texture = texAutoMap; };
 //Pixel shaders
 //The whole activation signal: a pixel whose colour has barely moved since the
 //last frame accumulates confidence, holds for a grace period once it does move,
-//then decays. Nothing else gates this. Read A, write B.
+//then decays. The one thing above it is the frame-wide stillness gate: below
+//UIMaskMotion percent of the screen moving, the accumulator carries its state
+//over unchanged rather than judging pixels on a frame the world is not drawing.
+//Read A, write B.
 float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float3 now = tex2D(ReShade::BackBuffer, texcoord).rgb;
@@ -115,8 +147,22 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	float4 prev = tex2D(AutoAccumA, texcoord);
 	float conf = prev.r;
 	float held = prev.g;
+	float still = prev.a;
 
-	if (stable > 0.5){
+	//The statistic is the previous frame's, so the gate acts one frame after the
+	//motion actually stopped. That latency is what lets every pass read only
+	//targets it is not writing.
+	float live = tex2D(MotionStat, float2(0.5, 0.5)).r * 100.0;
+	if (live < UIMaskMotion){
+		still = min(255.0, still + 1.0);
+	} else {
+		still = 0.0;
+	}
+
+	if (still >= UIMaskSettle){
+		//Held: no rise, no hold, no decay. The pixel's verdict is not touched --
+		//the accumulator simply stops advancing.
+	} else if (stable > 0.5){
 		conf = min(1.0, conf + UIMaskRise);
 		held = 0.0;
 	} else if (held < UIMaskForget){
@@ -126,8 +172,47 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	}
 
 	//.b is the raw still flag, recorded here because this pass is the only one
-	//that can measure it. The stillness gate averages it in a later step.
-	return float4(conf, held, stable, 0.0);
+	//that can measure it. The two passes below average it into a 1x1 number.
+	return float4(conf, held, stable, still);
+}
+
+//First half of the gate's measurement: block average the still flag down to a
+//sixteenth of the resolution. It runs after the accumulate, whose flag is its
+//only input, and its output is what the *next* frame reads.
+float4 PS_Motion(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+{
+	//One texel here covers a 16x16 block, so the taps span the block's interior
+	//rather than its edge.
+	float step = 1.0 / 16.0;
+	float sum = 0.0;
+	[unroll]
+	for (int y = 0; y < 2; y++){
+		[unroll]
+		for (int x = 0; x < 2; x++){
+			float2 uv = texcoord + (float2(x, y) - 0.5) * step * 0.5;
+			sum += tex2D(AutoAccumB, uv).b;
+		}
+	}
+	return float4((sum * 0.25).xxx, 1.0);
+}
+
+//Second half: reduce that to one number, the fraction of the screen that moved.
+//A grid of coarse blocks is sampled evenly rather than all of them, because at
+//this size the extra taps would not change the answer.
+float4 PS_MotionAvg(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+{
+	float sum = 0.0;
+	[unroll]
+	for (int y = 0; y < 16; y++){
+		[unroll]
+		for (int x = 0; x < 16; x++){
+			float2 uv = (float2(x, y) + 0.5) / 16.0;
+			sum += tex2D(MotionCoarse, uv).r;
+		}
+	}
+	//Sampled blocks that held still contribute 1.0 each, so the moving fraction is
+	//what is left.
+	return float4(1.0 - sum / 256.0, 0.0, 0.0, 1.0);
 }
 
 //The ping-pong back-edge: B has to come back to A, because the next frame reads A.
@@ -213,6 +298,16 @@ technique AutoMask
 		VertexShader = PostProcessVS;
 		PixelShader = PS_Copy;
 		RenderTarget = texAutoAccumA;
+	}
+	pass {
+		VertexShader = PostProcessVS;
+		PixelShader = PS_Motion;
+		RenderTarget = texMotionCoarse;
+	}
+	pass {
+		VertexShader = PostProcessVS;
+		PixelShader = PS_MotionAvg;
+		RenderTarget = texMotionStat;
 	}
 	pass {
 		VertexShader = PostProcessVS;
