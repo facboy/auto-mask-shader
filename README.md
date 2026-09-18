@@ -11,10 +11,13 @@ Somewhere in your effect chain you want to protect the interface — the health 
 map, the dialogue box — from whatever your other effects are doing to the picture. Usually that means
 painting a mask image by hand: which pixels are UI, which are the world.
 
-This does it the other way round. A pixel the game keeps drawing in the same place, frame after frame,
-is something that isn't moving, and almost everything that isn't moving is interface. A pixel the
-world is animating is not. So the shader compares each frame against the one before it and builds the
-mask from that: hold still, and you accumulate; keep changing, and you fall away again.
+This does it the other way round, with one thing held above the rest: **most of the screen is the world.** A
+pixel the game keeps drawing in the same place, frame after frame, is something that isn't moving — and
+that only means interface while the world around it is being drawn. When the view is moving, anything
+that holds still is almost certainly yours. When the whole screen has gone still, the thing holding
+still is the backdrop, and the shader stops deciding rather than guessing. It compares each frame
+against the one before it as the evidence for that: hold still while the world moves, and you
+accumulate; keep changing, and you fall away again.
 
 Motion is the stronger of the two readings, so the shader trusts it further. A brief movement — a bar
 that drains, a list that scrolls — is covered by the grace period and never counts against the
@@ -23,8 +26,16 @@ viewpoint looks like, and no panel is drawn that way. So a pixel seen moving sta
 has to hold still for a while before it can be taken for interface. That is what keeps the shader from
 grabbing a wall the moment you stop walking past it.
 
-Open a menu and its whole region holds still, so it lands in the mask. Close it and the world starts
-moving there again, so it drops back out.
+Open a menu and its whole region holds still while the world carries on behind it, so it lands in the
+mask. Close it and the world starts moving there again, so it drops back out.
+
+The awkward case is a menu that pops open over a world that has already stopped — a pause screen, say.
+Nothing is being redrawn, so stillness proves nothing, and the panel's own brief opening is all the
+evidence there is. Two settings cover the stop, and they answer different questions about it: for the
+first stretch after the world stops, stillness is still believed, which is long enough for a panel that
+has just appeared to be found; for a while after that, a pixel that holds still earns nothing more,
+while something that moves is still noticed and still drops out; and past both, the shader stops
+reading the screen altogether and simply holds the mask as it is.
 
 ## Placing it
 
@@ -56,8 +67,9 @@ they aren't.
 | **Frames a move is remembered** | How long something stays out of the mask after the frame shows it moving. Holding still is only a hint — a wall holds still too — but movement is proof: the game re-renders moving things from a new viewpoint, and nothing paints a panel that way. So a move is remembered, and a pixel seen moving has to hold still for this many frames before it can be claimed as interface. This is what stops a wall you just walked past being grabbed the moment you stop. At `0` a move is forgotten the frame after it happens, which is the old behaviour. |
 | **Closing radius in pixels** | Grows the mask slightly to close anti-aliased edges and thin text. `0` turns it off. |
 | **Luma step counted as a boundary** | Stops that growth at a real edge in the picture, so the mask snaps to the HUD's outline instead of spilling out into the scenery. |
-| **Motion needed for a live frame (percent)** | Below this much of the screen moving, the shader decides the world isn't being drawn and holds the mask as it is rather than guessing from a still picture. See the honest limits below. `0` turns this off. |
-| **Still frames before the map is held** | How long that has to go on before the holding starts. It exists so a menu that opens into an already-paused scene still gets looked at before the shader stops looking. |
+| **Motion needed to trust stillness (percent)** | How much of the screen has to be changing before the shader believes the world is being drawn. Above it, a pixel that holds still is taken for interface; below it, stillness stops earning anything, because what holds still in a still scene is the scenery. Raise it if scenery is still getting caught, lower it if a HUD fails to appear. Unlike the other settings this one is the premise rather than a refinement, which is why its default is not zero. |
+| **Still frames trusted after the world stops** | The window a panel gets when it opens into a scene that has just stopped. For this long after the world last moved, stillness is still believed — long enough for a menu that has just appeared to be found. This is the inner window, so keep the freeze below at least this long. |
+| **Still frames before the accumulator freezes** | How long the scene has to stay quiet before the shader stops reading it altogether and holds the mask as it is. Before this but past the trust window, a pixel that holds still no longer earns anything while something that moves is still noticed and still drops out. |
 
 There are two more switches that are not sliders — **anti-bloom** (on by default) and the
 **diagnostics overlay** (off). Both are compile-time switches rather than sliders, which is why
@@ -66,10 +78,39 @@ it: with a switch off, the work it would have done is not just skipped, it isn't
 
 ## Seeing what it decided
 
-Turn the diagnostics overlay on and the mask is drawn over the picture: **green where the shader
-thinks a pixel is interface, blue where it thinks it's the world**. Compare it against the game
-underneath. This is the only way to tell a genuine mistake from something the shader can never get
-right, so it is worth turning on the first time you use this.
+Turn the diagnostics overlay on and the mask is drawn over the picture, red and green and blue.
+It takes a sentence to read:
+
+- **Green** — the shader's verdict right now: this pixel is in the mask. It is on or off, never a
+  shade, because it is a decision. A green pixel that is *not* brightly blue is the closing radius
+  rather than the shader's own judgement — the mask is grown over a neighbourhood, so a pixel beside an
+  element gets pulled in while its own confidence is nothing.
+- **Blue** — how certain the pixel is. Mid-blue is the point where nothing has been decided either way,
+  which is where scenery sits. Brighter is confidence earned and climbing towards the mask. Dimmer, and
+  all the way to black, is a pixel the frame has just called moving — the further from mid-blue it is,
+  the further it has been pushed out. So blue brightening over something is it being recognised as
+  yours, and blue going dark over something that has stopped moving is a recent move still being
+  remembered, not a mistake.
+- **Red** — how much this pixel changed this frame. This is the only one that fades smoothly, so red fading out is a region settling down. Green fading to red is an element being left behind as the world starts moving over it, and it is the normal way a menu leaving looks.
+
+The small block in the bottom-left corner is always drawn, and its colour tells you what the whole
+screen is doing — which matters, because that is what decides whether the reds and blues you can see
+are a current judgement or an old one:
+
+- **Magenta** — the world is being drawn and everything else on screen is a live verdict.
+- **Violet**, a dimmer version of the same colour — the world has stopped, but stillness is still being
+  believed, so an element that holds still is still earning its place. This is the trust window. It is
+  the state a menu that pops open over a paused world gets caught in.
+- **Grey** — stillness is no longer believed. A pixel holding still earns nothing more; only something
+  that moves is still noticed, and only until the freeze.
+- Stale red and blue past the freeze are expected, not a bug: nothing is being read at all by then, so
+  what you are seeing is the last thing that was decided, and the marker is what tells you so.
+
+The marker reflects the state about to be used, one frame ahead of the decision the mask has just made,
+so do not be surprised if it changes a frame before the mask visibly does.
+
+Compare it against the game underneath. This is the only way to tell a genuine mistake from something
+the shader can never get right, so it is worth turning on the first time you use this.
 
 ## Anti-bloom
 
@@ -90,11 +131,13 @@ time:
   health bar, a translucent map overlay — those pixels are constantly changing, so they never look
   still and never get protected. This is the one case where a hand-painted mask genuinely does better.
 - **Standing still somewhere with nothing moving.** Face a wall or a closed door in a quiet room and
-  there is nothing animating in view, so the wall looks exactly like a HUD. The motion setting above
-  is the defence: once it notices almost nothing is moving it holds the mask instead of extending it.
-  The cost is that a menu opened in a scene the game has already paused gets a limited window to be
-  noticed, which is what the settle setting is for. Both are visible in the diagnostics overlay, which
-  is why that ships with it.
+  there is nothing animating in view, so a wall that never moves is never distinguished from a HUD by
+  the comparison alone. This is what the motion setting above is for, and it is the reason that setting
+  is the premise rather than a refinement: while the world is not being drawn the shader does not take
+  stillness for interface at all, so there is nothing to hold and nothing to lock. The one thing it
+  buys with that is the trust window, and the thing it costs is a panel that opens over a world that
+  has already stopped — the pulse of the menu appearing has to lift the screen-wide reading over the
+  threshold to be noticed, and a small panel in a large still scene may not do that.
 
   This is the one case where remembering movement cannot help, and it is worth being clear why. The
   shader only knows what the last two frames looked like. A wall you walked past was moving in the
@@ -102,6 +145,13 @@ time:
   front of the whole time never moved, so there is nothing to remember — and it is genuinely
   indistinguishable from a HUD, because on the evidence available it is the same thing.
 
+- **A panel that opens over a scene that has already stopped.** Nothing is being redrawn, so stillness
+  proves nothing about what is on screen — which is the point of the motion setting, and it is what
+  keeps a quiet room from filling the mask. The cost is here: a menu that pops open over a paused world
+  is caught only because its opening is itself movement, and only while the trust window is still open.
+  A large panel fades in, so it usually registers; a small one, or a slow one, may not, and then the
+  shader has no evidence to work with. Raise the trust window for that, and accept that a scene which
+  has genuinely stopped will be read for longer before the shader gives up on it.
 - **Interface that animates for longer than the grace period loses its protection.** This is the
   deliberate trade in the setting above, and it cuts the other way from the wall. A draining bar or a
   scrolling list is covered only while its movement fits inside "Frames of absence before decay

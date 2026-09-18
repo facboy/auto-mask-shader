@@ -58,13 +58,34 @@ the user to avoid rather than policed at runtime, and the README says so plainly
 The mask itself is one full-resolution HUD/non-HUD value per pixel, not one per element. Conflating
 health with inventory is accepted by design; per-element identity is not attempted.
 
-One frame-wide exception sits above the per-pixel verdict. The same frame-to-frame difference is
-averaged over the screen, and once it says nothing much is moving the accumulator is **held** — its
-whole state carried over, no rise and no fall — so a quiet interior or a static backdrop cannot keep
-accumulating while the world view is not being drawn. It holds only after a short settle, so a panel
-that opens into an already-paused scene is still scanned before the map locks. It pauses the
-accumulator; it never changes whether a pixel is HUD, and per-pixel stability is still the only
-verdict. What it is *not*: a camera-motion gate, and not a freeze that overwrites the map.
+Above the per-pixel verdict sits the question that gives it meaning: **is the world being drawn at
+all?** This is the premise, not a safety net under it. Stillness on its own proves nothing — a wall
+holds still too — so a pixel that holds still is only taken for interface while the world around it can
+be seen animating. `UIMaskMotion` is that share of the screen, and its default is not 0: at 0 the map
+held on every frame and the mask never formed.
+
+**The statistic is coverage, not magnitude.** What the question needs answered is "is the game
+re-drawing the view", so `PS_Motion` counts the share of each block that changed at all, thresholding
+the graded magnitude at zero (the magnitude is zero exactly inside the deadband, so the flag is
+recovered from the same channel). Averaging the magnitude instead let one small bright object in fast
+motion declare the whole view live — the opposite of treating the screen as mostly backdrop.
+
+On the still side of the threshold the verdict changes rather than stopping, and there are two windows
+over it. For `UIMaskTrust` frames after the last live frame stillness is still **believed**, which is
+the grace a panel gets when it opens into a scene that has just stopped. Between that and
+`UIMaskSettle` the accumulator keeps running but stillness **earns nothing** — a still pixel credits
+nothing — while movement is still read, so something still moving in a scene that has stopped is still
+banked and still loses confidence. Past `UIMaskSettle` the accumulator is **held**: state carried over,
+no rise, no fall, nothing read. The freeze is tested first, so a settle shorter than the trust simply
+ends it early rather than producing a state the shader cannot express.
+
+The counter is the frames since the world was **last live**, not the frames spent quiet: it stores 1
+while live and counts up from there. A room that never went live therefore never sets it to zero and
+the grace expires immediately instead of being handed to the first frames of every static scene. The
+zero case is treated as expired for the same reason — it is how a target reads on the frame it is first
+allocated, and starting a count from there is exactly what would hand a fresh scene a grace period.
+Counting quiet frames instead gave those frames a free run, which is how a quiet interior defeated the
+old gate inside its own settle window while `UIMaskMotion` sat at 0 and did nothing at all.
 
 Stillness is only a hint, though — the world holds still too — and motion is proof, so the per-pixel
 signal is trusted asymmetrically. A change that lasts longer than the hold is **remembered**: it is
@@ -80,12 +101,12 @@ protection until the debt clears. The magnitude is graded — `smoothstep(UIMask
 rather than a step — so a pixel nudging at the deadband owes almost nothing while one the camera swung
 past owes the lot; a linear ramp would hand the full memory to the pixels where capture noise lives.
 
-Two interactions are worth knowing. The gate halts the accumulator, so it halts the heal as well: the
-debt stops being paid while the map is held, and resumes when anything moves again. That is bounded by
-the settle window — those frames still advance, so at least `UIMaskSettle` frames of repayment always
-happen first — and it only arises with the gate switched on, which is off by default. And the heal is
-one frame's worth of `UIMaskFall` per still frame regardless of the slider, which is what keeps the
-memory a duration the user can reason about rather than a confidence number they have to convert.
+The heal is one frame's worth of `UIMaskFall` per still frame regardless of the slider, which is what
+keeps the memory a duration the user can reason about rather than a confidence number they have to
+convert. Repaying the debt is not a verdict, so it continues between the two windows — that is what
+stops a pixel staying condemned after the evidence is spent — while *earning protection* stops at
+`UIMaskTrust`. `UIMaskForget` is what protects a briefly-animating element from being banked in the
+first place, so it and `UIMaskMoveMemory` are tuned against each other.
 
 ### The `.fx` constraints that shape the design
 
@@ -101,9 +122,10 @@ memory a duration the user can reason about rather than a confidence number they
 Load-bearing, and follows from what each pass reads:
 
 1. `PS_Accum` — builds the new confidence against the *previous* frame, **before** the history store. It
-   also applies the stillness gate, reading the statistic the previous frame left behind.
-2. The two sub-resolution passes that average the motion magnitude — after the accumulate, since their
-   only input is what it just wrote, and read on the next frame.
+   also applies the world-drawn premise, reading the statistic the previous frame left behind.
+2. The two sub-resolution passes that average the still flag into the share of the screen being
+   redrawn — after the accumulate, since their only input is what it just wrote, and read on the next
+   frame.
 3. `PS_Copy`, `PS_Dilate` — the ping-pong back-edge and the boundary close, also before the store.
    `PS_Dilate` is one pass: a 2D max over a tiny fixed neighbourhood, stopping where the luma step
    read from `BackBuffer` exceeds `UIMaskEdge`. Reading the frame there is safe only because it is
@@ -114,7 +136,17 @@ Load-bearing, and follows from what each pass reads:
    pick up. It comes after the store, which is what keeps the real UI for the restore pass; blacking
    earlier would bank the black instead.
 7. The diagnostics overlay, last, and only when `UIMaskDiagnostics` is defined to 1 — a compile-time
-   guard on the pass and the shader both, so with it off neither is compiled.
+   guard on the pass and the shader both, so with it off neither is compiled. It reads the accumulator
+   directly rather than recomputing the difference, so it cannot report on itself instead of on the
+   shader. Its channels are: red the graded motion, green the published mask (binary — a green pixel
+   with no blue is the closing radius, not the accumulator), blue the accumulator's signed confidence
+   packed around mid-blue so the memory is drawn rather than clamped away (`AutoDebug` is RGBA8 and a
+   signed value would lose its lower half), and alpha the screen state in three steps — the corner
+   block is magenta live, violet while stillness is still trusted, grey once it is not. The state is
+   deliberately read from the accumulator, one frame ahead of the gate's own test, so it shows the
+   state about to drive the next frame; the docs say so rather than pretending they coincide. Its
+   strictness must match the gate's: `> UIMaskMotion`, not `step`, which is true at the threshold
+   itself and would disagree on exactly the boundary frame.
 
 ## Editing conventions
 
@@ -190,13 +222,18 @@ The compile check needs `fxc.exe`, which is a Windows binary run under WSL:
   standing still somewhere with fire or water in view. The one that settles the stillness gate's
   settle window is a menu opened in a scene the game has already paused. Reviewing a screen capture
   is the next best thing.
+  The world-drawn premise adds the two that matter most now: a room with nothing animating in it must
+  leave the mask empty rather than filling it, and the corner marker must be violet while a panel that
+  popped into a stopped scene is being found and grey once it has given up on it — if the marker goes
+  grey before the panel has appeared, the trust window is too short.
   The move memory adds two scenarios of its own, and they are the pair the whole setting is balanced
   between: pan the camera across detailed scenery and then stop, with no interface in view — nothing
   the camera swept over should be grabbed as HUD for `UIMaskMoveMemory` frames; and then the same,
   with an animating element on screen the whole time — a draining bar or a scrolling list that moves
   for longer than `UIMaskForget` — which should lose its protection to the memory, and get it back
-  once the animation stops. If both behave, the setting is doing what it says. Checking the overlay's
-  alpha channel is the cheap way to see the memory being spent, since it is the only view of it.
+  once the animation stops. If both behave, the setting is doing what it says. Watching blue in the
+  overlay is the cheap way to see the memory being spent, since it is the only view of it — and the
+  corner marker tells you whether the blues you are looking at are current.
 
 ## What this shader cannot do
 
@@ -206,12 +243,16 @@ discovered:
 - **Semi-transparent UI is never protected.** Where the world shows through, the pixel is not
   stable and never accumulates. Those elements stay with `UIDetectMulti`, which uses authored masks.
 - **A quiet interior with no ambient animation can accumulate.** Standing still facing a wall or a
-  closed door, nothing in frame moving, means the wall holds still. The stillness gate is the answer —
-  once the settle has passed the map is held and the wall stops accumulating. What remains is the
-  settle window itself, and a panel that opens over an already-paused world: long enough settle for
-  the panel to be scanned, short enough not to hand a quiet room a free run of accumulation. Nothing
-  separates those two cases, because a paused world and a quiet room look identical to this shader,
-  which is why the overlay shows the gate holding rather than leaving it to be inferred.
+  closed door, nothing in frame moving, means the wall holds still. This used to be the design's
+  weakest point — the gate existed to bound it and the overlay existed to show it being bounded — but
+  the world-drawn premise closes it rather than bounding it: a scene that never goes live never hands
+  out a rise at all, so there is nothing to hold, nothing to lock, and no window to tune. The counter
+  counts from the last *live* frame, so a room that was never drawn expires the grace immediately
+  instead of getting a free run of its first frames.
+  What remains is the deliberate cost of the trust window: a panel that opens over an already-paused
+  world, whose opening is the only evidence in frame. It is caught if its opening lifts the screen-wide
+  reading over `UIMaskMotion`; a small panel in a large still scene may not, and then nothing separates
+  it from the backdrop, because a paused world and a quiet room look identical to this shader.
   The move memory does not help here and cannot, which is the sharper way to state the limit: a wall
   the player has been facing throughout never moved in the picture, so there is nothing to remember.
   It catches the wall that was *walked past* and then stopped in front of, which is the common case;
