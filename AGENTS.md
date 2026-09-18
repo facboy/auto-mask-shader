@@ -54,6 +54,14 @@ the user to avoid rather than policed at runtime, and the README says so plainly
 The mask itself is one full-resolution HUD/non-HUD value per pixel, not one per element. Conflating
 health with inventory is accepted by design; per-element identity is not attempted.
 
+One frame-wide exception sits above the per-pixel verdict. The same frame-to-frame difference is
+averaged over the screen, and once it says nothing much is moving the accumulator is **held** — its
+whole state carried over, no rise and no fall — so a quiet interior or a static backdrop cannot keep
+accumulating while the world view is not being drawn. It holds only after a short settle, so a panel
+that opens into an already-paused scene is still scanned before the map locks. It pauses the
+accumulator; it never changes whether a pixel is HUD, and per-pixel stability is still the only
+verdict. What it is *not*: a camera-motion gate, and not a freeze that overwrites the map.
+
 ### The `.fx` constraints that shape the design
 
 - **A render target cannot be read while it is written.** There are no atomics and no compute
@@ -67,12 +75,14 @@ health with inventory is accepted by design; per-element identity is not attempt
 
 Load-bearing, and follows from what each pass reads:
 
-1. `PS_Accum`, `PS_Copy`, `PS_Dilate` — build the map **before** the history store. They compare the
-   current frame against the *previous* frame; running them after the store would compare the frame
-   against itself and every pixel would read as still.
-2. `PS_Store`, keeping the mapped pixels.
-3. `PS_StoreFrame`, copying the untouched frame into the history target for the next frame.
-4. The diagnostics overlay, last, and only when diagnostics are on.
+1. `PS_Accum` — builds the new confidence against the *previous* frame, **before** the history store. It
+   also applies the stillness gate, reading the statistic the previous frame left behind.
+2. The two sub-resolution passes that average the still flag — after the accumulate, since their only
+   input is what it just wrote, and read on the next frame.
+3. `PS_Copy`, `PS_Dilate` — the ping-pong back-edge and the boundary close, also before the store.
+4. `PS_Store`, keeping the mapped pixels.
+5. `PS_StoreFrame`, copying the untouched frame into the history target for the next frame.
+6. The diagnostics overlay, last, and only when diagnostics are on.
 
 ## Editing conventions
 
@@ -126,8 +136,9 @@ The compile check needs `fxc.exe`, which is a Windows binary run under WSL:
 - **Real end-to-end testing means loading both techniques in ReShade in a game**, which an agent
   cannot do. State that clearly instead of claiming the change is verified, and say which scenarios
   would need eyes on it: walking with the HUD up, a menu open, standing still in a quiet room, and
-  standing still somewhere with fire or water in view. Reviewing a screen capture is the next best
-  thing.
+  standing still somewhere with fire or water in view. The one that settles the stillness gate's
+  settle window is a menu opened in a scene the game has already paused. Reviewing a screen capture
+  is the next best thing.
 
 ## What this shader cannot do
 
@@ -137,10 +148,12 @@ discovered:
 - **Semi-transparent UI is never protected.** Where the world shows through, the pixel is not
   stable and never accumulates. Those elements stay with `UIDetectMulti`, which uses authored masks.
 - **A quiet interior with no ambient animation can accumulate.** Standing still facing a wall or a
-  closed door, nothing in frame moving, means the wall holds still and the effects drop out there.
-  It clears as soon as the world moves, and the diagnostics overlay shows it. If this ever needs
-  fixing, the minimal answer is a single global "require this much frame-wide motion" slider — not a
-  region of interest, which was considered and rejected.
+  closed door, nothing in frame moving, means the wall holds still. The stillness gate is the answer —
+  once the settle has passed the map is held and the wall stops accumulating. What remains is the
+  settle window itself, and a panel that opens over an already-paused world: long enough settle for
+  the panel to be scanned, short enough not to hand a quiet room a free run of accumulation. Nothing
+  separates those two cases, because a paused world and a quiet room look identical to this shader,
+  which is why the overlay shows the gate holding rather than leaving it to be inferred.
 - **HUD that animates more than briefly** needs the hold to bridge it. That makes `UIMaskForget` the
   most important slider rather than a nicety.
 
