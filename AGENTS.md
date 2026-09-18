@@ -15,8 +15,9 @@ HUD or not**.
 
 The design was worked out against Kaiser's `UIDetectMulti` pack, which is a *separate* project on
 disk (`/mnt/d/git/Reshade-Shaders`) and shares no code with this one. Read `docs/review.md` there
-for the design history and the reasoning behind the decisions below. Credit for the concept and the
-store/restore pattern belongs to Kaiser (UIDetectMulti) and Brussels1 (the original work).
+for the design history and the reasoning behind the decisions below. Credit for the concept, the
+store/restore pattern and the anti-bloom suppression belongs to Kaiser (UIDetectMulti) and Brussels1
+(the original work).
 
 Licensed MIT (see `LICENSE`).
 
@@ -28,12 +29,14 @@ Licensed MIT (see `LICENSE`).
 | `tools/verify_shaders.py` | Offline compile-and-cost check. The only automated verification there is. |
 | `tools/pyproject.toml` | The `uv` project the check runs under. Deliberately inside `tools/` — this is a shader project, not a Python one. |
 | `README.md` | End-user guide: placement order, how to tune, what it cannot do. |
-| `LICENSE` | MIT, with the credit line for the concept and the store/restore pattern. |
+| `LICENSE` | MIT, with the credit line for the concept, the store/restore pattern and the anti-bloom pass. |
 
 There is **no `.fxh` companion header and there deliberately never will be**. A header exists to hold
-authored data — pixel tables, coordinates, stored colours — and this shader has none. Every knob is a
-slider in the ReShade panel. Putting configuration into a file the user edits and restarts would be a
-regression in usability, so do not introduce one.
+authored data — pixel tables, coordinates, stored colours — and this shader has none. Every tuning
+value is a live slider in the ReShade panel, and the only preprocessor definitions are the two
+structural switches (`UIMaskAntiBloom`, `UIMaskDiagnostics`), which are there to elide a pass rather
+than to hold data. Putting configuration into a file the user edits and restarts would be a regression
+in usability, so do not introduce one.
 
 There is no build system and no CI beyond the offline check, by design. Never vendor ReShade's own
 headers.
@@ -86,7 +89,8 @@ Load-bearing, and follows from what each pass reads:
 6. `PS_AntiBloom` — black the masked pixels in the live frame so a bloom pass downstream has no UI to
    pick up. It comes after the store, which is what keeps the real UI for the restore pass; blacking
    earlier would bank the black instead.
-7. The diagnostics overlay, last, and only when diagnostics are on.
+7. The diagnostics overlay, last, and only when `UIMaskDiagnostics` is defined to 1 — a compile-time
+   guard on the pass and the shader both, so with it off neither is compiled.
 
 ## Editing conventions
 
@@ -101,6 +105,12 @@ Load-bearing, and follows from what each pass reads:
   `__UNIFORM_SLIDER_BOOL1` for bools. A mismatch is a silent ReShade UI bug.
 - `BUFFER_WIDTH`/`BUFFER_HEIGHT` are injected by ReShade at runtime, not defined here. Anything
   buffer-relative stays correct across resolutions; absolute pixel numbers do not.
+- Two structural switches are preprocessor definitions, not sliders: `UIMaskAntiBloom` and
+  `UIMaskDiagnostics`. Each is `#ifndef`-guarded with `// [0 or 1]` annotation comments, as the pack
+  does it, and each guards its **pass and its technique entry** as well as its shader — the point of a
+  definition rather than a uniform is that the pass and its full-resolution read/write disappear from
+  the bytecode. Values tuned by watching stay live sliders; adding a third definition for one of those
+  would cost a recompile per adjustment for no elision worth having.
 - Update `README.md` in the same conversational, non-programmer voice whenever a user-facing
   behaviour changes.
 
