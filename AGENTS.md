@@ -107,10 +107,11 @@ Load-bearing, and follows from what each pass reads:
   buffer-relative stays correct across resolutions; absolute pixel numbers do not.
 - Two structural switches are preprocessor definitions, not sliders: `UIMaskAntiBloom` and
   `UIMaskDiagnostics`. Each is `#ifndef`-guarded with `// [0 or 1]` annotation comments, as the pack
-  does it, and each guards its **pass and its technique entry** as well as its shader — the point of a
-  definition rather than a uniform is that the pass and its full-resolution read/write disappear from
-  the bytecode. Values tuned by watching stay live sliders; adding a third definition for one of those
-  would cost a recompile per adjustment for no elision worth having.
+  does it, and each guards everything that feature owns — its **pass and technique entry, its shader,
+  and any `texture`/`sampler` only it uses** — the point being that ReShade allocates every declared
+  target, so a target left outside its guard is memory paid for a feature that is compiled out. Values
+  tuned by watching stay live sliders; adding a third definition for one of those would cost a
+  recompile per adjustment for no elision worth having.
 - Update `README.md` in the same conversational, non-programmer voice whenever a user-facing
   behaviour changes.
 

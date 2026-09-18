@@ -56,14 +56,14 @@ Written fresh from the design worked out against that pack, but sharing no code,
 5. **One boolean, one map.** A single full-screen HUD/non-HUD value per pixel, in one full-resolution texture.
 6. **Self-contained.** The shader stores and restores the masked pixels through its own render targets, so it does not depend on `UIDetectMulti` or any other effect.
 7. **Anti-bloom suppression.** The masked pixels are written black into the frame the rest of the effect chain sees, so a bloom pass downstream cannot pick the UI up and bleed it over the scene. It happens inside `AutoMask` and after the frame has been stored, so the real UI is still banked for the restore pass and the final image is unchanged — only what the effects in between see is blacked. Exactly the pack's arrangement: it banks the masked pixels, then a second pass in the same technique overwrites them with a constant black. The whole thing is inside `#if UIMaskAntiBloom` — pass, technique entry and shader — so with it compiled out nothing runs, the same way the pack removes it. It is the one structural switch that is on by default.
-8. **Diagnostics view.** With diagnostics on, the generated map is visible on screen so it can be compared against the game underneath — together with whether the stillness gate is currently holding the map and what moving area it measured, since a gate that cannot be seen cannot be tuned.
+8. **Diagnostics view.** With diagnostics on, the generated map is visible on screen so it can be compared against the game underneath — together with whether the stillness gate is currently holding the map and what moving area it measured, since a gate that cannot be seen cannot be tuned. It is a compile-time switch, so with it off nothing of the overlay — passes, shaders or targets — is compiled or allocated.
 9. **No file to edit.** Every value ships with a correct default, so a user never has to open the `.fx`. Tuning is sliders in the ReShade panel; the two structural switches are preprocessor definitions with the right default and a ReShade-level override, so setting them is optional and never required to use the shader.
 
 ### Non-Functional Requirements
 
 - **Cost is bounded and honest.** Five full-resolution passes per frame in `AutoMask` — accumulate, the two ping-pong steps, the store and the history store — and one in `AutoMask_Restore`, plus two sub-resolution passes that average the still flag. Those two together cost well under one full-resolution pass, so the gate does not change the order of magnitude. Anti-bloom adds a sixth full-res pass and diagnostics add their own, but both are compile-time `#if` blocks: with either switched off the pass and its instructions are absent from the bytecode entirely, which is how the pack gets the 3x it documents for its before-technique. Every pass here is a full-res read and write, so the pass count — not the instruction count — is what the frame pays. This is expensive for a `.fx` shader and the honest position is to say so in the README rather than hide it.
 - **`.fx` constraints respected.** No compute shaders, no atomics, no mip generation, and never reading a render target while writing it — the accumulator must ping-pong with an explicit copy pass.
-- **Memory.** Five full-resolution targets — the accumulator pair, the finished map, the last frame and the stored frame — plus two sub-resolution ones for the gate: a sixteenth-size block average and a 1×1 statistic. ReShade allocates all seven unconditionally once the effect is compiled in, so the count is stated here and must be reviewed before implementation.
+- **Memory.** Six targets with diagnostics compiled out — five full-resolution (the accumulator pair, the map, the history and the stored frame) and one for the still-flag statistics — plus `texAutoDebug` when `UIMaskDiagnostics` is 1. ReShade allocates every declared target unconditionally, so what is declared is what is paid for; putting the diagnostics target inside its guard is what keeps the count down rather than merely the passes. The count is stated here and must be reviewed before implementation.
 - **Conventions.** LF line endings, matching the companion pack's `.fx` style; HLSL comments short and sparse; no tutorial narration, with the file header below as the one exception.
 - **Licence.** MIT, with a credit line recording that the concept and the store/restore pattern come from Kaiser's `UIDetectMulti` and Brussels1's original work, and that the anti-bloom pass follows the pack's `UIDM_ANTIBLOOM`. The same credit appears in short form in the shader's own header block, not only in `LICENSE`, so it travels with the file if someone copies just the `.fx` into their ReShade folder.
 
@@ -154,7 +154,7 @@ technique AutoMask_Restore  { ... }   // placed LAST, after other effects
 | `UIMaskAntiBloom` | compile in the anti-bloom pass | `1` |
 | `UIMaskDiagnostics` | compile in the diagnostics overlay | `0` |
 
-Both are structural: the guard removes the pass from the technique as well as the shader body, so with a definition at `0` the pass does not run at all rather than running and branching. Every other knob is a live slider, because it is tuned by watching the overlay and a recompile per adjustment would be the wrong trade.
+Both are structural: the guard covers everything the feature owns — the shader body, the pass, its entry in the technique, and any `texture`/`sampler` declaration only that feature uses — so with a definition at `0` the pass does not run and nothing it owns is allocated or compiled. Anti-bloom has no exclusive target (it reads and writes the live frame and consults the map the store and restore passes need), so its guard buys bandwidth; the diagnostics overlay's two targets are exclusive to it, so its guard buys memory too. Every other knob is a live slider, because it is tuned by watching the overlay and a recompile per adjustment would be the wrong trade.
 
 **Render targets**
 
@@ -166,6 +166,11 @@ Both are structural: the guard removes the pass from the technique as well as th
 | `texAutoFrame` | full | the live frame kept where the map says HUD, read back by the restore pass |
 | `texMotionCoarse` | 1/16 | block average of the per-pixel still flag |
 | `texMotionStat` | 1×1 | the frame's moving-area fraction, compared against `UIMaskMotion` |
+| `texAutoDebug` | full | the diagnostics map, painted on its own so the overlay pass can blend it over the frame |
+
+Anti-bloom needs no target of its own: it reads the live frame and writes it back, and the map it consults is one the store and restore passes need anyway. `texAutoDebug` is the only target that belongs to one feature, so it is declared inside `#if UIMaskDiagnostics` and is not allocated at all when it is off — the pack guards its diagnostics targets the same way. Declaring a target inside the guard is the one place the "no authored data" rule and the compile-time switches meet.
+
+The overlay reads `BackBuffer` for the frame rather than keeping a copy of it. It runs after `PS_StoreFrame`, so the frame is still untouched at that point and `texAutoHistory` already holds its copy: a second full-resolution target just to hold the frame again would buy nothing.
 
 ### Proposed Changes
 
@@ -193,7 +198,8 @@ That block is the only long comment in the file — the rule about short, sparse
 - `PS_StoreFrame` — copy the untouched frame into `texAutoHistory` for the next frame.
 - `PS_AntiBloom` — output `lerp(0, live frame, map)`: where the map says HUD the pixel is constant black, everywhere else it is the frame already rendered. That is the whole pass the pack runs under `UIDM_ANTIBLOOM`, and it is what takes the UI away as a bloom source. No blur, no feather, no radius — the pack's blend is the same proportional lerp against the mask value, so any softness in the result is the mask's, and ours is the map's. There is no runtime switch inside it: the whole pass, and its entry in the technique, sit inside `#if UIMaskAntiBloom`, so with the definition at 0 there is no pass to run and nothing to branch on. It sits after `PS_Store`, so what the restore pass puts back is still the real UI.
 - `PS_Restore` — in the second technique: output the stored pixel where the map says HUD, the live pixel elsewhere.
-- `PS_DebugMap` — the diagnostics overlay, plus its composite: the map, whether the gate is holding this frame, and the moving area measured against the threshold. Guarded whole, like the anti-bloom pass: `#if UIMaskDiagnostics`.
+- `PS_DebugMap` — paints the diagnostics map into its own target: the mask, whether the gate is holding this frame, and the moving area measured against the threshold.
+- `PS_DebugOverlay` — blends that map over the frame, so the game underneath is still recognisable: the same two-pass shape as the pack's `PS_AutoDebug` into `texAutoDebug` followed by `PS_AutoComposite`. Both are guarded whole, like the anti-bloom pass: `#if UIMaskDiagnostics` covers the shaders, the passes, their entries in the technique and their target. The pair can collapse into a single pass with no target at all; that is written up as a deferred option below.
 
 **2. Pass order inside `AutoMask`** — load-bearing:
 
@@ -203,7 +209,7 @@ That block is the only long comment in the file — the rule about short, sparse
 4. `PS_Store`, keeping the mapped pixels.
 5. `PS_StoreFrame`, copying the untouched frame into `texAutoHistory` for the next frame.
 6. `PS_AntiBloom` — blacks the masked pixels in the live frame, and it has to come **after** the store rather than before it: the store is what keeps the real UI for the restore pass, so blacking earlier would bank the black instead. The whole pass and its entry in the technique are inside `#if UIMaskAntiBloom`, so this step exists only when the definition is 1.
-7. `PS_DebugMap` and its composite, last, and only when diagnostics are on — where "on" is a compile-time definition, not a runtime check, so with `UIMaskDiagnostics` at 0 neither the pass nor its shader is compiled.
+7. `PS_DebugMap` then `PS_DebugOverlay`, last, and only when diagnostics are on — where "on" is a compile-time definition, not a runtime check, so with `UIMaskDiagnostics` at 0 neither pass nor either shader is compiled.
 
 **3. `AutoMask_Restore`** — a single pass running `PS_Restore`, so the masked pixels are put back on top after the user's other effects have run. Between the two techniques the masked pixels are black, which is invisible to the user — the restore pass has the real ones — and is exactly what stops a bloom pass picking them up.
 
@@ -232,7 +238,7 @@ That block is the only long comment in the file — the rule about short, sparse
 - **A menu over a paused world, and the settle.** A panel that opens in a scene the game has already stopped is the one case where the gate and the signal disagree: the frame is still, but not because there is nothing there. The settle is the whole answer — long enough for the panel to be scanned. Too long and a genuinely empty room keeps accumulating for that window, and nothing separates the two cases, because a paused world and a quiet room are identical to this shader.
 - **HUD that animates more than briefly.** A draining bar or a scrolling grid needs the hold to bridge the animation, which makes `UIMaskForget` the most important slider rather than a nicety. Too short a hold means holes over exactly the parts that move.
 - **Semi-transparent UI.** Where the world shows through, the pixel is not stable and never accumulates, so protection leaks there. Inherent, not tunable, and must be stated in the README rather than discovered.
-- **Render-target cost.** Seven targets — five full-resolution, the sixteenth-size average and the 1×1 statistic — allocated unconditionally once compiled in, plus five full-res passes and two sub-resolution ones a frame. Compiling anti-bloom out removes its pass but not the targets: ReShade allocates every declared target whether or not a pass writes it, so the definition buys bandwidth, not memory. Review before implementation rather than assuming it is free.
+- **Render-target cost.** Six targets with diagnostics compiled out: the five full-resolution ones, plus the sixteenth-size still-flag average and the 1×1 statistic. Diagnostics add one more full-resolution target when compiled in. Because the declaration itself is guarded, its switch controls what is allocated and not only what runs — anti-bloom's guard buys bandwidth (its pass and its read/write go away) and the diagnostics guard buys memory as well (its target is never declared). Review before implementation rather than assuming it is free.
 - **No containment at all.** With no ROI, no PNG and no per-element toggle, a false positive can appear anywhere and a wrong accumulation is a full-screen symptom. The diagnostics overlay and the tunables are the only recourse, which is why the overlay ships in the first version rather than later.
 - **A wrong mask is worse than a wrong verdict.** A bad detection toggles at the wrong moment; a bad mask is continuously visible. Bias tuning toward precision — a longer hold and a tighter dilate rather than an eager mask.
 - **Both shaders want the same two slots.** Loading this alongside the companion shader puts one of them second, where it reads a partly-processed frame. Left to the user by decision, so it must be stated plainly in the README.
@@ -241,7 +247,9 @@ That block is the only long comment in the file — the rule about short, sparse
 ### Deferred Options
 
 Considered while designing and deliberately left out of the first version, each with the evidence that
-would justify revisiting it. None of this is part of the implementation.
+would justify revisiting it. None of this is part of the implementation, and none of it is a bug in
+what is specified above — the first version is meant to be watched running in a game before any of
+these are revisited.
 
 **A soft map for the anti-bloom pass only.** The step from constant black back to a bright scene is
 itself contrast, so bloom can still find an edge at the HUD contour. Nothing in either implementation
@@ -266,6 +274,26 @@ in the first version for two reasons:
 that contour glows, the soft map is worth trying and the change is small; if it does not, the pass
 stays as it is and this stays a note.
 
+**Collapsing the diagnostics overlay into a single pass.** As specified the overlay is two passes:
+`PS_DebugMap` paints the map into `texAutoDebug`, then `PS_DebugOverlay` blends that over the frame.
+It can be one pass with no target at all — compute the map inline and return
+`lerp(frame, map, 0.7)` from a single shader, dropping both the `texAutoDebug` target and the pass
+that fills it. The pack splits it the same way, for the same reason: `PS_AutoDebug` reads
+`AutoHistory`, which in its pipeline is read and rewritten within the one technique, so it has to
+capture the comparison state before the store pass runs. This shader's map is a rendered target rather
+than an inline computation, so once the map exists the extra pass and the extra target are only there
+to hold it and put it back.
+
+The output is the same, so this is a pure cost change: one fewer full-resolution target allocated and
+one fewer pass per frame, on a feature that is off by default. The ordering that matters is preserved
+either way — the overlay still has to run after `PS_StoreFrame`, so that the frame it blends over is
+the untouched one and `texAutoHistory` holds a clean copy for the next comparison.
+
+It is left undone deliberately. Tuning the mask is the part that needs eyes on it, and it happens with
+diagnostics on, so the overlay is the last thing worth optimising before the implementation has been
+seen running at all — the version that runs and can be watched is worth more than the version that is
+one pass cheaper and has not been loaded in a game yet. Revisit once the shader is in front of a game.
+
 # Testing
 
 ### Validation Approach
@@ -287,7 +315,7 @@ Everything here is checkable by an agent except the visual result in-game, and t
 7. **`UIMaskSettle = 0`** — the hold starts on the first still frame, and a scene that never goes still is unaffected by either slider.
 8. **Anti-bloom off** — with `UIMaskAntiBloom` at 0 the pass is absent from the technique body, not merely inert, and the restore pass still produces the same image as it would with the pass present.
 9. **Anti-bloom matches the pack.** With it compiled in, a masked pixel in the live frame is exactly black and an unmasked one is exactly the frame — the same output the pack's `PS_Antibloom` produces, checked by inspection rather than assumed.
-10. **Diagnostics off** — with `UIMaskDiagnostics` at 0 neither the overlay pass nor its shader is compiled, so no diagnostics-only sampler remains in the bytecode at all.
+10. **Diagnostics off** — with `UIMaskDiagnostics` at 0 neither overlay pass nor either shader is compiled, and no diagnostics-only sampler remains in the bytecode at all.
 
 ### Edge Cases
 
@@ -295,7 +323,7 @@ Everything here is checkable by an agent except the visual result in-game, and t
 - **Resolution change.** Targets are buffer-relative, so they must follow a resize rather than keep stale dimensions.
 - **Nothing in the map.** With an empty map the restore pass must leave the frame untouched, not darken or overwrite it.
 - **Everything in the map.** A fully-protected map should restore the whole screen, matching what a full-screen mask does in the companion pack.
-- **Diagnostics off.** With `UIMaskDiagnostics` at 0 no diagnostics-only texture, target or sampler may be referenced outside its guard — the guard covers the shader and the pass, not just the UI.
+- **Diagnostics off.** With `UIMaskDiagnostics` at 0 no diagnostics-only texture, target or sampler may be referenced outside its guard — the guard wraps the declarations as well as the shader and the pass, so nothing diagnostics-only is allocated and no sampler survives in the bytecode.
 - **The motion statistic starts empty.** `texMotionStat` is zero on frame one, so the frame reads as perfectly still; the still-frame counter must start at zero too, so the settle has to run before the gate can lock a mask that has not been built yet.
 - **The gate is one frame behind.** A frame that has just gone still is still processed, and the hold begins the frame after its statistic lands. That latency is deliberate — it is what keeps every pass reading a target it is not writing.
 - **Anti-bloom and the stored frame.** The anti-bloom pass runs after `PS_StoreFrame`, so what is banked for the restore pass is the untouched frame. Running it before the store would restore black over the UI — the pass order here is as load-bearing as the map-before-history one.
