@@ -70,6 +70,10 @@ they aren't.
 | **Motion needed to trust stillness (percent)** | How much of the screen has to be changing before the shader believes the world is being drawn. Above it, a pixel that holds still is taken for interface; below it, stillness stops earning anything, because what holds still in a still scene is the scenery. Raise it if scenery is still getting caught, lower it if a HUD fails to appear. Unlike the other settings this one is the premise rather than a refinement, which is why its default is not zero. |
 | **Still frames trusted after the world stops** | The window a panel gets when it opens into a scene that has just stopped. For this long after the world last moved, stillness is still believed — long enough for a menu that has just appeared to be found. This is the inner window, so keep the freeze below at least this long. |
 | **Still frames before the accumulator freezes** | How long the scene has to stay quiet before the shader stops reading it altogether and holds the mask as it is. Before this but past the trust window, a pixel that holds still no longer earns anything while something that moves is still noticed and still drops out. |
+| **Center deadzone width (percent)** | Width of an elliptical center region where stillness does not accumulate into the mask. Keeps a third-person player character tethered to the camera from being captured as interface. `0` turns it off. |
+| **Center deadzone height (percent)** | Height of the elliptical center deadzone. `0` turns it off. |
+| **Center deadzone vertical position (percent)** | Vertical center of the deadzone (`50` is screen center; raise it to move down toward the character's feet). |
+| **Only suppress deadzone while world moves** | When checked, the deadzone only suppresses accumulation while the world is being drawn. When the scene is still, full-screen menus can accumulate even inside the deadzone. When unchecked, the deadzone is suppressed at all times. |
 
 There are two more switches that are not sliders — **anti-bloom** (on by default) and the
 **diagnostics overlay** (off). Both are compile-time switches rather than sliders, which is why
@@ -92,6 +96,8 @@ It takes a sentence to read:
   yours, and blue going dark over something that has stopped moving is a recent move still being
   remembered, not a mistake.
 - **Red** — how much this pixel changed this frame. This is the only one that fades smoothly, so red fading out is a region settling down. Green fading to red is an element being left behind as the world starts moving over it, and it is the normal way a menu leaving looks.
+
+If you have configured a center deadzone (`Center deadzone width` and `height` above zero), a thin yellow ring is drawn around the boundary of the ellipse so you can see exactly where it frames your character while adjusting the sliders.
 
 The small block in the bottom-left corner is always drawn, and its colour tells you what the whole
 screen is doing — which matters, because that is what decides whether the reds and blues you can see
@@ -166,6 +172,11 @@ time:
   element like that, raise the grace period until the whole animation fits inside it. That is the exact
   boundary: grace period short and the element gets holes, grace period long and a wall you stopped in
   front of gets grabbed sooner.
+- **A player character tethered to the camera in third-person games.** When running forward in a
+  third-person game, the camera moves with your character, so the background streams past while your
+  character's back or torso stays locked at the exact same screen position. To the comparison that
+  looks identical to a HUD element. Use the **Center deadzone** settings to carve out an elliptical
+  exclusion zone around your character model.
 - **A wrong mask is worse than a wrong verdict.** Where a mask image toggles effects at the wrong
   moment, this one is continuously visible if it's wrong. If in doubt, tune toward a longer grace
   period and a tighter closing radius rather than an eager mask.

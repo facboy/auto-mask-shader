@@ -181,11 +181,49 @@ uniform float UIMaskTrust <
 uniform float UIMaskSettle <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Still frames before the accumulator freezes";
-	ui_tooltip = "How long a scene that has stopped keeps being looked at before the map is held as it is. Past this nothing is read at all, so it wants to be at least the trust window above or it will cut that window short";
+	ui_tooltip = "How long a scene that has stopped keeps being looked at before the map is held as it was. Past this nothing is read at all, so it wants to be at least the trust window above or it will cut that window short";
 	ui_category = "AutoMask";
 	ui_min = 0.0; ui_max = 120.0;
 	ui_step = 1.0;
 > = 30.0;
+
+//Center deadzone: an elliptical region in the center of the frame where stillness
+//does not accumulate confidence. Used in third-person games to stop a player
+//character tethered to the camera from being captured as interface.
+//0 disables the deadzone.
+uniform float UIMaskDeadzoneWidth <
+	__UNIFORM_SLIDER_FLOAT1
+	ui_label = "Center deadzone width (percent)";
+	ui_tooltip = "Width of an elliptical center region where stillness is not accumulated. Set above 0 to prevent a third-person player character from being captured as interface. 0 disables the deadzone";
+	ui_category = "AutoMask";
+	ui_min = 0.0; ui_max = 100.0;
+	ui_step = 0.5;
+> = 0.0;
+
+uniform float UIMaskDeadzoneHeight <
+	__UNIFORM_SLIDER_FLOAT1
+	ui_label = "Center deadzone height (percent)";
+	ui_tooltip = "Height of the elliptical center deadzone. 0 disables the deadzone";
+	ui_category = "AutoMask";
+	ui_min = 0.0; ui_max = 100.0;
+	ui_step = 0.5;
+> = 0.0;
+
+uniform float UIMaskDeadzoneY <
+	__UNIFORM_SLIDER_FLOAT1
+	ui_label = "Center deadzone vertical position (percent)";
+	ui_tooltip = "Vertical center of the deadzone (50 is screen center, higher moves it down toward the character's feet, lower moves it up)";
+	ui_category = "AutoMask";
+	ui_min = 0.0; ui_max = 100.0;
+	ui_step = 0.5;
+> = 55.0;
+
+uniform bool UIMaskDeadzoneMotionOnly <
+	__UNIFORM_SLIDER_BOOL1
+	ui_label = "Only suppress deadzone while world moves";
+	ui_tooltip = "When enabled, the deadzone only suppresses accumulation while the world is being drawn. When the scene is still, full-screen menus can accumulate even inside the deadzone. When disabled, the deadzone is suppressed at all times";
+	ui_category = "AutoMask";
+> = false;
 
 //Targets
 //The accumulator ping-pongs because a target cannot be read while it is written,
@@ -297,13 +335,23 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 		still = min(255.0, still + 1.0);
 	}
 
+	bool inDeadzone = false;
+	if (UIMaskDeadzoneWidth > 0.0 && UIMaskDeadzoneHeight > 0.0){
+		float rx = UIMaskDeadzoneWidth * 0.005;
+		float ry = UIMaskDeadzoneHeight * 0.005;
+		float2 offset = float2(texcoord.x - 0.5, texcoord.y - UIMaskDeadzoneY * 0.01);
+		if (dot(offset / float2(rx, ry), offset / float2(rx, ry)) <= 1.0){
+			inDeadzone = !UIMaskDeadzoneMotionOnly || (live > UIMaskMotion);
+		}
+	}
+
 	//Past the freeze window nothing is judged at all. The pixel's state is carried
 	//over -- no rise, no hold, no decay, and no paying off of a remembered move, which
 	//is itself only evidence while the world is being drawn. This is tested before the
 	//trust window, so a settle shorter than the trust simply ends it early.
 	if (live <= UIMaskMotion && still > UIMaskSettle){
 		//Held as it was.
-	} else if (stable > 0.5){
+	} else if (stable > 0.5 && !inDeadzone){
 		//A still frame pays back one frame's worth of the debt, and only once the debt
 		//is clear can it start earning protection again. Repaying is not a verdict, so
 		//it happens whatever the screen-wide state is: it is what stops a pixel
@@ -318,7 +366,7 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 			conf = min(1.0, conf + UIMaskRise);
 		}
 		held = 0.0;
-	} else if (held < UIMaskForget){
+	} else if (held < UIMaskForget && !inDeadzone){
 		//The hold comes first, so briefly animating interface is bridged rather
 		//than remembered, and the single full-screen change after a load or a
 		//resize -- when the stored frame is still blank -- is absorbed here too.
@@ -339,6 +387,11 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 			//any memory asks for, where the intent is only the per-frame fall.
 			conf = min(conf, -UIMaskFall * UIMaskMoveMemory * motion);
 		}
+	}
+
+	if (inDeadzone){
+		conf = min(conf, 0.0);
+		held = 0.0;
 	}
 
 	//Clamped here because the memory is what the sign of this channel is carrying,
@@ -599,7 +652,16 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	//pass instead, from the state this one leaves in alpha.
 	float4 PS_DebugOverlay(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	{
-		return lerp(tex2D(AutoHistory, texcoord), float4(tex2D(AutoDebug, texcoord).rgb, 1.0), 0.7);
+		float4 color = lerp(tex2D(AutoHistory, texcoord), float4(tex2D(AutoDebug, texcoord).rgb, 1.0), 0.7);
+		if (UIMaskDeadzoneWidth > 0.0 && UIMaskDeadzoneHeight > 0.0){
+			float rx = UIMaskDeadzoneWidth * 0.005;
+			float ry = UIMaskDeadzoneHeight * 0.005;
+			float2 offset = float2(texcoord.x - 0.5, texcoord.y - UIMaskDeadzoneY * 0.01);
+			float dist = length(offset / float2(rx, ry));
+			float ring = 1.0 - saturate(abs(dist - 1.0) / max(fwidth(dist) * 1.5, 0.001));
+			color.rgb = lerp(color.rgb, float3(1.0, 1.0, 0.0), ring * 0.85);
+		}
+		return color;
 	}
 #endif
 
