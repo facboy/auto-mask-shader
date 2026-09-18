@@ -94,12 +94,12 @@ uniform float UIMaskMotion <
 
 uniform float UIMaskSettle <
 	__UNIFORM_SLIDER_FLOAT1
-	ui_label = "Still frames before the map is held";
-	ui_tooltip = "Lets a panel that opens into an already-paused scene be scanned before the gate locks";
+	ui_label = "Still frames tolerated before the hold starts";
+	ui_tooltip = "How long a scene that has stopped keeps being looked at before the map locks. Keep this x 'Confidence gained' under 0.5, or the world reaches mask confidence while the shader is still watching it";
 	ui_category = "AutoMask";
 	ui_min = 0.0; ui_max = 120.0;
 	ui_step = 1.0;
-> = 10.0;
+> = 4.0;
 
 //Targets
 //The accumulator ping-pongs because a target cannot be read while it is written,
