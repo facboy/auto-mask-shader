@@ -84,6 +84,9 @@ Load-bearing, and follows from what each pass reads:
 2. The two sub-resolution passes that average the still flag — after the accumulate, since their only
    input is what it just wrote, and read on the next frame.
 3. `PS_Copy`, `PS_Dilate` — the ping-pong back-edge and the boundary close, also before the store.
+   `PS_Dilate` is one pass: a 2D max over a tiny fixed neighbourhood, stopping where the luma step
+   read from `BackBuffer` exceeds `UIMaskEdge`. Reading the frame there is safe only because it is
+   before every pass that writes it.
 4. `PS_Store`, keeping the mapped pixels.
 5. `PS_StoreFrame`, copying the untouched frame into the history target for the next frame.
 6. `PS_AntiBloom` — black the masked pixels in the live frame so a bloom pass downstream has no UI to
@@ -123,9 +126,16 @@ offline compile check:
 - `uv run tools/verify_shaders.py init` fetches the pinned ReShade headers, then
   `uv run tools/verify_shaders.py check` preprocesses and compiles every pixel shader with `fxc` and
   reports instruction counts and opcode histograms. Keep the `tools/.work/` output out of commits.
+- The check compiles four variants — `UIMaskAntiBloom` and `UIMaskDiagnostics` each at 0 and 1, set
+  from the prelude exactly as a ReShade-level definition would be — because a `#if` guard can drop a
+  pass from a technique body, and only compiling every combination shows that it did. `--pass-list`
+  prints the wiring, `--opcodes` the histogram per shader.
 - **It must fail loudly on missing data.** An earlier version of the companion tool reported a clean
   pass while emitting no bytecode at all, because a missing hash compares equal to another missing
-  hash. If you change the check, keep that property.
+  hash. Four cases must keep exiting non-zero, and each is exercised by hand before committing a
+  change here: an empty `Shaders/`; a technique whose passes the parser cannot find (cross-checked
+  against the `pass` keyword count, so a pattern miss cannot look like a technique with fewer passes);
+  a technique binding a shader that does not exist; and a shader whose syntax is broken.
 - `pyproject.toml` lives in `tools/`, not at the repo root: this is a shader project, and `uv run`
   discovers the project by searching upward from the script, so the root-level command above works.
 
