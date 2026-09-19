@@ -177,7 +177,7 @@ texture texAutoMap { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA
 sampler AutoMap { Texture = texAutoMap; };
 
 //Motion reduction targets: coarse downscale and 1x1 global coverage statistic.
-texture texMotionCoarse { Width = 16; Height = 16; Format = RGBA8; };
+texture texMotionCoarse { Width = BUFFER_WIDTH / 16; Height = BUFFER_HEIGHT / 16; Format = RGBA8; };
 sampler MotionCoarse { Texture = texMotionCoarse; };
 texture texMotionStat { Width = 1; Height = 1; Format = RGBA8; };
 sampler MotionStat { Texture = texMotionStat; };
@@ -189,7 +189,7 @@ sampler MotionStat { Texture = texMotionStat; };
 
 //Pixel shaders
 //Accumulates confidence from stillness, applies hold grace and move memory debt.
-float4 PS_Accum(float2 texcoord : TEXCOORD) : SV_Target
+float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float3 now = tex2D(ReShade::BackBuffer, texcoord).rgb;
 	float3 before = tex2D(AutoHistory, texcoord).rgb;
@@ -255,7 +255,7 @@ float4 PS_Accum(float2 texcoord : TEXCOORD) : SV_Target
 }
 
 //Downsamples motion flags into coarse block coverage.
-float4 PS_Motion(float2 texcoord : TEXCOORD) : SV_Target
+float4 PS_Motion(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float blockStep = 1.0 / 16.0;
 	float sum = 0.0;
@@ -269,7 +269,7 @@ float4 PS_Motion(float2 texcoord : TEXCOORD) : SV_Target
 }
 
 //Reduces coarse blocks to global screen motion coverage (1x1).
-float4 PS_MotionAvg(float2 texcoord : TEXCOORD) : SV_Target
+float4 PS_MotionAvg(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float sum = 0.0;
 	for (int y = 0; y < 16; y++){
@@ -282,13 +282,13 @@ float4 PS_MotionAvg(float2 texcoord : TEXCOORD) : SV_Target
 }
 
 //Ping-pong back-edge (copy B to A).
-float4 PS_Copy(float2 texcoord : TEXCOORD) : SV_Target
+float4 PS_Copy(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	return tex2D(AutoAccumB, texcoord);
 }
 
 //Horizontal dilation bounded by luma edge threshold.
-float4 PS_DilateH(float2 texcoord : TEXCOORD) : SV_Target
+float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float2 texel = BUFFER_PIXEL_SIZE;
 	float r = floor(UIMaskDilate + 0.5);
@@ -305,7 +305,7 @@ float4 PS_DilateH(float2 texcoord : TEXCOORD) : SV_Target
 	return float4(mask.xxx, 1.0);
 }
 
-float4 PS_DilateV(float2 texcoord : TEXCOORD) : SV_Target
+float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float2 texel = BUFFER_PIXEL_SIZE;
 	float r = floor(UIMaskDilate + 0.5);
@@ -323,21 +323,21 @@ float4 PS_DilateV(float2 texcoord : TEXCOORD) : SV_Target
 }
 
 //Stores masked UI pixels before downstream processing.
-float4 PS_Store(float2 texcoord : TEXCOORD) : SV_Target
+float4 PS_Store(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float mask = step(0.5, tex2D(AutoMap, texcoord).r);
 	return float4(tex2D(ReShade::BackBuffer, texcoord).rgb * mask, 1.0);
 }
 
 //Stores untouched frame for next frame's comparison.
-float4 PS_StoreFrame(float2 texcoord : TEXCOORD) : SV_Target
+float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	return tex2D(ReShade::BackBuffer, texcoord);
 }
 
 #if UIMaskAntiBloom == 1
 	//Blacks masked UI pixels in back buffer to suppress bloom bleeding.
-	float4 PS_AntiBloom(float2 texcoord : TEXCOORD) : SV_Target
+	float4 PS_AntiBloom(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	{
 		float3 frame = tex2D(ReShade::BackBuffer, texcoord).rgb;
 		float mask = step(0.5, tex2D(AutoMap, texcoord).r);
@@ -346,7 +346,7 @@ float4 PS_StoreFrame(float2 texcoord : TEXCOORD) : SV_Target
 #endif
 
 //Restores stored UI pixels over processed frame.
-float4 PS_Restore(float2 texcoord : TEXCOORD) : SV_Target
+float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float3 live = tex2D(ReShade::BackBuffer, texcoord).rgb;
 	float3 stored = tex2D(AutoFrame, texcoord).rgb;
@@ -381,7 +381,7 @@ float4 PS_Restore(float2 texcoord : TEXCOORD) : SV_Target
 	> = 8.0;
 
 	//Packs diagnostic channels: .r=motion, .g=mask, .b=confidence/debt, .a=screen state.
-	float4 PS_DebugMap(float2 texcoord : TEXCOORD) : SV_Target
+	float4 PS_DebugMap(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	{
 		float4 accum = tex2D(AutoAccumA, texcoord);
 		float mask = step(0.5, tex2D(AutoMap, texcoord).r);
@@ -394,7 +394,7 @@ float4 PS_Restore(float2 texcoord : TEXCOORD) : SV_Target
 	}
 
 	//Blends diagnostics map over history frame and draws deadzone guide ring.
-	float4 PS_DebugOverlay(float2 texcoord : TEXCOORD) : SV_Target
+	float4 PS_DebugOverlay(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	{
 		float4 color = lerp(tex2D(AutoHistory, texcoord), float4(tex2D(AutoDebug, texcoord).rgb, 1.0), 0.7);
 		if (UIMaskDeadzoneWidth > 0.0 && UIMaskDeadzoneHeight > 0.0){

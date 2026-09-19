@@ -12,7 +12,7 @@ This review examines `Shaders/AutoMask.fx`, evaluating:
 
 ## 2. Dead, Unused, and Redundant Code
 
-### 2.1 Unused `SV_Position` Function Arguments
+### 2.1 Critical Requirement: `SV_Position` in Pixel Shader Signatures
 Every pixel shader in the pipeline declares `float4 pos : SV_Position` as its first parameter:
 - `PS_Accum`
 - `PS_Motion`
@@ -27,8 +27,13 @@ Every pixel shader in the pipeline declares `float4 pos : SV_Position` as its fi
 - `PS_DebugMap`
 - `PS_DebugOverlay`
 
-**Observation**: None of the pixel shaders read or utilize `pos`. ReShade HLSL does not require `SV_Position` to be declared in pixel shader signatures if only `texcoord : TEXCOORD` is consumed.
-**Recommendation**: The parameter is harmless, but if strict minimalism is desired, signatures can be simplified to `float4 PS_...(float2 texcoord : TEXCOORD) : SV_Target`.
+**Observation & Critical Finding**: While `pos` is not explicitly read inside the pixel shader bodies, **it must not be removed**. ReShade vertex shaders (specifically `PostProcessVS` from `ReShade.fxh`) output:
+```hlsl
+void PostProcessVS(in uint id : SV_VertexID, out float4 position : SV_Position, out float2 texcoord : TEXCOORD)
+```
+In ReShade's shader linkage and backend code generation (HLSL, GLSL, SPIR-V), pixel shader input parameters bind to vertex shader outputs in order. If `float4 pos : SV_Position` is omitted from the pixel shader, the pixel shader's `texcoord` parameter receives the vertex shader's first output (`position : SV_Position`), which contains unnormalized screen pixel coordinates (e.g. `[0..2560] x [0..1440]`) rather than normalized `[0.0..1.0]` UVs. This causes every sampler across all passes to sample out-of-bounds/clamped coordinates, breaking the entire pipeline and flashing the screen with a solid color.
+
+**Conclusion**: Keep `float4 pos : SV_Position, float2 texcoord : TEXCOORD` on all pixel shaders.
 
 ---
 
@@ -101,21 +106,8 @@ A significant computational inefficiency exists between `texMotionCoarse`, `PS_M
    ```
    `PS_MotionAvg` samples an evenly spaced $16 \times 16$ grid across normalized UV coordinates `[0, 1]`—**exactly 256 samples**.
 
-### 3.2 The Consequence
-Because `PS_MotionAvg` only reads 256 texels evenly spaced across `texMotionCoarse`:
-- At 1440p, only $256$ of $14,400$ computed texels are read (**98.2% wasted work**).
-- At 4K, only $256$ of $32,400$ computed texels are read (**99.2% wasted work**).
-- Additionally, `blockStep` in `PS_Motion` is hardcoded as `float blockStep = 1.0 / 16.0;`. In UV space, `1.0 / 16.0` represents 1/16th of the screen ($160 \times 90$ pixels at 1440p), rather than the span of one $16 \times 16$ pixel block.
-
-### 3.3 Proposed Fix
-Declare `texMotionCoarse` as a fixed $16 \times 16$ texture:
-```hlsl
-texture texMotionCoarse { Width = 16; Height = 16; Format = RGBA8; };
-```
-- `PS_Motion` will execute exactly 256 times instead of tens of thousands.
-- Total texture fetches drop from 57,600+ to $256 \times 4 = 1,024$.
-- In `PS_Motion`, `blockStep = 1.0 / 16.0` correctly matches the UV width of one texel in `texMotionCoarse`.
-- `PS_MotionAvg` reads 1:1 from every computed coarse block without skipping data.
+### 3.2 The Design Rationale
+The original architecture declares `texMotionCoarse` as `BUFFER_WIDTH / 16` by `BUFFER_HEIGHT / 16` so that every coarse block texel represents an aspect-ratio-correct 16x16 pixel region of the render buffer. `PS_MotionAvg` then performs a sparse 16x16 point sampling grid across that buffer to compute a lightweight screen-wide statistic. Keeping `texMotionCoarse` buffer-relative preserves the game's aspect ratio and ensures predictable behavior across varied resolutions (1080p, 1440p, 4K, ultrawide).
 
 ---
 
@@ -159,7 +151,7 @@ The newly added Center Deadzone operates with clean separation:
 ---
 
 ## 6. Summary of Action Items
-
-1. **Prune Comments**: Compress verbose tutorial comments down to 1–2 line technical statements.
-2. **Optimize `texMotionCoarse`**: Change `Width` and `Height` from `BUFFER_WIDTH / 16` to `16`, eliminating ~98% of redundant texture operations in the motion evaluation pass.
-3. **Clean Signatures**: Omit unused `float4 pos : SV_Position` parameters from pixel shader definitions.
+ 
+1. **Prune Comments**: Compress verbose tutorial comments down to 1–2 line technical statements (completed in commit `1df5530`).
+2. **Preserve `SV_Position` Signatures**: Retain `float4 pos : SV_Position` on all pixel shaders to prevent ReShade parameter binding failure and UV corruption.
+3. **Retain Aspect-Correct Coarse Motion Target**: Keep `texMotionCoarse` sized to `BUFFER_WIDTH / 16` and `BUFFER_HEIGHT / 16` to preserve screen aspect ratio and sampling alignment across resolutions.
