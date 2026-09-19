@@ -27,11 +27,15 @@ Every pixel shader in the pipeline declares `float4 pos : SV_Position` as its fi
 - `PS_DebugMap`
 - `PS_DebugOverlay`
 
-**Observation & Critical Finding**: While `pos` is not explicitly read inside the pixel shader bodies, **it must not be removed**. ReShade vertex shaders (specifically `PostProcessVS` from `ReShade.fxh`) output:
+**Observation & Critical Finding**: While `pos` is not explicitly read inside the pixel shader bodies, **it must not be removed**. ReShade's vertex shader (`PostProcessVS`, from `ReShade.fxh`) is:
 ```hlsl
 void PostProcessVS(in uint id : SV_VertexID, out float4 position : SV_Position, out float2 texcoord : TEXCOORD)
 ```
-In ReShade's shader linkage and backend code generation (HLSL, GLSL, SPIR-V), pixel shader input parameters bind to vertex shader outputs in order. If `float4 pos : SV_Position` is omitted from the pixel shader, the pixel shader's `texcoord` parameter receives the vertex shader's first output (`position : SV_Position`), which contains unnormalized screen pixel coordinates (e.g. `[0..2560] x [0..1440]`) rather than normalized `[0.0..1.0]` UVs. This causes every sampler across all passes to sample out-of-bounds/clamped coordinates, breaking the entire pipeline and flashing the screen with a solid color.
+Under the D3D10/11/12 register rule, a pixel shader's inputs bind by hardware register, and its `TEXCOORD` inputs are numbered from `v0` in the order it declares them. `PostProcessVS` puts the position at `v0` and the UV at `v1`, so the position parameter is load-bearing: it occupies `v0` and pushes the UV up to `v1`. Removing it slides the UV down into the position's register; declaring it last makes the UV fall back to `v0` while the position claims `v1`, producing *two* mismatched-register errors rather than one. Only "first" links correctly.
+
+The failure is not a value reinterpretation. The driver either reports a mismatched or absent input (debug layer) or leaves the input undefined; measured on a live D3D11 device with the debug layer attached, hardware supplied zero, so every pixel sampled one texel — the per-pixel difference collapses to zero everywhere, the mask fills uniformly, and the screen shows a single flashing colour. **The debug layer reports the error but does not stop the draw**, and without the debug layer the misbehaviour is silent, which is why the signature is pinned by reflection rather than by eye.
+
+The parameter is required even when the body never reads the input, and `PS_MotionAvg` is the case in this file: it samples at constant UVs and its body has **no `dcl_input_ps` at all**, yet its compiled signature still lists both inputs with an empty `Used` column (see `tools/.work/PS_MotionAvg.asm`). Linkage is decided on the declared signature, and `fxc` preserves declared inputs whether or not the body reads them.
 
 **Conclusion**: Keep `float4 pos : SV_Position, float2 texcoord : TEXCOORD` on all pixel shaders.
 
@@ -75,22 +79,20 @@ for (int i = -UIMASK_DILATE_MAX; i <= UIMASK_DILATE_MAX; i++){
 
 ---
 
-## 3. Architecture & Performance: The Motion Reduction Mismatch
+## 3. Architecture & Performance: The Motion Reduction Path
 
-A significant computational inefficiency exists between `texMotionCoarse`, `PS_Motion`, and `PS_MotionAvg`.
+The motion reduction runs `PS_Motion` into `texMotionCoarse`, then `PS_MotionAvg` into the 1×1 `texMotionStat`.
 
-### 3.1 The Mismatch Breakdown
+### 3.1 What the Two Passes Actually Do
 1. **Target Declaration**:
    ```hlsl
-   texture texMotionCoarse { Width = BUFFER_WIDTH / 16; Height = BUFFER_HEIGHT / 16; Format = RGBA8; };
+   texture texMotionCoarse { Width = 16; Height = 16; Format = RGBA8; };
    ```
-   At 2560x1440, `texMotionCoarse` is $160 \times 90 = 14,400$ pixels.
-   At 3840x2160 (4K), it is $240 \times 135 = 32,400$ pixels.
+   A fixed $16 \times 16 = 256$ texels, at 4 bytes each: 1 KB, identically at every resolution.
 
 2. **Per-Texel Workload in `PS_Motion`**:
    `PS_Motion` executes once per coarse texel. Each invocation samples 4 taps from `AutoAccumB`:
-   $$14,400 \times 4 = 57,600 \text{ texture fetches (1440p)}$$
-   $$32,400 \times 4 = 129,600 \text{ texture fetches (4K)}$$
+   $$256 \times 4 = 1,024 \text{ texture fetches}$$
 
 3. **Sampling in `PS_MotionAvg`**:
    `PS_MotionAvg` runs on a 1x1 render target (`texMotionStat`), evaluating:
@@ -104,10 +106,18 @@ A significant computational inefficiency exists between `texMotionCoarse`, `PS_M
    }
    return float4((sum / 256.0).xxx, 1.0);
    ```
-   `PS_MotionAvg` samples an evenly spaced $16 \times 16$ grid across normalized UV coordinates `[0, 1]`—**exactly 256 samples**.
+   `PS_MotionAvg` samples an evenly spaced $16 \times 16$ grid across normalized UV coordinates `[0, 1]`—**exactly 256 samples**, every texel of the coarse target, at each texel's centre.
 
-### 3.2 The Design Rationale
-The original architecture declares `texMotionCoarse` as `BUFFER_WIDTH / 16` by `BUFFER_HEIGHT / 16` so that every coarse block texel represents an aspect-ratio-correct 16x16 pixel region of the render buffer. `PS_MotionAvg` then performs a sparse 16x16 point sampling grid across that buffer to compute a lightweight screen-wide statistic. Keeping `texMotionCoarse` buffer-relative preserves the game's aspect ratio and ensures predictable behavior across varied resolutions (1080p, 1440p, 4K, ultrawide).
+### 3.2 Resolution and the Tap Geometry
+The two passes are written entirely in UV, so their relationship is resolution-independent either way:
+
+- `PS_Motion` takes 4 taps at `±0.015625` UV horizontally and `±0.01171875` UV vertically (`(i - 0.5) * blockStep * 0.5`, with `blockStep = 1.0 / 16.0` applied to x and y as *UV*, so the pair is not the same number of pixels on a 16:9 screen). The taps therefore span 80×45 px at 1440p and 120×67.5 px at 4K — **exactly half a coarse texel in each axis in both versions**, covering 25% of its area. In neither declaration does the pass average the 16×16-pixel block its texel nominally represents; it samples the accumulator across a sub-region of that block.
+
+- The declaration does change where the reduction lands, and the 16×16 target is the one that aligns. `PS_Motion` writes texel centres at `(m + 0.5) / 16`, and `PS_MotionAvg` samples at `(n + 0.5) / 16`, so at 16×16 every sample sits exactly on a texel centre — the reduction reads each coarse block once and skips none. With `BUFFER_WIDTH / 16` the sample position in texel units is `(n + 0.5) * (BUFFER_WIDTH / 16) / 16`, which is a texel centre only by coincidence: at 1440p (160 texels across) it lands on `10n + 5`, a texel *boundary*, and in the vertical at 90 texels it lands on `5.625n + 2.8125`, an arbitrary offset. So the buffer-relative version both samples between coarse texels and, where the buffer does not divide by 16 at all, truncates the target — 1080p is 67.5 texels tall, so it gets 67. The fixed size removes a resolution-dependent misalignment rather than adding one.
+
+- The aspect-ratio argument that the buffer-relative size would preserve is real but unused: it has value only if something reads the coarse map *as a spatial map*, per region. Nothing does. `PS_MotionAvg` is the sole reader and collapses the map to one number with 256 sparse taps. A dense per-region reduction inside a single 1×1 invocation would be far slower than the current sparse read, so the sparse read is the right call and this is not the direction to revisit.
+
+The fixed size therefore makes the declaration match its only consumer, and drops the target from 57.6 KB to 1 KB at 1440p.
 
 ---
 
@@ -153,5 +163,5 @@ The newly added Center Deadzone operates with clean separation:
 ## 6. Summary of Action Items
  
 1. **Prune Comments**: Compress verbose tutorial comments down to 1–2 line technical statements (completed in commit `1df5530`).
-2. **Preserve `SV_Position` Signatures**: Retain `float4 pos : SV_Position` on all pixel shaders to prevent ReShade parameter binding failure and UV corruption.
-3. **Retain Aspect-Correct Coarse Motion Target**: Keep `texMotionCoarse` sized to `BUFFER_WIDTH / 16` and `BUFFER_HEIGHT / 16` to preserve screen aspect ratio and sampling alignment across resolutions.
+2. **Preserve `SV_Position` Signatures**: Retain `float4 pos : SV_Position` on all pixel shaders. It occupies `v0` so the UV binds to `v1`; without it the linkage fails and every pass samples a single texel. Measured on a live D3D11 device, and the generated HLSL is otherwise byte-for-byte identical without it.
+3. **Size the Coarse Motion Target to 16×16**: Declare `texMotionCoarse` as `16 × 16` rather than `BUFFER_WIDTH / 16` × `BUFFER_HEIGHT / 16`. Nothing reads the coarse map spatially, so the aspect-ratio property the buffer-relative size preserves is unused, and the fixed size matches the declaration to its only consumer (256 texels, 1 KB, at every resolution).

@@ -177,7 +177,7 @@ texture texAutoMap { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA
 sampler AutoMap { Texture = texAutoMap; };
 
 //Motion reduction targets: coarse downscale and 1x1 global coverage statistic.
-texture texMotionCoarse { Width = BUFFER_WIDTH / 16; Height = BUFFER_HEIGHT / 16; Format = RGBA8; };
+texture texMotionCoarse { Width = 16; Height = 16; Format = RGBA8; };
 sampler MotionCoarse { Texture = texMotionCoarse; };
 texture texMotionStat { Width = 1; Height = 1; Format = RGBA8; };
 sampler MotionStat { Texture = texMotionStat; };
