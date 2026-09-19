@@ -73,6 +73,7 @@ they aren't.
 | **Center deadzone height (percent)** | Height of the elliptical center deadzone. `0` turns it off. |
 | **Center deadzone vertical position (percent)** | Vertical center of the deadzone (`50` is screen center; raise it to move down toward the character's feet). |
 | **Only suppress deadzone while world moves** | When checked, the deadzone only suppresses accumulation while the world is being drawn. When the scene is still, full-screen menus can accumulate even inside the deadzone. When unchecked, the deadzone is suppressed at all times. |
+| **Diagnostics: motion view** | Which reading the overlay draws when it is switched on. On, it is the motion view: red where the frame sees a change, nothing where it does not. Off, it is the verdict view: green where a pixel has earned its place in the mask — the shader's own verdict, without the closing radius — nothing where it has not. Both tint only the pixels they name and leave the rest of the picture exactly as the game drew it; the deadzone ring and the bottom-left corner marker show in both. |
 
 There are two more switches that are not sliders — **anti-bloom** (on by default) and the
 **diagnostics overlay** (off). Both are compile-time switches rather than sliders, which is why
@@ -81,39 +82,38 @@ it: with a switch off, the work it would have done is not just skipped, it isn't
 
 ## Seeing what it decided
 
-Turn the diagnostics overlay on and the mask is drawn over the picture, red and green and blue.
-It takes a sentence to read:
+Turn the diagnostics overlay on and it draws one of two readings over the picture, whichever
+**Diagnostics: motion view** picks. Both tint *only* the pixels they name and leave every other pixel
+exactly the game drew it, with no global wash — it is either red where the frame sees a change or green
+where the shader has decided a pixel is interface, and nothing at all where neither applies:
 
-- **Green** — the shader's verdict right now: this pixel is in the mask. It is on or off, never a
-  shade, because it is a decision. A green pixel that is *not* brightly blue is the closing radius
-  rather than the shader's own judgement — the mask is grown over a neighbourhood, so a pixel beside an
-  element gets pulled in while its own confidence is nothing.
-- **Blue** — how certain the pixel is. Mid-blue is the point where nothing has been decided either way,
-  which is where scenery sits. Brighter is confidence earned and climbing towards the mask. Dimmer, and
-  all the way to black, is a pixel the frame has just called moving — the further from mid-blue it is,
-  the further it has been pushed out. So blue brightening over something is it being recognised as
-  yours, and blue going dark over something that has stopped moving is a recent move still being
-  remembered, not a mistake.
-- **Red** — how much this pixel changed this frame. Nothing the frame forgave is drawn at all, and from
-  there it is graded: a change one step under the RGB-step setting is the first to show, one the size of
-  the setting is a faint red — about a quarter of full strength — and one four steps above it is full red.
-  So this is the channel to watch while setting that slider: no red over something you can see moving
-  means the setting is above it. This is the only channel that fades smoothly, so red fading out is a
-  region settling down. Green fading to red is an element being left behind as the world starts moving
-  over it, and it is the normal way a menu leaving looks. Red keeps updating even while the world is
-  stopped, so a red patch in a held frame is something genuinely still moving on screen.
+- **Red** — the motion view: how much this pixel changed this frame. Nothing the frame forgave is drawn
+  at all, and from there it is graded: a change one step under the RGB-step setting is the first to
+  show, one the size of the setting is a faint red — about a quarter of full strength — and one four
+  steps above it is full red. So this is the view to watch while setting that slider: no red over
+  something you can see moving means the setting is above it. Red fades out as a region settles down,
+  and it keeps updating even while the world is stopped, so a red patch in a held frame is something
+  genuinely still moving on screen. A pixel that is red while the mask view would call it yours is an
+  element being left behind as the world starts moving over it — the normal way a menu leaving looks.
+- **Green** — the verdict view: the shader's judgement right now, this pixel has earned its place in
+  the mask. It is on or off, never a shade, because it is a decision, and it is the shader's own
+  verdict per pixel — the closing radius is *not* included, so an element shows exactly its own area
+  and nothing grown out around it. This is the view for asking what the shader thinks it is protecting:
+  a menu should light up while it is open and go dark as the world takes it back. A stopped world adds
+  nothing, so in a held frame (the marker below is yellow) the green you see is the last state that was
+  decided and may only shrink, never grow.
 
 If you have configured a center deadzone (`Center deadzone width` and `height` above zero), a thin yellow ring is drawn around the boundary of the ellipse so you can see exactly where it frames your character while adjusting the sliders.
 
 The small block in the bottom-left corner is always drawn, and its colour tells you what the whole
-screen is doing — which matters, because that is what decides whether the reds and blues you can see
-are a current judgement or a held one:
+screen is doing — which matters, because that is what decides whether the reading you can see is a
+current judgement or a held one:
 
-- **Magenta** — the world is being drawn. Everything else on screen is a live verdict: greens are
-  being earned, reds are being cleared.
+- **Magenta** — the world is being drawn. The reading on screen is live: the verdict view's greens are
+  being earned, the motion view's reds are clearing.
 - **Yellow** — the world has stopped being drawn. The mask is now held: anything still keeps exactly
   the state it was in, and anything the frame shows moving is still falling out. So in a yellow frame
-  green and blue are the last state that was decided and will not change on a still pixel, while red
+  the green view is the last state that was decided and will not change on a still pixel, while red
   and the falling of a moving pixel are still live.
 
 The block is drawn flat — no blending, no tinting — and it is put there by the very last thing in the

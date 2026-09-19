@@ -156,14 +156,19 @@ Load-bearing, and follows from what each pass reads:
 7. The diagnostics overlay, last, and only when `UIMaskDiagnostics` is defined to 1 — a compile-time
    guard on the pass and the shader both, so with it off neither is compiled. It reads the accumulator
    directly rather than recomputing the difference, so it cannot report on itself instead of on the
-   shader. Its channels are: red the graded motion, green the published mask (binary — a green pixel
-   with no blue is the closing radius, not the accumulator), blue the accumulator's signed confidence
-   packed around mid-blue so the memory is drawn rather than clamped away (`AutoDebug` is RGBA8 and a
-   signed value would lose its lower half), and alpha the screen state in two steps. The state is read
+   shader. It draws one of two views, picked by the live toggle `UIDebugMotion`: red where the graded
+   motion reads, or green where the accumulator's own confidence crosses the protection threshold — the
+   published mask is deliberately *not* used, so the verdict view shows an element's own area without
+   the closing radius grown around it. Both views tint over the stored history frame and only where
+   the chosen signal covers: the blend is scaled by the signal, so a pixel it does not name is passed
+   through untouched and nothing washes over the rest of the picture. The map packs both signals into
+   one target: red the graded motion, green and blue the same verdict (two channels of one value,
+   because the view reads one or the other), and alpha the screen state in two steps. The state is read
    from the same statistic the gate itself reads, one frame behind the frame it describes, so it shows
    the state that will shortly govern the mask rather than a value recomputed a second way. Its
    strictness must match the gate's: `> UIMaskMotion`, not `step`, which is true at the threshold
-   itself and would disagree on exactly the boundary frame.
+   itself and would disagree on exactly the boundary frame. The deadzone ring is drawn over either
+   view.
    The corner marker is **not** drawn here: it is the one thing `AutoMask_Restore` adds, reading that
    alpha channel, because a block drawn inside `AutoMask` is repainted by the restore pass over any
    pixel the mask covers and treated as picture by every effect in between. Two states, two flat
@@ -267,9 +272,9 @@ The compile check needs `fxc.exe`, which is a Windows binary run under WSL:
   one-sided hold exists to prevent; and then the same, with an animating element on screen the whole
   time — a draining bar or a scrolling list that moves for longer than `UIMaskForget` — which should
   lose its protection to the memory, and get it back once the animation stops and the world is drawn
-  again. If both behave, the setting is doing what it says. Watching blue in the
-  overlay is the cheap way to see the memory being spent, since it is the only view of it — and the
-  corner marker tells you whether the blues you are looking at are current.
+  again. If both behave, the setting is doing what it says. Watching the overlay in its motion view is
+  the cheap way to see movement the deadband is still admitting, and the corner marker tells you whether
+  the reading you are looking at is current.
 
 ## What this shader cannot do
 

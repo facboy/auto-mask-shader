@@ -325,6 +325,37 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 	}
 #endif
 
+#if UIMaskDiagnostics == 1
+	//Diagnostics view toggle.
+	uniform bool UIDebugMotion <
+		__UNIFORM_SLIDER_BOOL1
+		ui_label = "Diagnostics: motion view";
+		ui_tooltip = "On, the overlay is a motion reading: red where the frame sees a change, nothing where it does not. Off, it is the verdict reading: green where a pixel has earned protection, nothing where it has not. Both tint only the pixels they name; the deadzone ring and the corner marker show in both";
+		ui_category = "AutoMask";
+	> = true;
+
+	//Motion visualization gain for diagnostics overlay.
+	uniform float UIDebugGain <
+		__UNIFORM_SLIDER_FLOAT1
+		ui_label = "Diagnostics: motion gain";
+		ui_tooltip = "Brightens the per-pixel motion in the overlay, so a change too small to see but large enough to stop a pixel accumulating becomes visible";
+		ui_category = "AutoMask";
+		ui_min = 1.0; ui_max = 64.0;
+		ui_step = 1.0;
+	> = 8.0;
+
+	//Packs diagnostic channels: .r=motion, .g=static-UI verdict, .b=static-UI verdict, .a=screen state.
+	float4 PS_DebugMap(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+	{
+		float4 accum = tex2D(AutoAccumA, texcoord);
+		float verdict = step(0.5, accum.r);
+		float changed = saturate(accum.b * UIDebugGain);
+		float drawn = tex2D(MotionStat, float2(0.5, 0.5)).r * 100.0 > UIMaskMotion;
+		float screen = drawn ? 1.0 : 0.0;
+		return float4(changed, verdict, verdict, screen);
+	}
+#endif
+
 //Restores stored UI pixels over processed frame.
 float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
@@ -334,6 +365,23 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	float3 color = lerp(live, stored, mask);
 
 	#if UIMaskDiagnostics == 1
+		//Tint over the restore, drawn after it so it sits on top of the stored UI rather than being
+		//repainted by it: red where the motion view sees a change, green where the verdict view
+		//sees protection, nothing at all where it does not.
+		float4 debug = tex2D(AutoDebug, texcoord);
+		float tint = UIDebugMotion ? debug.r : debug.g;
+		float3 mark = UIDebugMotion ? float3(1.0, 0.0, 0.0) : float3(0.0, 1.0, 0.0);
+		color = lerp(color, mark, tint * 0.7);
+
+		if (UIMaskDeadzoneWidth > 0.0 && UIMaskDeadzoneHeight > 0.0){
+			float rx = UIMaskDeadzoneWidth * 0.005;
+			float ry = UIMaskDeadzoneHeight * 0.005;
+			float2 offset = float2(texcoord.x - 0.5, texcoord.y - UIMaskDeadzoneY * 0.01);
+			float dist = length(offset / float2(rx, ry));
+			float ring = 1.0 - saturate(abs(dist - 1.0) / max(fwidth(dist) * 1.5, 0.001));
+			color = lerp(color, float3(1.0, 1.0, 0.0), ring * 0.85);
+		}
+
 		//Bottom-left diagnostic state marker: magenta=live, yellow=stopped.
 		if (texcoord.x < 0.02 && texcoord.y > 0.98){
 			float state = tex2D(AutoDebug, float2(0.5, 0.5)).a;
@@ -346,46 +394,6 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 
 	return float4(color, 1.0);
 }
-
-#if UIMaskDiagnostics == 1
-	//Motion visualization gain for diagnostics overlay.
-	uniform float UIDebugGain <
-		__UNIFORM_SLIDER_FLOAT1
-		ui_label = "Diagnostics: motion gain";
-		ui_tooltip = "Brightens the per-pixel motion in the overlay, so a change too small to see but large enough to stop a pixel accumulating becomes visible";
-		ui_category = "AutoMask";
-		ui_min = 1.0; ui_max = 64.0;
-		ui_step = 1.0;
-	> = 8.0;
-
-	//Packs diagnostic channels: .r=motion, .g=mask, .b=confidence/debt, .a=screen state.
-	float4 PS_DebugMap(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
-	{
-		float4 accum = tex2D(AutoAccumA, texcoord);
-		float mask = step(0.5, tex2D(AutoMap, texcoord).r);
-		float changed = saturate(accum.b * UIDebugGain);
-		float depth = max(UIMaskFall * UIMaskMoveMemory, 0.001);
-		float conf = clamp(0.5 + 0.5 * (accum.r < 0.0 ? accum.r / depth : accum.r), 0.0, 1.0);
-		float drawn = tex2D(MotionStat, float2(0.5, 0.5)).r * 100.0 > UIMaskMotion;
-		float screen = drawn ? 1.0 : 0.0;
-		return float4(changed, mask, conf, screen);
-	}
-
-	//Blends diagnostics map over history frame and draws deadzone guide ring.
-	float4 PS_DebugOverlay(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
-	{
-		float4 color = lerp(tex2D(AutoHistory, texcoord), float4(tex2D(AutoDebug, texcoord).rgb, 1.0), 0.7);
-		if (UIMaskDeadzoneWidth > 0.0 && UIMaskDeadzoneHeight > 0.0){
-			float rx = UIMaskDeadzoneWidth * 0.005;
-			float ry = UIMaskDeadzoneHeight * 0.005;
-			float2 offset = float2(texcoord.x - 0.5, texcoord.y - UIMaskDeadzoneY * 0.01);
-			float dist = length(offset / float2(rx, ry));
-			float ring = 1.0 - saturate(abs(dist - 1.0) / max(fwidth(dist) * 1.5, 0.001));
-			color.rgb = lerp(color.rgb, float3(1.0, 1.0, 0.0), ring * 0.85);
-		}
-		return color;
-	}
-#endif
 
 //Techniques
 technique AutoMask
@@ -443,10 +451,6 @@ technique AutoMask
 			VertexShader = PostProcessVS;
 			PixelShader = PS_DebugMap;
 			RenderTarget = texAutoDebug;
-		}
-		pass {
-			VertexShader = PostProcessVS;
-			PixelShader = PS_DebugOverlay;
 		}
 	#endif
 }
