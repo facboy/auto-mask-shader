@@ -61,7 +61,7 @@ they aren't.
 
 | Setting | What it does |
 | --- | --- |
-| **RGB step counted as a change** | How far a pixel's colour may move between two frames and still count as "holding still", counted in whole levels out of 255 — the steps the channels themselves can take. At `1` any change at all is movement; `2` forgives a one-level difference, `3` forgives two, and so on. Raise it only if a HUD that looks perfectly still refuses to form a mask, which is what capture noise, dithering or temporal anti-aliasing looks like — it makes a static pixel differ by a level or two; lower it if scenery is getting caught. |
+| **RGB step counted as a change** | How far a pixel's colour may move between two frames before the frame counts it as motion, counted in whole levels out of 255 — the steps the channels themselves can take, so the slider moves in whole levels too. It answers one question only, "did this pixel move?", and it is the most sensitive at `1`, where any change at all is motion — shown in the overlay as a change one step below the setting's own size. `2` forgives a one-level difference, `3` forgives two, and so on; there is nothing below `1`, because a level is the smallest change a channel can make. A change the size of the setting itself shows a faint red — a quarter of full strength — and the further a change goes above it the more strongly it reads, reaching full strength four steps above it. Raise it only if you see red in the overlay over things that are genuinely not moving — noise, dithering or temporal anti-aliasing makes a static pixel differ by a level or two — at the cost of no longer seeing the smallest movements; lower it to `1` if anything you can see moving is shown without red. What a moving pixel then *costs* the mask is a separate setting (**Confidence lost per changing frame**, and the move memory): every frame the RGB step calls changing costs the same, however small the change was, so this slider decides *whether* the frame sees it and nothing else. |
 | **Confidence gained per still frame** | How quickly a pixel earns its place in the mask. Lower means an element has to hold still for longer before it counts. |
 | **Confidence lost per changing frame** | How quickly a region drops back out once the world starts moving over it. Higher clears faster. |
 | **Frames of absence before decay starts** | The grace period before that decay begins. This is the one that matters most: it is what keeps an element covered while it animates a little — a draining bar, a scrolling list, a blinking cursor. Too short and you get holes over exactly the parts that move. It only applies while the world is being drawn. |
@@ -94,7 +94,14 @@ It takes a sentence to read:
   the further it has been pushed out. So blue brightening over something is it being recognised as
   yours, and blue going dark over something that has stopped moving is a recent move still being
   remembered, not a mistake.
-- **Red** — how much this pixel changed this frame. This is the only one that fades smoothly, so red fading out is a region settling down. Green fading to red is an element being left behind as the world starts moving over it, and it is the normal way a menu leaving looks. Red keeps updating even while the world is stopped, so a red patch in a held frame is something genuinely still moving on screen.
+- **Red** — how much this pixel changed this frame. Nothing the frame forgave is drawn at all, and from
+  there it is graded: a change one step under the RGB-step setting is the first to show, one the size of
+  the setting is a faint red — about a quarter of full strength — and one four steps above it is full red.
+  So this is the channel to watch while setting that slider: no red over something you can see moving
+  means the setting is above it. This is the only channel that fades smoothly, so red fading out is a
+  region settling down. Green fading to red is an element being left behind as the world starts moving
+  over it, and it is the normal way a menu leaving looks. Red keeps updating even while the world is
+  stopped, so a red patch in a held frame is something genuinely still moving on screen.
 
 If you have configured a center deadzone (`Center deadzone width` and `height` above zero), a thin yellow ring is drawn around the boundary of the ellipse so you can see exactly where it frames your character while adjusting the sliders.
 

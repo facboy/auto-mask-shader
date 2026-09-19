@@ -21,14 +21,15 @@
 #endif
 
 //Uniforms
-//RGB change deadband in whole levels out of 255. 1 is any change at all; 0 disables the shader.
+//RGB change deadband in whole levels out of 255: the smallest change counted as motion, so the
+//smallest setting catches every change there is and is the most sensitive the detection goes.
 uniform float UIMaskEps <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "RGB step counted as a change";
-	ui_tooltip = "Whole levels out of 255 a pixel's colour may move between frames and still count as holding still. 1 is any change at all; 2 forgives a one-level difference, 3 forgives two levels, and a change of this many levels or more counts as motion. Raise it only if a static HUD will not form a mask because of capture noise; lower it if moving scenery still accumulates. 0 disables the shader";
+	ui_tooltip = "The smallest change, in whole levels out of 255, that the frame calls motion: a pixel moving by this many levels or more is moving, and anything less is holding still. 1 means any change at all, which is as sensitive as this setting goes; 2 forgives a one-level difference, 3 forgives two levels, and so on. It decides detection and nothing else -- what a pixel the frame calls moving then costs the mask belongs to 'Confidence lost per changing frame' and 'Frames a move is remembered'. Raise it if the overlay shows red over things that are genuinely still, which is what capture noise or dithering looks like, at the price of no longer seeing the smallest movements; lower it to 1 if anything that is moving is shown without red. A channel can only move in whole levels, so the slider moves in whole levels too, and there is no position below one";
 	ui_category = "AutoMask";
-	ui_min = 0.0; ui_max = 8.0;
-	ui_step = 0.1;
+	ui_min = 1.0; ui_max = 8.0;
+	ui_step = 1.0;
 > = 1.0;
 
 //Confidence gained per still frame.
@@ -44,7 +45,7 @@ uniform float UIMaskRise <
 uniform float UIMaskFall <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Confidence lost per changing frame";
-	ui_tooltip = "Higher clears a region faster once the world starts moving over it again. Keep it above 'Confidence gained' or the mask will linger over moving scenery. A change smaller than the deadband costs proportionally less";
+	ui_tooltip = "Higher clears a region faster once the world starts moving over it again. Keep it above 'Confidence gained' or the mask will linger over moving scenery. Every frame the RGB step calls changing costs this much, however small the change was; frames it calls still cost nothing";
 	ui_category = "AutoMask";
 	ui_min = 0.005; ui_max = 1.0;
 	ui_step = 0.005;
@@ -63,7 +64,7 @@ uniform float UIMaskForget <
 uniform float UIMaskMoveMemory <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Frames a move is remembered";
-	ui_tooltip = "How long a pixel the frame shows as moving stays out of the mask. A full-magnitude move costs one 'Confidence lost' of confidence and a still frame pays back a single frame's worth of it, so this is roughly how many still frames pass before the pixel can begin earning protection again -- at 60fps, 90 frames is a second and a half. The repayment happens whether or not the world is being drawn, so this is also how long a screen-wide move takes to clear once it stops. Below 1 it is off, and only the per-frame fall remains";
+	ui_tooltip = "How long a pixel the frame shows as moving stays out of the mask. A frame the RGB step calls moving costs one 'Confidence lost' of confidence, however small the change was, and a still frame pays back a single frame's worth of it, so this is roughly how many still frames pass before the pixel can begin earning protection again -- at 60fps, 90 frames is a second and a half. The repayment happens whether or not the world is being drawn, so this is also how long a screen-wide move takes to clear once it stops. Below 1 it is off, and only the per-frame fall remains";
 	ui_category = "AutoMask";
 	ui_min = 0.0; ui_max = 600.0;
 	ui_step = 5.0;
@@ -175,11 +176,13 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	float3 before = tex2D(AutoHistory, texcoord).rgb;
 	float3 diff = abs(now - before) * 255.0;
 	float maxDiff = max(diff.r, max(diff.g, diff.b));
-	//Ramp foot half a level under the deadband: on it, the level at UIMaskEps scored zero and
-	//was invisible to the motion coverage the gate reads.
-	float edge = max(UIMaskEps - 0.5, 0.001);
-	float motion = smoothstep(edge, edge * 4.0, maxDiff);
-	float stable = maxDiff < UIMaskEps ? 1.0 : 0.0;
+	//The deadband is a level count, so it is read as whole levels: a change of that many levels or
+	//more is motion, anything less is still. The foot sits a level under it -- zero at the smallest
+	//setting, so any change at all is caught -- and the ceiling keeps the same offset so the
+	//setting's own level reads a quarter-strength change, not the full one it becomes at eps+1.
+	float deadband = max(ceil(UIMaskEps), 1.0);
+	float motion = smoothstep(deadband - 1.0, deadband * 4.0 - 1.0, maxDiff);
+	float stable = maxDiff < deadband ? 1.0 : 0.0;
 
 	float4 prev = tex2D(AutoAccumA, texcoord);
 	float conf = prev.r;
@@ -215,10 +218,11 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 		//Bridge brief animation before decay starts.
 		held += 1.0;
 	} else {
-		//Decay confidence and bank move debt: the fall never waits on the world being drawn.
-		conf = conf - UIMaskFall * motion;
+		//Decay confidence and bank move debt: the fall never waits on the world being drawn, and a
+		//frame the deadband calls changing costs the same however small the change was.
+		conf = conf - UIMaskFall * (1.0 - stable);
 		if (UIMaskMoveMemory > 0.0){
-			conf = min(conf, -UIMaskFall * UIMaskMoveMemory * motion);
+			conf = min(conf, -UIMaskFall * UIMaskMoveMemory * (1.0 - stable));
 		}
 	}
 

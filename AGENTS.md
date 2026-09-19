@@ -70,12 +70,22 @@ re-drawing the view", so `PS_Motion` counts the share of each block that changed
 the graded magnitude just above zero (a still pixel scores exactly zero, so the flag is recovered
 from the same channel). Averaging the magnitude instead let one small bright object in fast
 motion declare the whole view live — the opposite of treating the screen as mostly backdrop.
-`UIMaskEps` is counted in whole levels out of 255, because that is the only unit the channels have.
-The two tests must meet across it — a pixel is still below the deadband and moving at or above it — so
-the motion ramp's foot sits half a level *under* the deadband rather than on it. On the deadband the
-level at its edge satisfied neither test: it earned nothing, banked no debt and read as zero motion.
-Raising the deadband therefore made the world-drawn reading blind instead of strict, and a level of
-change the camera produced could leave the gate holding the mask over something that was moving.
+`UIMaskEps` is counted in whole levels out of 255, because that is the only unit the channels have —
+the comparison is against an 8-bit history, so the slider steps by whole levels and a fractional value
+is a position that cannot exist. Its minimum is 1 rather than 0 for the same reason: one level is the
+smallest movement there is, so that is where detection is most sensitive, and a 0 would have been a
+position nothing could sit below. The old "0 means off" kept the motion channel, the debt and the overlay
+alive while the mask never formed, which is what made 0 look more sensitive than the positions above it.
+It decides one thing only, whether the frame moved a pixel; what a change then *costs* the mask is a
+separate slider, and the two must not be conflated — the reading the user watches in the overlay is the
+same channel the verdict comes from, but the cost is banked against the verdict, not the reading. The two
+verdicts are complements of one number rather than two tests that happen to meet: the deadband is read as
+whole levels, `max(ceil(UIMaskEps), 1)`, a pixel is still below it and moving at or above it, and the ramp
+runs from a level under the deadband to four times it, keeping the same offset under at its ceiling. Foot
+and ceiling sit a full level under so that, at the smallest setting, any change at all is seen — the old
+ramp footed half a level up and hid every sub-level change, which is what made 0 look more sensitive than
+1 — while the setting's own level reads only a quarter of full strength, so the integer levels on either
+side of the deadband stay the boundary rather than the deadband itself.
 
 On the still side of the threshold the reading becomes a **hold**, and it is one-sided: while the world
 is not being drawn a still pixel is carried over untouched — no rise, no fall, no heal — and a moving
@@ -102,9 +112,12 @@ run on their own timescales: ~2 still frames to protect (fast, or a HUD is never
 `UIMaskMoveMemory` is therefore a duration rather than a confidence budget, and 0 restores the old
 behaviour exactly. Movement that fits inside the hold is still bridged and never banked, which is what
 keeps a draining bar or a scrolling list protected; movement past the hold costs the element its
-protection until the debt clears. The magnitude is graded — `smoothstep(UIMaskEps - 0.5, UIMaskEps * 4)`
-rather than a step — so a pixel nudging at the deadband owes almost nothing while one the camera swung
-past owes the lot; a linear ramp would hand the full memory to the pixels where capture noise lives.
+protection until the debt clears. What a frame then costs is read from the verdict the deadband reached,
+not from the graded magnitude: a frame is changing or it is not, and a changing one costs a frame's worth
+of `UIMaskFall`, however small the change was — the RGB step decides only that the pixel moved, and what
+the move costs is `UIMaskFall` and `UIMaskMoveMemory`'s business. The graded magnitude survives only in
+the overlay, where red is the reading the user watches; banking against it would have made the deadband
+tune the confidence, which is the conflation the slider's role forbids.
 
 The heal is one frame's worth of `UIMaskFall` per still frame regardless of the slider, which is what
 keeps the memory a duration the user can reason about rather than a confidence number they have to
