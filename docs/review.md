@@ -88,7 +88,7 @@ The motion reduction runs `PS_Motion` into `texMotionCoarse`, then `PS_MotionAvg
    ```hlsl
    texture texMotionCoarse { Width = 16; Height = 16; Format = RGBA8; };
    ```
-   A fixed $16 \times 16 = 256$ texels, at 4 bytes each: 1 KB, identically at every resolution.
+   A fixed $16 \times 16 = 256$ texels, at 4 bytes each: 1,024 bytes, identically at every resolution.
 
 2. **Per-Texel Workload in `PS_Motion`**:
    `PS_Motion` executes once per coarse texel. Each invocation samples 4 taps from `AutoAccumB`:
@@ -117,7 +117,7 @@ The two passes are written entirely in UV, so their relationship is resolution-i
 
 - The aspect-ratio argument that the buffer-relative size would preserve is real but unused: it has value only if something reads the coarse map *as a spatial map*, per region. Nothing does. `PS_MotionAvg` is the sole reader and collapses the map to one number with 256 sparse taps. A dense per-region reduction inside a single 1×1 invocation would be far slower than the current sparse read, so the sparse read is the right call and this is not the direction to revisit.
 
-The fixed size therefore makes the declaration match its only consumer, and drops the target from 57.6 KB to 1 KB at 1440p.
+The fixed size therefore makes the declaration match its only consumer, and drops the target from 57,600 bytes to 1,024 bytes at 1440p.
 
 ---
 
@@ -164,4 +164,4 @@ The newly added Center Deadzone operates with clean separation:
  
 1. **Prune Comments**: Compress verbose tutorial comments down to 1–2 line technical statements (completed in commit `1df5530`).
 2. **Preserve `SV_Position` Signatures**: Retain `float4 pos : SV_Position` on all pixel shaders. It occupies `v0` so the UV binds to `v1`; without it the linkage fails and every pass samples a single texel. Measured on a live D3D11 device, and the generated HLSL is otherwise byte-for-byte identical without it.
-3. **Size the Coarse Motion Target to 16×16**: Declare `texMotionCoarse` as `16 × 16` rather than `BUFFER_WIDTH / 16` × `BUFFER_HEIGHT / 16`. Nothing reads the coarse map spatially, so the aspect-ratio property the buffer-relative size preserves is unused, and the fixed size matches the declaration to its only consumer (256 texels, 1 KB, at every resolution).
+3. **Size the Coarse Motion Target to 16×16**: Declare `texMotionCoarse` as `16 × 16` rather than `BUFFER_WIDTH / 16` × `BUFFER_HEIGHT / 16`. Nothing reads the coarse map spatially, so the aspect-ratio property the buffer-relative size preserves is unused, and the fixed size matches the declaration to its only consumer (256 texels, 1,024 bytes, at every resolution).

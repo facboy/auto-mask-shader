@@ -167,6 +167,13 @@ Load-bearing, and follows from what each pass reads:
   `__UNIFORM_SLIDER_BOOL1` for bools. A mismatch is a silent ReShade UI bug.
 - `BUFFER_WIDTH`/`BUFFER_HEIGHT` are injected by ReShade at runtime, not defined here. Anything
   buffer-relative stays correct across resolutions; absolute pixel numbers do not.
+- Every pixel shader keeps `float4 pos : SV_Position` as its **first** parameter, even though no body
+  reads it. `PostProcessVS` emits the position at `v0` and the UV at `v1`, and a pixel shader's
+  `TEXCOORD` inputs are numbered from `v0` in declaration order — so the position is what pushes the UV
+  onto `v1`. Drop it and the UV slides into the position's register; the debug layer reports a
+  mismatched input and the draw still runs with the input undefined, so every pass samples one texel
+  and the mask fills uniformly. `PS_MotionAvg` is the trap: its body has no `dcl_input_ps` at all and
+  the parameter is still required, because linkage follows the *declared* signature.
 - Two structural switches are preprocessor definitions, not sliders: `UIMaskAntiBloom` and
   `UIMaskDiagnostics`. Each is `#ifndef`-guarded with `// [0 or 1]` annotation comments, as the pack
   does it, and each guards everything that feature owns — its **pass and technique entry, its shader,
