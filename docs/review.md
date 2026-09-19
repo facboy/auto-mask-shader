@@ -136,14 +136,14 @@ The fixed size therefore makes the declaration match its only consumer, and drop
 | **45–50** | `UIMaskRise` | 6-line history detailing an older value (0.07) that required 8 frames. |
 | **78–97** | `UIMaskMoveMemory` | 20-line narrative on camera motion, debt repayment timescales, and hidden errors. |
 | **129–143** | `UIMaskMotion` | 15-line debate about spinning coins, screen share, and quiet rooms. |
-| **153–162** | `UIMaskTrust` | 10 lines explaining panel opening grace over static scenes. |
-| **172–180** | `UIMaskSettle` | 9 lines on window interaction and state transitions. |
+| **153–162** | `UIMaskTrust` | 10 lines explaining panel opening grace over static scenes. (Removed with the slider.) |
+| **172–180** | `UIMaskSettle` | 9 lines on window interaction and state transitions. (Removed with the slider.) |
 | **278–291** | Before `PS_Accum` | 14-line tutorial narration summarizing the entire activation signal. |
 | **298–305** | Inside `PS_Accum` | 8 lines discussing `smoothstep` vs linear ramps. |
 | **315–328** | Inside `PS_Accum` | 14 lines explaining why target initial allocation reads 0 vs 255. |
 | **409–421** | Before `PS_Motion` | 13 lines repeating the screen-wide premise. |
 | **458–477** | Before `PS_DilateH` | 20 lines documenting HLSL compiler bug X3511 and offline test limits. |
-| **587–625** | Diagnostics | 39 lines detailing color packing, 3-state alpha, and corner marker rationale. |
+| **587–625** | Diagnostics | 39 lines detailing color packing, 2-state alpha, and corner marker rationale. |
 
 ### 4.3 Recommendation
 All design rationale, architectural history, and compiler quirks are already documented in `AGENTS.md` and `README.md`. Comments in `Shaders/AutoMask.fx` should be condensed into concise, 1–2 line descriptions matching the repository's rules.

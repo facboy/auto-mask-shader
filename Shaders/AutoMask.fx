@@ -53,7 +53,7 @@ uniform float UIMaskFall <
 uniform float UIMaskForget <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Frames of absence before decay starts";
-	ui_tooltip = "Bridges brief animation. A draining bar or a scrolling grid needs this long enough to cover the movement. It absorbs the first frames of movement before any of it is remembered, so it also covers the one full-screen change after a load or a resize, when the previous frame is still blank";
+	ui_tooltip = "Bridges brief animation. A draining bar or a scrolling grid needs this long enough to cover the movement. It absorbs the first frames of movement before any of it is remembered, so it also covers the one full-screen change after a load or a resize, when the previous frame is still blank. It only applies while the world is being drawn";
 	ui_category = "AutoMask";
 	ui_min = 0.0; ui_max = 120.0;
 	ui_step = 1.0;
@@ -63,7 +63,7 @@ uniform float UIMaskForget <
 uniform float UIMaskMoveMemory <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Frames a move is remembered";
-	ui_tooltip = "How long a pixel the frame shows as moving stays out of the mask. A full-magnitude move costs one 'Confidence lost' of confidence and a still frame pays back a single frame's worth of it, so this is roughly how many still frames pass before the pixel can begin earning protection again -- at 60fps, 90 frames is a second and a half. It is the cost of walking past scenery and then standing still. Below 1 it is off, and only the per-frame fall remains";
+	ui_tooltip = "How long a pixel the frame shows as moving stays out of the mask. A full-magnitude move costs one 'Confidence lost' of confidence and a still frame pays back a single frame's worth of it, so this is roughly how many still frames pass before the pixel can begin earning protection again -- at 60fps, 90 frames is a second and a half. The repayment happens whether or not the world is being drawn, so this is also how long a screen-wide move takes to clear once it stops. Below 1 it is off, and only the per-frame fall remains";
 	ui_category = "AutoMask";
 	ui_min = 0.0; ui_max = 600.0;
 	ui_step = 5.0;
@@ -92,31 +92,11 @@ uniform float UIMaskEdge <
 uniform float UIMaskMotion <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Motion needed to trust stillness (percent)";
-	ui_tooltip = "How much of the screen has to be changing before the world counts as being drawn and a pixel that is not moving can be taken for interface. The mask only advances above this; below it, the scene is static, nothing is drawn in place, and there is no verdict to make. Raise it if scenery is still getting caught while the view is quiet, lower it if a HUD fails to appear";
+	ui_tooltip = "How much of the screen has to be changing before the world counts as being drawn and a pixel that is not moving can be taken for interface. Above it the mask advances; below it the scene is static, nothing is drawn in place, and there is no verdict to make, so the mask is held instead -- a pixel that holds still keeps what it has and one that is moving still falls. Raise it if scenery is still getting caught while the view is quiet, lower it if a HUD fails to appear";
 	ui_category = "AutoMask";
 	ui_min = 0.0; ui_max = 100.0;
 	ui_step = 0.5;
 > = 20.0;
-
-//Frames stillness is trusted after world motion ceases.
-uniform float UIMaskTrust <
-	__UNIFORM_SLIDER_FLOAT1
-	ui_label = "Still frames trusted after the world stops";
-	ui_tooltip = "How long a pixel that holds still keeps counting as interface after the view stops being redrawn -- long enough for a panel that just opened to be found. Raising it covers slower panels; it is the inner window, so the freeze below should stay at least this long";
-	ui_category = "AutoMask";
-	ui_min = 0.0; ui_max = 120.0;
-	ui_step = 1.0;
-> = 20.0;
-
-//Frames before accumulator freezes after world motion ceases.
-uniform float UIMaskSettle <
-	__UNIFORM_SLIDER_FLOAT1
-	ui_label = "Still frames before the accumulator freezes";
-	ui_tooltip = "How long a scene that has stopped keeps being looked at before the map is held as it was. Past this nothing is read at all, so it wants to be at least the trust window above or it will cut that window short";
-	ui_category = "AutoMask";
-	ui_min = 0.0; ui_max = 120.0;
-	ui_step = 1.0;
-> = 30.0;
 
 //Elliptical center deadzone suppressing accumulation on camera-tethered characters.
 uniform float UIMaskDeadzoneWidth <
@@ -154,7 +134,7 @@ uniform bool UIMaskDeadzoneMotionOnly <
 > = false;
 
 //Targets
-//Accumulator ping-pong: .r=confidence/debt, .g=hold, .b=motion, .a=still-counter
+//Accumulator ping-pong: .r=confidence/debt, .g=hold, .b=motion
 texture texAutoAccumA { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA16F; };
 texture texAutoAccumB { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA16F; };
 sampler AutoAccumA { Texture = texAutoAccumA; };
@@ -188,7 +168,7 @@ sampler MotionStat { Texture = texMotionStat; };
 #endif
 
 //Pixel shaders
-//Accumulates confidence from stillness, applies hold grace and move memory debt.
+//Accumulates confidence from stillness while the world is drawn; a stopped world can only lose it.
 float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float3 now = tex2D(ReShade::BackBuffer, texcoord).rgb;
@@ -202,17 +182,10 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	float4 prev = tex2D(AutoAccumA, texcoord);
 	float conf = prev.r;
 	float held = prev.g;
-	float still = prev.a;
 
-	//Update quiet frame counter from previous frame's motion coverage statistic.
+	//Whether the world is being drawn, measured on the previous frame.
 	float live = tex2D(MotionStat, float2(0.5, 0.5)).r * 100.0;
-	if (live > UIMaskMotion){
-		still = 1.0;
-	} else if (still < 0.5){
-		still = 255.0;
-	} else {
-		still = min(255.0, still + 1.0);
-	}
+	bool drawn = live > UIMaskMotion;
 
 	bool inDeadzone = false;
 	if (UIMaskDeadzoneWidth > 0.0 && UIMaskDeadzoneHeight > 0.0){
@@ -220,26 +193,27 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 		float ry = UIMaskDeadzoneHeight * 0.005;
 		float2 offset = float2(texcoord.x - 0.5, texcoord.y - UIMaskDeadzoneY * 0.01);
 		if (dot(offset / float2(rx, ry), offset / float2(rx, ry)) <= 1.0){
-			inDeadzone = !UIMaskDeadzoneMotionOnly || (live > UIMaskMotion);
+			inDeadzone = !UIMaskDeadzoneMotionOnly || drawn;
 		}
 	}
 
-	//Past settle window, freeze accumulator state.
-	if (live <= UIMaskMotion && still > UIMaskSettle){
-		//Held as it was.
-	} else if (stable > 0.5 && !inDeadzone){
-		//Stillness repays debt, then earns confidence while world is live or in trust window.
-		if (conf < 0.0){
-			conf = min(0.0, conf + UIMaskFall);
-		} else if (live > UIMaskMotion || still <= UIMaskTrust){
-			conf = min(1.0, conf + UIMaskRise);
-		}
+	if (stable > 0.5 && !inDeadzone){
+		//Still, so nothing is animating here: end any bridge that was running.
 		held = 0.0;
-	} else if (held < UIMaskForget && !inDeadzone){
+		//A drawn world turns stillness into interface: repay debt, then earn. A stopped
+		//one cannot tell a held HUD from its own backdrop, so it changes nothing else.
+		if (drawn){
+			if (conf < 0.0){
+				conf = min(0.0, conf + UIMaskFall);
+			} else {
+				conf = min(1.0, conf + UIMaskRise);
+			}
+		}
+	} else if (drawn && held < UIMaskForget && !inDeadzone){
 		//Bridge brief animation before decay starts.
 		held += 1.0;
 	} else {
-		//Decay confidence and bank move debt past the hold period.
+		//Decay confidence and bank move debt: the fall never waits on the world being drawn.
 		conf = conf - UIMaskFall * motion;
 		if (UIMaskMoveMemory > 0.0){
 			conf = min(conf, -UIMaskFall * UIMaskMoveMemory * motion);
@@ -251,7 +225,7 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 		held = 0.0;
 	}
 
-	return float4(clamp(conf, -UIMaskFall * UIMaskMoveMemory, 1.0), held, motion, still);
+	return float4(clamp(conf, -UIMaskFall * UIMaskMoveMemory, 1.0), held, motion, 1.0);
 }
 
 //Downsamples motion flags into coarse block coverage.
@@ -354,13 +328,11 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	float3 color = lerp(live, stored, mask);
 
 	#if UIMaskDiagnostics == 1
-		//Bottom-left diagnostic state marker: magenta=live, cyan=trust, yellow=expired.
+		//Bottom-left diagnostic state marker: magenta=live, yellow=stopped.
 		if (texcoord.x < 0.02 && texcoord.y > 0.98){
 			float state = tex2D(AutoDebug, float2(0.5, 0.5)).a;
 			if (state > 0.75){
 				return float4(1.0, 0.0, 1.0, 1.0);
-			} else if (state > 0.25){
-				return float4(0.0, 1.0, 1.0, 1.0);
 			}
 			return float4(1.0, 1.0, 0.0, 1.0);
 		}
@@ -389,7 +361,7 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 		float depth = max(UIMaskFall * UIMaskMoveMemory, 0.001);
 		float conf = clamp(0.5 + 0.5 * (accum.r < 0.0 ? accum.r / depth : accum.r), 0.0, 1.0);
 		float drawn = tex2D(MotionStat, float2(0.5, 0.5)).r * 100.0 > UIMaskMotion;
-		float screen = drawn ? 1.0 : (accum.a <= UIMaskTrust ? 0.5 : 0.0);
+		float screen = drawn ? 1.0 : 0.0;
 		return float4(changed, mask, conf, screen);
 	}
 

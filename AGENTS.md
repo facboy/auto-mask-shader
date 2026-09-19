@@ -71,22 +71,20 @@ the graded magnitude at zero (the magnitude is zero exactly inside the deadband,
 recovered from the same channel). Averaging the magnitude instead let one small bright object in fast
 motion declare the whole view live — the opposite of treating the screen as mostly backdrop.
 
-On the still side of the threshold the verdict changes rather than stopping, and there are two windows
-over it. For `UIMaskTrust` frames after the last live frame stillness is still **believed**, which is
-the grace a panel gets when it opens into a scene that has just stopped. Between that and
-`UIMaskSettle` the accumulator keeps running but stillness **earns nothing** — a still pixel credits
-nothing — while movement is still read, so something still moving in a scene that has stopped is still
-banked and still loses confidence. Past `UIMaskSettle` the accumulator is **held**: state carried over,
-no rise, no fall, nothing read. The freeze is tested first, so a settle shorter than the trust simply
-ends it early rather than producing a state the shader cannot express.
+On the still side of the threshold the reading becomes a **hold**, and it is one-sided: while the world
+is not being drawn a still pixel is carried over untouched — no rise, no fall, no heal — and a moving
+pixel still falls. So a stopped scene can only ever lose mask, never gain it. There are no windows over
+it: stillness simply cannot be credited as interface while the view is not being redrawn, because a
+stopped world cannot tell a held HUD from its own backdrop. The two sliders that used to express those
+windows (`UIMaskTrust`, `UIMaskSettle`) and the still-frame counter that drove them are gone; the cost
+is the panel that opens by itself into an already-paused scene, which is caught only if its arrival
+lifts the screen-wide reading over `UIMaskMotion`.
 
-The counter is the frames since the world was **last live**, not the frames spent quiet: it stores 1
-while live and counts up from there. A room that never went live therefore never sets it to zero and
-the grace expires immediately instead of being handed to the first frames of every static scene. The
-zero case is treated as expired for the same reason — it is how a target reads on the frame it is first
-allocated, and starting a count from there is exactly what would hand a fresh scene a grace period.
-Counting quiet frames instead gave those frames a free run, which is how a quiet interior defeated the
-old gate inside its own settle window while `UIMaskMotion` sat at 0 and did nothing at all.
+Holding rather than adding is what closes the failure the freeze used to have. Because a still frame
+used to repay move debt whichever way the threshold went, a camera pan that left the whole backdrop in
+debt cleared in lockstep: ~`UIMaskMoveMemory` frames after the motion stopped, the entire screen
+crossed into the mask at once. Now the heal is part of crediting stillness, so it stops with the rest of
+it — a stopped world repays nothing, and the backdrop stays wherever the pan left it.
 
 Stillness is only a hint, though — the world holds still too — and motion is proof, so the per-pixel
 signal is trusted asymmetrically. A change that lasts longer than the hold is **remembered**: it is
@@ -104,10 +102,10 @@ past owes the lot; a linear ramp would hand the full memory to the pixels where 
 
 The heal is one frame's worth of `UIMaskFall` per still frame regardless of the slider, which is what
 keeps the memory a duration the user can reason about rather than a confidence number they have to
-convert. Repaying the debt is not a verdict, so it continues between the two windows — that is what
-stops a pixel staying condemned after the evidence is spent — while *earning protection* stops at
-`UIMaskTrust`. `UIMaskForget` is what protects a briefly-animating element from being banked in the
-first place, so it and `UIMaskMoveMemory` are tuned against each other.
+convert. It runs as part of the same credit as the rise, so it happens while the world is drawn and
+stops while it is not — paying down a debt is still crediting the pixel, and a stopped world is not
+evidence. `UIMaskForget` is what protects a briefly-animating element from being banked in the first
+place, so it and `UIMaskMoveMemory` are tuned against each other.
 
 ### The `.fx` constraints that shape the design
 
@@ -142,17 +140,17 @@ Load-bearing, and follows from what each pass reads:
    shader. Its channels are: red the graded motion, green the published mask (binary — a green pixel
    with no blue is the closing radius, not the accumulator), blue the accumulator's signed confidence
    packed around mid-blue so the memory is drawn rather than clamped away (`AutoDebug` is RGBA8 and a
-   signed value would lose its lower half), and alpha the screen state in three steps. The state is
-   deliberately read from the accumulator, one frame ahead of the gate's own test, so it shows the
-   state about to drive the next frame; the docs say so rather than pretending they coincide. Its
+   signed value would lose its lower half), and alpha the screen state in two steps. The state is read
+   from the same statistic the gate itself reads, one frame behind the frame it describes, so it shows
+   the state that will shortly govern the mask rather than a value recomputed a second way. Its
    strictness must match the gate's: `> UIMaskMotion`, not `step`, which is true at the threshold
    itself and would disagree on exactly the boundary frame.
    The corner marker is **not** drawn here: it is the one thing `AutoMask_Restore` adds, reading that
    alpha channel, because a block drawn inside `AutoMask` is repainted by the restore pass over any
-   pixel the mask covers and treated as picture by every effect in between. Three states, three flat
-   colours and no blending — magenta live, cyan while stillness is still trusted, yellow once it is
-   not — so the marker is a reading rather than part of the picture and cannot be tinted by anything
-   else on screen.
+   pixel the mask covers and treated as picture by every effect in between. Two states, two flat
+   colours and no blending — magenta while the world is being drawn, yellow while it is not and the
+   mask is being held — so the marker is a reading rather than part of the picture and cannot be tinted
+   by anything else on screen.
 
 ## Editing conventions
 
@@ -232,22 +230,25 @@ The compile check needs `fxc.exe`, which is a Windows binary run under WSL:
 - **Real end-to-end testing means loading both techniques in ReShade in a game**, which an agent
   cannot do. State that clearly instead of claiming the change is verified, and say which scenarios
   would need eyes on it: walking with the HUD up, a menu open, standing still in a quiet room, and
-  standing still somewhere with fire or water in view. The one that settles the stillness gate's
-  settle window is a menu opened in a scene the game has already paused. Reviewing a screen capture
-  is the next best thing.
-  The world-drawn premise adds the two that matter most now: a room with nothing animating in it must
-  leave the mask empty rather than filling it, and the corner marker must be cyan while a panel that
-  popped into a stopped scene is being found and yellow once it has given up on it — if the marker goes
-  yellow before the panel has appeared, the trust window is too short. The marker is worth checking for
-  a second reason on any change that touches either technique: it is the only thing drawn after the
-  restore, so if it is missing or tinted, the pass that draws it has been moved or overwritten rather
-  than the mask being wrong.
+  standing still somewhere with fire or water in view. Reviewing a screen capture is the next best
+  thing.
+  The hold's two-sidedness is what to watch in a stopped scene, and it is two scenarios: a room with
+  nothing animating in it must leave the mask empty rather than filling it — and must stay empty
+  indefinitely, since a stopped world can no longer add at any point — while something still animating
+  in a stopped scene (a spinner, a background loop) must fall out of the mask rather than sitting in
+  it. The marker is worth checking for a second reason on any change that touches either technique: it
+  is the only thing drawn after the restore, so if it is missing or tinted, the pass that draws it has
+  been moved or overwritten rather than the mask being wrong. In a stopped scene it must read yellow,
+  and in a drawn one magenta; the mask in a yellow frame may only shrink, so if it grows there the
+  hold has stopped being one-sided.
   The move memory adds two scenarios of its own, and they are the pair the whole setting is balanced
   between: pan the camera across detailed scenery and then stop, with no interface in view — nothing
-  the camera swept over should be grabbed as HUD for `UIMaskMoveMemory` frames; and then the same,
-  with an animating element on screen the whole time — a draining bar or a scrolling list that moves
-  for longer than `UIMaskForget` — which should lose its protection to the memory, and get it back
-  once the animation stops. If both behave, the setting is doing what it says. Watching blue in the
+  the camera swept over should be grabbed as HUD, and with the world now stopped it must *stay* out for
+  good rather than clearing itself `UIMaskMoveMemory` frames later, which is the screen-wide fill the
+  one-sided hold exists to prevent; and then the same, with an animating element on screen the whole
+  time — a draining bar or a scrolling list that moves for longer than `UIMaskForget` — which should
+  lose its protection to the memory, and get it back once the animation stops and the world is drawn
+  again. If both behave, the setting is doing what it says. Watching blue in the
   overlay is the cheap way to see the memory being spent, since it is the only view of it — and the
   corner marker tells you whether the blues you are looking at are current.
 
@@ -262,17 +263,23 @@ discovered:
   closed door, nothing in frame moving, means the wall holds still. This used to be the design's
   weakest point — the gate existed to bound it and the overlay existed to show it being bounded — but
   the world-drawn premise closes it rather than bounding it: a scene that never goes live never hands
-  out a rise at all, so there is nothing to hold, nothing to lock, and no window to tune. The counter
-  counts from the last *live* frame, so a room that was never drawn expires the grace immediately
-  instead of getting a free run of its first frames.
-  What remains is the deliberate cost of the trust window: a panel that opens over an already-paused
-  world, whose opening is the only evidence in frame. It is caught if its opening lifts the screen-wide
-  reading over `UIMaskMotion`; a small panel in a large still scene may not, and then nothing separates
-  it from the backdrop, because a paused world and a quiet room look identical to this shader.
+  out a rise at all, so there is nothing to gain and nothing to tune a window around. Since stillness
+  also cannot repay move debt while the world is stopped, a scene that has stopped is a one-way door:
+  whatever it held when it stopped, it keeps or loses.
+  What remains is the deliberate cost: a panel that opens over an already-paused
+  world, whose opening is the only evidence in frame, and which is therefore caught only if that
+  opening lifts the screen-wide reading over `UIMaskMotion`. A small panel in a large still scene may
+  not, and then nothing separates it from the backdrop, because a paused world and a quiet room look
+  identical to this shader.
   The move memory does not help here and cannot, which is the sharper way to state the limit: a wall
   the player has been facing throughout never moved in the picture, so there is nothing to remember.
   It catches the wall that was *walked past* and then stopped in front of, which is the common case;
   it cannot catch the one that was never in motion to begin with.
+- **Something animating in a stopped scene is given up.** A spinner, a flashing icon, a background
+  loop: while the world is not being drawn those pixels are still changing, so they read as moving and
+  fall out of the mask even though they may genuinely be interface. That is the price of the hold being
+  one-sided, and it is the right side to be wrong on — protecting a moving pixel in a stopped scene
+  means protecting the backdrop the moment it happens to be the thing that moved.
 - **Bloom can still find an edge at the HUD contour.** Suppression removes the UI as a bloom source,
   but a hard black step against a bright scene is itself contrast. Neither this shader nor
   `UIDetectMulti` blurs that step: the pack's blend is `lerp(colorOrig, color, maskChan)`, exactly
