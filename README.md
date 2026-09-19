@@ -58,7 +58,8 @@ pick one.
 ## The settings
 
 All of them live in the ReShade panel. The defaults are meant to be usable as-is; these are for when
-they aren't.
+they aren't. The tooltips in the panel give each setting in brief — this table is where the detail
+lives.
 
 | Setting | What it does |
 | --- | --- |

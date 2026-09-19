@@ -23,49 +23,62 @@
 //Uniforms
 //RGB change deadband in whole levels out of 255: the smallest change counted as motion, so the
 //smallest setting catches every change there is and is the most sensitive the detection goes.
+//Raise it if the overlay shows red over genuinely still pixels -- capture noise or dithering -- at
+//the price of the smallest movements; lower it to 1 if anything visibly moving reads without red.
+//Decides only whether a pixel moved -- what moving then costs is set by the two sliders below
 uniform float AutoMaskEps <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "RGB step counted as a change";
-	ui_tooltip = "The smallest change, in whole levels out of 255, that the frame calls motion: a pixel moving by this many levels or more is moving, and anything less is holding still. 1 means any change at all, which is as sensitive as this setting goes; 2 forgives a one-level difference, 3 forgives two levels, and so on. It decides detection and nothing else -- what a pixel the frame calls moving then costs the mask belongs to 'Frames moving before unmarked as interface' and 'Frames a move is remembered'. Raise it if the overlay shows red over things that are genuinely still, which is what capture noise or dithering looks like, at the price of no longer seeing the smallest movements; lower it to 1 if anything that is moving is shown without red. A channel can only move in whole levels, so the slider moves in whole levels too, and there is no position below one";
+	ui_tooltip = "The smallest change in levels out of 255 that counts as motion.\n1 is the most sensitive: any change at all is motion; 2 forgives a one-level difference, and so on.";
 	ui_category = "AutoMask";
 	ui_min = 1.0; ui_max = 8.0;
 	ui_step = 1.0;
 > = 1.0;
 
-//Still frames a pixel needs before it is taken for interface.
+//Still frames a pixel needs before it is taken for interface. Raised when a backdrop that stops
+//when you do keeps getting caught; lowered when a HUD that only briefly holds still fails to appear.
+//A pixel seen moving repays its move memory first, one frame per still frame, so that countdown has to pass before
+//this one starts
 uniform float AutoMaskRise <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Frames still before marked as interface";
-	ui_tooltip = "How many frames a pixel has to hold still -- while the world is being drawn -- before it is taken for interface and added to the mask. Raise it if a backdrop that stops when you do keeps getting caught; lower it if a HUD that only briefly holds still fails to appear. A pixel seen moving has to repay its move memory first, one frame per still frame, so that countdown has to pass before this one starts";
+	ui_tooltip = "Frames of stillness a pixel needs before it is added to the mask.\nRaise it if scenery is getting caught, lower it if a HUD that briefly holds still fails to appear.";
 	ui_category = "AutoMask";
 	ui_min = 1.0; ui_max = 100.0;
 	ui_step = 1.0;
 > = 2.0;
 
-//Changing frames a pixel needs before it is dropped from the interface.
+//Changing frames a pixel needs before it is dropped from the interface. Keep it short enough that
+//the world takes the mask back promptly, long enough that one stray changing frame cannot punch
+//holes in a protected element. Frames the RGB step calls still cost nothing.
 uniform float AutoMaskFall <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Frames moving before unmarked as interface";
-	ui_tooltip = "How many frames a pixel has to keep changing -- counting from full confidence, and past the grace period below -- before it is dropped from the mask. Lower clears a region faster once the world starts moving over it again; higher makes the mask linger. The count runs whether or not the world is being drawn, and frames the RGB step calls still cost nothing. Keep it short enough that the world takes the mask back promptly, long enough that one stray changing frame cannot punch holes in a protected element";
+	ui_tooltip = "Frames of change before a pixel is dropped from the mask.\nLower takes regions back faster, higher makes the mask linger.";
 	ui_category = "AutoMask";
 	ui_min = 1.0; ui_max = 100.0;
 	ui_step = 1.0;
 > = 2.0;
 
+//Bridges brief animation. Also covers the one full-screen change after a load or a resize, when
+//the previous frame is still blank.
 uniform float AutoMaskForget <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Frames of absence before decay starts";
-	ui_tooltip = "Bridges brief animation. A draining bar or a scrolling grid needs this long enough to cover the movement. It absorbs the first frames of movement before any of it is remembered, so it also covers the one full-screen change after a load or a resize, when the previous frame is still blank. It only applies while the world is being drawn";
+	ui_tooltip = "Frames of animation absorbed before decay starts, so a draining health bar or scrolling list keeps its mask.\nOnly applies while the world is being drawn";
 	ui_category = "AutoMask";
 	ui_min = 0.0; ui_max = 120.0;
 	ui_step = 1.0;
 > = 15.0;
 
-//Frames a moving pixel remains penalized before earning protection again.
+//Frames a moving pixel remains penalized before earning protection again. A frame the RGB step
+//calls moving costs one frame of the unmarking countdown, however small the change was, and a
+//still frame pays one back -- at 60fps, 90 frames is a second and a half.
+//The repayment runs even while the world is stopped, so this is also how long a screen-wide move takes to clear.
 uniform float AutoMaskMoveMemory <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Frames a move is remembered";
-	ui_tooltip = "How long a pixel the frame shows as moving stays out of the mask. A frame the RGB step calls moving costs one frame of the unmarking countdown, however small the change was, and a still frame pays one frame of it back, so this is exactly how many still frames pass before the pixel can begin earning protection again -- at 60fps, 90 frames is a second and a half. The repayment happens whether or not the world is being drawn, so this is also how long a screen-wide move takes to clear once it stops. Below 1 it is off, and only the unmarking countdown remains";
+	ui_tooltip = "Still frames after a move before the pixel can be claimed as interface again.\n0 forgets a move the frame after it happens";
 	ui_category = "AutoMask";
 	ui_min = 0.0; ui_max = 600.0;
 	ui_step = 5.0;
@@ -90,21 +103,25 @@ uniform float AutoMaskEdge <
 	ui_step = 1.0;
 > = 40.0;
 
-//Minimum screen motion coverage required to credit stillness as interface.
+//Minimum screen motion coverage required to credit stillness as interface. The premise rather
+//than a refinement: below it there is no verdict to make, so nothing changes except what moves.
+//Above it the mask advances, below it the mask is held: nothing is added and nothing is lost except what moves.
+//Raise it if scenery is getting caught, lower it if a HUD fails to appear
 uniform float AutoMaskMotion <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Motion needed to trust stillness (percent)";
-	ui_tooltip = "How much of the screen has to be changing before the world counts as being drawn and a pixel that is not moving can be taken for interface. Above it the mask advances; below it the scene is static, nothing is drawn in place, and there is no verdict to make, so the mask is held instead -- a pixel that holds still keeps what it has and one that is moving still falls. Raise it if scenery is still getting caught while the view is quiet, lower it if a HUD fails to appear";
+	ui_tooltip = "How much of the screen must be changing before the world counts as being drawn and stillness can be taken for interface.";
 	ui_category = "AutoMask";
 	ui_min = 0.0; ui_max = 100.0;
 	ui_step = 0.5;
 > = 20.0;
 
-//Elliptical center deadzone suppressing accumulation on camera-tethered characters.
+//Elliptical center deadzone suppressing accumulation on camera-tethered characters. Applies only
+//while the world is drawn when AutoMaskDeadzoneMotionOnly is set.
 uniform float AutoMaskDeadzoneWidth <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Center deadzone width (percent)";
-	ui_tooltip = "Width of an elliptical center region where stillness is not accumulated. Set above 0 to prevent a third-person player character from being captured as interface. 0 disables the deadzone";
+	ui_tooltip = "Width of the elliptical center region where stillness is not accumulated.\nSet above 0 to keep a third-person character from being captured as interface.\n0 disables the deadzone";
 	ui_category = "AutoMask";
 	ui_min = 0.0; ui_max = 100.0;
 	ui_step = 0.5;
@@ -131,7 +148,7 @@ uniform float AutoMaskDeadzoneY <
 uniform bool AutoMaskDeadzoneMotionOnly <
 	__UNIFORM_SLIDER_BOOL1
 	ui_label = "Only suppress deadzone while world moves";
-	ui_tooltip = "When enabled, the deadzone only suppresses accumulation while the world is being drawn. When the scene is still, full-screen menus can accumulate even inside the deadzone. When disabled, the deadzone is suppressed at all times";
+	ui_tooltip = "On, the deadzone suppresses accumulation only while the world is being drawn,\nso full-screen menus can still build a mask over a stopped scene.\nOff, it suppresses at all times";
 	ui_category = "AutoMask";
 > = false;
 
@@ -333,11 +350,11 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 #endif
 
 #if AutoMaskDiagnostics == 1
-	//Diagnostics view toggle.
+	//Diagnostics view toggle. Both readings tint only the pixels they name.
 	uniform bool UIDebugMotion <
 		__UNIFORM_SLIDER_BOOL1
 		ui_label = "Diagnostics: motion view";
-		ui_tooltip = "On, the overlay is a motion reading: red where the frame sees a change, nothing where it does not. Off, it is the verdict reading: green where a pixel has earned protection, nothing where it has not. Both tint only the pixels they name; the deadzone ring and the corner marker show in both";
+		ui_tooltip = "On, the overlay shows red where the frame sees a change.\nOff, it shows green where a pixel has earned protection, without the closing radius.\nThe deadzone ring and the corner marker show in both";
 		ui_category = "AutoMask";
 	> = true;
 
@@ -345,7 +362,7 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 	uniform float UIDebugGain <
 		__UNIFORM_SLIDER_FLOAT1
 		ui_label = "Diagnostics: motion gain";
-		ui_tooltip = "Brightens the per-pixel motion in the overlay, so a change too small to see but large enough to stop a pixel accumulating becomes visible";
+		ui_tooltip = "Brightens the red motion reading in the overlay,\nso a change too small to see becomes visible";
 		ui_category = "AutoMask";
 		ui_min = 1.0; ui_max = 64.0;
 		ui_step = 1.0;
