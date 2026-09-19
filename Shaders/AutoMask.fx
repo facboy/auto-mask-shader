@@ -21,11 +21,11 @@
 #endif
 
 //Uniforms
-//RGB change deadband tolerating capture noise and jitter (1/255 units). 0 disables the shader.
+//RGB change deadband in whole levels out of 255. 1 is any change at all; 0 disables the shader.
 uniform float UIMaskEps <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "RGB step counted as a change";
-	ui_tooltip = "How far a pixel may move between frames and still count as holding still, in units of 1/255 of the colour range. Raise it if a static HUD will not form a mask; lower it if moving scenery still accumulates. 0 disables the shader";
+	ui_tooltip = "Whole levels out of 255 a pixel's colour may move between frames and still count as holding still. 1 is any change at all; 2 forgives a one-level difference, 3 forgives two levels, and a change of this many levels or more counts as motion. Raise it only if a static HUD will not form a mask because of capture noise; lower it if moving scenery still accumulates. 0 disables the shader";
 	ui_category = "AutoMask";
 	ui_min = 0.0; ui_max = 8.0;
 	ui_step = 0.1;
@@ -175,7 +175,9 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	float3 before = tex2D(AutoHistory, texcoord).rgb;
 	float3 diff = abs(now - before) * 255.0;
 	float maxDiff = max(diff.r, max(diff.g, diff.b));
-	float edge = max(UIMaskEps, 0.001);
+	//Ramp foot half a level under the deadband: on it, the level at UIMaskEps scored zero and
+	//was invisible to the motion coverage the gate reads.
+	float edge = max(UIMaskEps - 0.5, 0.001);
 	float motion = smoothstep(edge, edge * 4.0, maxDiff);
 	float stable = maxDiff < UIMaskEps ? 1.0 : 0.0;
 

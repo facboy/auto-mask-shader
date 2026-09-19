@@ -61,7 +61,7 @@ they aren't.
 
 | Setting | What it does |
 | --- | --- |
-| **RGB step counted as a change** | How far a pixel's colour can move between two frames and still count as "holding still". Raise it if the mask is full of holes over a HUD that has slight shimmer; lower it if scenery is getting caught. |
+| **RGB step counted as a change** | How far a pixel's colour may move between two frames and still count as "holding still", counted in whole levels out of 255 — the steps the channels themselves can take. At `1` any change at all is movement; `2` forgives a one-level difference, `3` forgives two, and so on. Raise it only if a HUD that looks perfectly still refuses to form a mask, which is what capture noise, dithering or temporal anti-aliasing looks like — it makes a static pixel differ by a level or two; lower it if scenery is getting caught. |
 | **Confidence gained per still frame** | How quickly a pixel earns its place in the mask. Lower means an element has to hold still for longer before it counts. |
 | **Confidence lost per changing frame** | How quickly a region drops back out once the world starts moving over it. Higher clears faster. |
 | **Frames of absence before decay starts** | The grace period before that decay begins. This is the one that matters most: it is what keeps an element covered while it animates a little — a draining bar, a scrolling list, a blinking cursor. Too short and you get holes over exactly the parts that move. It only applies while the world is being drawn. |

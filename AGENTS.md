@@ -67,9 +67,15 @@ held on every frame and the mask never formed.
 
 **The statistic is coverage, not magnitude.** What the question needs answered is "is the game
 re-drawing the view", so `PS_Motion` counts the share of each block that changed at all, thresholding
-the graded magnitude at zero (the magnitude is zero exactly inside the deadband, so the flag is
-recovered from the same channel). Averaging the magnitude instead let one small bright object in fast
+the graded magnitude just above zero (a still pixel scores exactly zero, so the flag is recovered
+from the same channel). Averaging the magnitude instead let one small bright object in fast
 motion declare the whole view live — the opposite of treating the screen as mostly backdrop.
+`UIMaskEps` is counted in whole levels out of 255, because that is the only unit the channels have.
+The two tests must meet across it — a pixel is still below the deadband and moving at or above it — so
+the motion ramp's foot sits half a level *under* the deadband rather than on it. On the deadband the
+level at its edge satisfied neither test: it earned nothing, banked no debt and read as zero motion.
+Raising the deadband therefore made the world-drawn reading blind instead of strict, and a level of
+change the camera produced could leave the gate holding the mask over something that was moving.
 
 On the still side of the threshold the reading becomes a **hold**, and it is one-sided: while the world
 is not being drawn a still pixel is carried over untouched — no rise, no fall, no heal — and a moving
@@ -96,7 +102,7 @@ run on their own timescales: ~2 still frames to protect (fast, or a HUD is never
 `UIMaskMoveMemory` is therefore a duration rather than a confidence budget, and 0 restores the old
 behaviour exactly. Movement that fits inside the hold is still bridged and never banked, which is what
 keeps a draining bar or a scrolling list protected; movement past the hold costs the element its
-protection until the debt clears. The magnitude is graded — `smoothstep(UIMaskEps, UIMaskEps * 4)`
+protection until the debt clears. The magnitude is graded — `smoothstep(UIMaskEps - 0.5, UIMaskEps * 4)`
 rather than a step — so a pixel nudging at the deadband owes almost nothing while one the camera swung
 past owes the lot; a linear ramp would hand the full memory to the pixels where capture noise lives.
 
