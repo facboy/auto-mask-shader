@@ -67,11 +67,11 @@ In both 1D dilation passes:
 float mask = tex2D(AutoAccumA, texcoord).r;
 float lumaCentre = dot(tex2D(ReShade::BackBuffer, texcoord).rgb, float3(0.299, 0.587, 0.114));
 
-for (int i = -UIMASK_DILATE_MAX; i <= UIMASK_DILATE_MAX; i++){
+for (int i = -AUTOMASK_DILATE_MAX; i <= AUTOMASK_DILATE_MAX; i++){
     float2 uv = texcoord + float2(i * texel.x, 0.0);
     float luma = dot(tex2D(ReShade::BackBuffer, uv).rgb, float3(0.299, 0.587, 0.114));
     float edge = abs(luma - lumaCentre) * 255.0;
-    float keep = (abs(float(i)) <= r && edge <= UIMaskEdge) ? 1.0 : 0.0;
+    float keep = (abs(float(i)) <= r && edge <= AutoMaskEdge) ? 1.0 : 0.0;
     mask = max(mask, tex2D(AutoAccumA, uv).r * keep);
 }
 ```
@@ -132,12 +132,12 @@ The fixed size therefore makes the declaration match its only consumer, and drop
 
 | Lines | Location | Content / Purpose |
 | :--- | :--- | :--- |
-| **26–35** | `UIMaskEps` | 10-line discussion on 8-bit precision vs continuous sub-level noise. |
-| **45–50** | `UIMaskRise` | 6-line history detailing an older value (0.07) that required 8 frames. |
-| **78–97** | `UIMaskMoveMemory` | 20-line narrative on camera motion, debt repayment timescales, and hidden errors. |
-| **129–143** | `UIMaskMotion` | 15-line debate about spinning coins, screen share, and quiet rooms. |
-| **153–162** | `UIMaskTrust` | 10 lines explaining panel opening grace over static scenes. (Removed with the slider.) |
-| **172–180** | `UIMaskSettle` | 9 lines on window interaction and state transitions. (Removed with the slider.) |
+| **26–35** | `AutoMaskEps` | 10-line discussion on 8-bit precision vs continuous sub-level noise. |
+| **45–50** | `AutoMaskRise` | 6-line history detailing an older value (0.07) that required 8 frames. |
+| **78–97** | `AutoMaskMoveMemory` | 20-line narrative on camera motion, debt repayment timescales, and hidden errors. |
+| **129–143** | `AutoMaskMotion` | 15-line debate about spinning coins, screen share, and quiet rooms. |
+| **153–162** | `AutoMaskTrust` | 10 lines explaining panel opening grace over static scenes. (Removed with the slider.) |
+| **172–180** | `AutoMaskSettle` | 9 lines on window interaction and state transitions. (Removed with the slider.) |
 | **278–291** | Before `PS_Accum` | 14-line tutorial narration summarizing the entire activation signal. |
 | **298–305** | Inside `PS_Accum` | 8 lines discussing `smoothstep` vs linear ramps. |
 | **315–328** | Inside `PS_Accum` | 14 lines explaining why target initial allocation reads 0 vs 255. |
@@ -153,10 +153,10 @@ All design rationale, architectural history, and compiler quirks are already doc
 ## 5. Review of the Center Deadzone Implementation
 
 The newly added Center Deadzone operates with clean separation:
-- **Parameterization**: Controlled via `UIMaskDeadzoneWidth`, `UIMaskDeadzoneHeight`, `UIMaskDeadzoneY`, and `UIMaskDeadzoneMotionOnly`. Defaults to `0.0` (fully disabled, maintaining 100% backward compatibility).
+- **Parameterization**: Controlled via `AutoMaskDeadzoneWidth`, `AutoMaskDeadzoneHeight`, `AutoMaskDeadzoneY`, and `AutoMaskDeadzoneMotionOnly`. Defaults to `0.0` (fully disabled, maintaining 100% backward compatibility).
 - **Branchless Math**: Elliptical inclusion check uses `dot(offset / radii, offset / radii) <= 1.0`, avoiding square root operations in `PS_Accum`.
 - **Confidence Clamp**: Forcing `conf = min(conf, 0.0)` and `held = 0.0` ensures any preexisting confidence in the region dissolves immediately without waiting for decay cycles.
-- **Visual Feedback**: The diagnostics overlay utilizes `fwidth(dist)` to render an anti-aliased 1.5-pixel boundary ring, compiling out completely when `UIMaskDiagnostics == 0`.
+- **Visual Feedback**: The diagnostics overlay utilizes `fwidth(dist)` to render an anti-aliased 1.5-pixel boundary ring, compiling out completely when `AutoMaskDiagnostics == 0`.
 
 ---
 

@@ -12,18 +12,18 @@
 #include "ReShade.fxh"
 
 //Switches
-#ifndef UIMaskDiagnostics
-	#define UIMaskDiagnostics	0		// [0 or 1] 1 draws the generated map over the frame
+#ifndef AutoMaskDiagnostics
+	#define AutoMaskDiagnostics	0		// [0 or 1] 1 draws the generated map over the frame
 #endif
 
-#ifndef UIMaskAntiBloom
-	#define UIMaskAntiBloom		1		// [0 or 1] 1 blacks the masked pixels in the frame the other effects see
+#ifndef AutoMaskAntiBloom
+	#define AutoMaskAntiBloom		1		// [0 or 1] 1 blacks the masked pixels in the frame the other effects see
 #endif
 
 //Uniforms
 //RGB change deadband in whole levels out of 255: the smallest change counted as motion, so the
 //smallest setting catches every change there is and is the most sensitive the detection goes.
-uniform float UIMaskEps <
+uniform float AutoMaskEps <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "RGB step counted as a change";
 	ui_tooltip = "The smallest change, in whole levels out of 255, that the frame calls motion: a pixel moving by this many levels or more is moving, and anything less is holding still. 1 means any change at all, which is as sensitive as this setting goes; 2 forgives a one-level difference, 3 forgives two levels, and so on. It decides detection and nothing else -- what a pixel the frame calls moving then costs the mask belongs to 'Confidence lost per changing frame' and 'Frames a move is remembered'. Raise it if the overlay shows red over things that are genuinely still, which is what capture noise or dithering looks like, at the price of no longer seeing the smallest movements; lower it to 1 if anything that is moving is shown without red. A channel can only move in whole levels, so the slider moves in whole levels too, and there is no position below one";
@@ -33,7 +33,7 @@ uniform float UIMaskEps <
 > = 1.0;
 
 //Confidence gained per still frame.
-uniform float UIMaskRise <
+uniform float AutoMaskRise <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Confidence gained per still frame";
 	ui_tooltip = "How quickly a pixel earns protection once it stops moving. At 0.25 two still frames are enough; lower it to demand a longer run of stillness";
@@ -42,7 +42,7 @@ uniform float UIMaskRise <
 	ui_step = 0.005;
 > = 0.25;
 
-uniform float UIMaskFall <
+uniform float AutoMaskFall <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Confidence lost per changing frame";
 	ui_tooltip = "Higher clears a region faster once the world starts moving over it again. Keep it above 'Confidence gained' or the mask will linger over moving scenery. Every frame the RGB step calls changing costs this much, however small the change was; frames it calls still cost nothing";
@@ -51,7 +51,7 @@ uniform float UIMaskFall <
 	ui_step = 0.005;
 > = 0.5;
 
-uniform float UIMaskForget <
+uniform float AutoMaskForget <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Frames of absence before decay starts";
 	ui_tooltip = "Bridges brief animation. A draining bar or a scrolling grid needs this long enough to cover the movement. It absorbs the first frames of movement before any of it is remembered, so it also covers the one full-screen change after a load or a resize, when the previous frame is still blank. It only applies while the world is being drawn";
@@ -61,7 +61,7 @@ uniform float UIMaskForget <
 > = 15.0;
 
 //Frames a moving pixel remains penalized before earning protection again.
-uniform float UIMaskMoveMemory <
+uniform float AutoMaskMoveMemory <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Frames a move is remembered";
 	ui_tooltip = "How long a pixel the frame shows as moving stays out of the mask. A frame the RGB step calls moving costs one 'Confidence lost' of confidence, however small the change was, and a still frame pays back a single frame's worth of it, so this is roughly how many still frames pass before the pixel can begin earning protection again -- at 60fps, 90 frames is a second and a half. The repayment happens whether or not the world is being drawn, so this is also how long a screen-wide move takes to clear once it stops. Below 1 it is off, and only the per-frame fall remains";
@@ -70,8 +70,8 @@ uniform float UIMaskMoveMemory <
 	ui_step = 5.0;
 > = 90.0;
 
-#define UIMASK_DILATE_MAX 3
-uniform float UIMaskDilate <
+#define AUTOMASK_DILATE_MAX 3
+uniform float AutoMaskDilate <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Closing radius in pixels";
 	ui_tooltip = "Grows the mask to close anti-aliased edges and text. 0 is a pass-through";
@@ -80,7 +80,7 @@ uniform float UIMaskDilate <
 	ui_step = 1.0;
 > = 1.0;
 
-uniform float UIMaskEdge <
+uniform float AutoMaskEdge <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Luma step counted as a boundary";
 	ui_tooltip = "Stops the closing radius at a real HUD contour instead of growing it out into the scenery";
@@ -90,7 +90,7 @@ uniform float UIMaskEdge <
 > = 40.0;
 
 //Minimum screen motion coverage required to credit stillness as interface.
-uniform float UIMaskMotion <
+uniform float AutoMaskMotion <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Motion needed to trust stillness (percent)";
 	ui_tooltip = "How much of the screen has to be changing before the world counts as being drawn and a pixel that is not moving can be taken for interface. Above it the mask advances; below it the scene is static, nothing is drawn in place, and there is no verdict to make, so the mask is held instead -- a pixel that holds still keeps what it has and one that is moving still falls. Raise it if scenery is still getting caught while the view is quiet, lower it if a HUD fails to appear";
@@ -100,7 +100,7 @@ uniform float UIMaskMotion <
 > = 20.0;
 
 //Elliptical center deadzone suppressing accumulation on camera-tethered characters.
-uniform float UIMaskDeadzoneWidth <
+uniform float AutoMaskDeadzoneWidth <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Center deadzone width (percent)";
 	ui_tooltip = "Width of an elliptical center region where stillness is not accumulated. Set above 0 to prevent a third-person player character from being captured as interface. 0 disables the deadzone";
@@ -109,7 +109,7 @@ uniform float UIMaskDeadzoneWidth <
 	ui_step = 0.5;
 > = 0.0;
 
-uniform float UIMaskDeadzoneHeight <
+uniform float AutoMaskDeadzoneHeight <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Center deadzone height (percent)";
 	ui_tooltip = "Height of the elliptical center deadzone. 0 disables the deadzone";
@@ -118,7 +118,7 @@ uniform float UIMaskDeadzoneHeight <
 	ui_step = 0.5;
 > = 0.0;
 
-uniform float UIMaskDeadzoneY <
+uniform float AutoMaskDeadzoneY <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Center deadzone vertical position (percent)";
 	ui_tooltip = "Vertical center of the deadzone (50 is screen center, higher moves it down toward the character's feet, lower moves it up)";
@@ -127,7 +127,7 @@ uniform float UIMaskDeadzoneY <
 	ui_step = 0.5;
 > = 55.0;
 
-uniform bool UIMaskDeadzoneMotionOnly <
+uniform bool AutoMaskDeadzoneMotionOnly <
 	__UNIFORM_SLIDER_BOOL1
 	ui_label = "Only suppress deadzone while world moves";
 	ui_tooltip = "When enabled, the deadzone only suppresses accumulation while the world is being drawn. When the scene is still, full-screen menus can accumulate even inside the deadzone. When disabled, the deadzone is suppressed at all times";
@@ -163,7 +163,7 @@ sampler MotionCoarse { Texture = texMotionCoarse; };
 texture texMotionStat { Width = 1; Height = 1; Format = RGBA8; };
 sampler MotionStat { Texture = texMotionStat; };
 
-#if UIMaskDiagnostics == 1
+#if AutoMaskDiagnostics == 1
 	texture texAutoDebug { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
 	sampler AutoDebug { Texture = texAutoDebug; };
 #endif
@@ -180,7 +180,7 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	//more is motion, anything less is still. The foot sits a level under it -- zero at the smallest
 	//setting, so any change at all is caught -- and the ceiling keeps the same offset so the
 	//setting's own level reads a quarter-strength change, not the full one it becomes at eps+1.
-	float deadband = max(ceil(UIMaskEps), 1.0);
+	float deadband = max(ceil(AutoMaskEps), 1.0);
 	float motion = smoothstep(deadband - 1.0, deadband * 4.0 - 1.0, maxDiff);
 	float stable = maxDiff < deadband ? 1.0 : 0.0;
 
@@ -190,15 +190,15 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 
 	//Whether the world is being drawn, measured on the previous frame.
 	float live = tex2D(MotionStat, float2(0.5, 0.5)).r * 100.0;
-	bool drawn = live > UIMaskMotion;
+	bool drawn = live > AutoMaskMotion;
 
 	bool inDeadzone = false;
-	if (UIMaskDeadzoneWidth > 0.0 && UIMaskDeadzoneHeight > 0.0){
-		float rx = UIMaskDeadzoneWidth * 0.005;
-		float ry = UIMaskDeadzoneHeight * 0.005;
-		float2 offset = float2(texcoord.x - 0.5, texcoord.y - UIMaskDeadzoneY * 0.01);
+	if (AutoMaskDeadzoneWidth > 0.0 && AutoMaskDeadzoneHeight > 0.0){
+		float rx = AutoMaskDeadzoneWidth * 0.005;
+		float ry = AutoMaskDeadzoneHeight * 0.005;
+		float2 offset = float2(texcoord.x - 0.5, texcoord.y - AutoMaskDeadzoneY * 0.01);
 		if (dot(offset / float2(rx, ry), offset / float2(rx, ry)) <= 1.0){
-			inDeadzone = !UIMaskDeadzoneMotionOnly || drawn;
+			inDeadzone = !AutoMaskDeadzoneMotionOnly || drawn;
 		}
 	}
 
@@ -209,20 +209,20 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 		//one cannot tell a held HUD from its own backdrop, so it changes nothing else.
 		if (drawn){
 			if (conf < 0.0){
-				conf = min(0.0, conf + UIMaskFall);
+				conf = min(0.0, conf + AutoMaskFall);
 			} else {
-				conf = min(1.0, conf + UIMaskRise);
+				conf = min(1.0, conf + AutoMaskRise);
 			}
 		}
-	} else if (drawn && held < UIMaskForget && !inDeadzone){
+	} else if (drawn && held < AutoMaskForget && !inDeadzone){
 		//Bridge brief animation before decay starts.
 		held += 1.0;
 	} else {
 		//Decay confidence and bank move debt: the fall never waits on the world being drawn, and a
 		//frame the deadband calls changing costs the same however small the change was.
-		conf = conf - UIMaskFall * (1.0 - stable);
-		if (UIMaskMoveMemory > 0.0){
-			conf = min(conf, -UIMaskFall * UIMaskMoveMemory * (1.0 - stable));
+		conf = conf - AutoMaskFall * (1.0 - stable);
+		if (AutoMaskMoveMemory > 0.0){
+			conf = min(conf, -AutoMaskFall * AutoMaskMoveMemory * (1.0 - stable));
 		}
 	}
 
@@ -231,7 +231,7 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 		held = 0.0;
 	}
 
-	return float4(clamp(conf, -UIMaskFall * UIMaskMoveMemory, 1.0), held, motion, 1.0);
+	return float4(clamp(conf, -AutoMaskFall * AutoMaskMoveMemory, 1.0), held, motion, 1.0);
 }
 
 //Downsamples motion flags into coarse block coverage.
@@ -271,15 +271,15 @@ float4 PS_Copy(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float2 texel = BUFFER_PIXEL_SIZE;
-	float r = floor(UIMaskDilate + 0.5);
+	float r = floor(AutoMaskDilate + 0.5);
 	float mask = tex2D(AutoAccumA, texcoord).r;
 	float lumaCentre = dot(tex2D(ReShade::BackBuffer, texcoord).rgb, float3(0.299, 0.587, 0.114));
 
-	for (int i = -UIMASK_DILATE_MAX; i <= UIMASK_DILATE_MAX; i++){
+	for (int i = -AUTOMASK_DILATE_MAX; i <= AUTOMASK_DILATE_MAX; i++){
 		float2 uv = texcoord + float2(i * texel.x, 0.0);
 		float luma = dot(tex2D(ReShade::BackBuffer, uv).rgb, float3(0.299, 0.587, 0.114));
 		float edge = abs(luma - lumaCentre) * 255.0;
-		float keep = (abs(float(i)) <= r && edge <= UIMaskEdge) ? 1.0 : 0.0;
+		float keep = (abs(float(i)) <= r && edge <= AutoMaskEdge) ? 1.0 : 0.0;
 		mask = max(mask, tex2D(AutoAccumA, uv).r * keep);
 	}
 	return float4(mask.xxx, 1.0);
@@ -288,15 +288,15 @@ float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float2 texel = BUFFER_PIXEL_SIZE;
-	float r = floor(UIMaskDilate + 0.5);
+	float r = floor(AutoMaskDilate + 0.5);
 	float mask = tex2D(AutoDilate, texcoord).r;
 	float lumaCentre = dot(tex2D(ReShade::BackBuffer, texcoord).rgb, float3(0.299, 0.587, 0.114));
 
-	for (int i = -UIMASK_DILATE_MAX; i <= UIMASK_DILATE_MAX; i++){
+	for (int i = -AUTOMASK_DILATE_MAX; i <= AUTOMASK_DILATE_MAX; i++){
 		float2 uv = texcoord + float2(0.0, i * texel.y);
 		float luma = dot(tex2D(ReShade::BackBuffer, uv).rgb, float3(0.299, 0.587, 0.114));
 		float edge = abs(luma - lumaCentre) * 255.0;
-		float keep = (abs(float(i)) <= r && edge <= UIMaskEdge) ? 1.0 : 0.0;
+		float keep = (abs(float(i)) <= r && edge <= AutoMaskEdge) ? 1.0 : 0.0;
 		mask = max(mask, tex2D(AutoDilate, uv).r * keep);
 	}
 	return float4(mask.xxx, 1.0);
@@ -315,7 +315,7 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 	return tex2D(ReShade::BackBuffer, texcoord);
 }
 
-#if UIMaskAntiBloom == 1
+#if AutoMaskAntiBloom == 1
 	//Blacks masked UI pixels in back buffer to suppress bloom bleeding.
 	float4 PS_AntiBloom(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	{
@@ -325,7 +325,7 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 	}
 #endif
 
-#if UIMaskDiagnostics == 1
+#if AutoMaskDiagnostics == 1
 	//Diagnostics view toggle.
 	uniform bool UIDebugMotion <
 		__UNIFORM_SLIDER_BOOL1
@@ -350,7 +350,7 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 		float4 accum = tex2D(AutoAccumA, texcoord);
 		float verdict = step(0.5, accum.r);
 		float changed = saturate(accum.b * UIDebugGain);
-		float drawn = tex2D(MotionStat, float2(0.5, 0.5)).r * 100.0 > UIMaskMotion;
+		float drawn = tex2D(MotionStat, float2(0.5, 0.5)).r * 100.0 > AutoMaskMotion;
 		float screen = drawn ? 1.0 : 0.0;
 		return float4(changed, verdict, verdict, screen);
 	}
@@ -364,7 +364,7 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	float mask = step(0.5, tex2D(AutoMap, texcoord).r);
 	float3 color = lerp(live, stored, mask);
 
-	#if UIMaskDiagnostics == 1
+	#if AutoMaskDiagnostics == 1
 		//Tint over the restore, drawn after it so it sits on top of the stored UI rather than being
 		//repainted by it: red where the motion view sees a change, green where the verdict view
 		//sees protection, nothing at all where it does not.
@@ -373,10 +373,10 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 		float3 mark = UIDebugMotion ? float3(1.0, 0.0, 0.0) : float3(0.0, 1.0, 0.0);
 		color = lerp(color, mark, tint * 0.7);
 
-		if (UIMaskDeadzoneWidth > 0.0 && UIMaskDeadzoneHeight > 0.0){
-			float rx = UIMaskDeadzoneWidth * 0.005;
-			float ry = UIMaskDeadzoneHeight * 0.005;
-			float2 offset = float2(texcoord.x - 0.5, texcoord.y - UIMaskDeadzoneY * 0.01);
+		if (AutoMaskDeadzoneWidth > 0.0 && AutoMaskDeadzoneHeight > 0.0){
+			float rx = AutoMaskDeadzoneWidth * 0.005;
+			float ry = AutoMaskDeadzoneHeight * 0.005;
+			float2 offset = float2(texcoord.x - 0.5, texcoord.y - AutoMaskDeadzoneY * 0.01);
 			float dist = length(offset / float2(rx, ry));
 			float ring = 1.0 - saturate(abs(dist - 1.0) / max(fwidth(dist) * 1.5, 0.001));
 			color = lerp(color, float3(1.0, 1.0, 0.0), ring * 0.85);
@@ -439,14 +439,14 @@ technique AutoMask
 		RenderTarget = texAutoHistory;
 	}
 
-	#if UIMaskAntiBloom == 1
+	#if AutoMaskAntiBloom == 1
 		pass {
 			VertexShader = PostProcessVS;
 			PixelShader = PS_AntiBloom;
 		}
 	#endif
 
-	#if UIMaskDiagnostics == 1
+	#if AutoMaskDiagnostics == 1
 		pass {
 			VertexShader = PostProcessVS;
 			PixelShader = PS_DebugMap;

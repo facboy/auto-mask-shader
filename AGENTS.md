@@ -34,7 +34,7 @@ Licensed MIT (see `LICENSE`).
 There is **no `.fxh` companion header and there deliberately never will be**. A header exists to hold
 authored data — pixel tables, coordinates, stored colours — and this shader has none. Every tuning
 value is a live slider in the ReShade panel, and the only preprocessor definitions are the two
-structural switches (`UIMaskAntiBloom`, `UIMaskDiagnostics`), which are there to elide a pass rather
+structural switches (`AutoMaskAntiBloom`, `AutoMaskDiagnostics`), which are there to elide a pass rather
 than to hold data. Putting configuration into a file the user edits and restarts would be a regression
 in usability, so do not introduce one.
 
@@ -62,7 +62,7 @@ health with inventory is accepted by design; per-element identity is not attempt
 Above the per-pixel verdict sits the question that gives it meaning: **is the world being drawn at
 all?** This is the premise, not a safety net under it. Stillness on its own proves nothing — a wall
 holds still too — so a pixel that holds still is only taken for interface while the world around it can
-be seen animating. `UIMaskMotion` is that share of the screen, and its default is not 0: at 0 the map
+be seen animating. `AutoMaskMotion` is that share of the screen, and its default is not 0: at 0 the map
 held on every frame and the mask never formed.
 
 **The statistic is coverage, not magnitude.** What the question needs answered is "is the game
@@ -70,7 +70,7 @@ re-drawing the view", so `PS_Motion` counts the share of each block that changed
 the graded magnitude just above zero (a still pixel scores exactly zero, so the flag is recovered
 from the same channel). Averaging the magnitude instead let one small bright object in fast
 motion declare the whole view live — the opposite of treating the screen as mostly backdrop.
-`UIMaskEps` is counted in whole levels out of 255, because that is the only unit the channels have —
+`AutoMaskEps` is counted in whole levels out of 255, because that is the only unit the channels have —
 the comparison is against an 8-bit history, so the slider steps by whole levels and a fractional value
 is a position that cannot exist. Its minimum is 1 rather than 0 for the same reason: one level is the
 smallest movement there is, so that is where detection is most sensitive, and a 0 would have been a
@@ -80,7 +80,7 @@ It decides one thing only, whether the frame moved a pixel; what a change then *
 separate slider, and the two must not be conflated — the reading the user watches in the overlay is the
 same channel the verdict comes from, but the cost is banked against the verdict, not the reading. The two
 verdicts are complements of one number rather than two tests that happen to meet: the deadband is read as
-whole levels, `max(ceil(UIMaskEps), 1)`, a pixel is still below it and moving at or above it, and the ramp
+whole levels, `max(ceil(AutoMaskEps), 1)`, a pixel is still below it and moving at or above it, and the ramp
 runs from a level under the deadband to four times it, keeping the same offset under at its ceiling. Foot
 and ceiling sit a full level under so that, at the smallest setting, any change at all is seen — the old
 ramp footed half a level up and hid every sub-level change, which is what made 0 look more sensitive than
@@ -92,13 +92,13 @@ is not being drawn a still pixel is carried over untouched — no rise, no fall,
 pixel still falls. So a stopped scene can only ever lose mask, never gain it. There are no windows over
 it: stillness simply cannot be credited as interface while the view is not being redrawn, because a
 stopped world cannot tell a held HUD from its own backdrop. The two sliders that used to express those
-windows (`UIMaskTrust`, `UIMaskSettle`) and the still-frame counter that drove them are gone; the cost
+windows (`AutoMaskTrust`, `AutoMaskSettle`) and the still-frame counter that drove them are gone; the cost
 is the panel that opens by itself into an already-paused scene, which is caught only if its arrival
-lifts the screen-wide reading over `UIMaskMotion`.
+lifts the screen-wide reading over `AutoMaskMotion`.
 
 Holding rather than adding is what closes the failure the freeze used to have. Because a still frame
 used to repay move debt whichever way the threshold went, a camera pan that left the whole backdrop in
-debt cleared in lockstep: ~`UIMaskMoveMemory` frames after the motion stopped, the entire screen
+debt cleared in lockstep: ~`AutoMaskMoveMemory` frames after the motion stopped, the entire screen
 crossed into the mask at once. Now the heal is part of crediting stillness, so it stops with the rest of
 it — a stopped world repays nothing, and the backdrop stays wherever the pan left it.
 
@@ -108,23 +108,23 @@ what the game re-rendering from a new viewpoint looks like, and no panel is draw
 lives in the sign of the accumulator's confidence, negative and clamped to the deepest a single move
 can reach, and a still frame pays it back one frame's worth at a time — so the two ends of the shader
 run on their own timescales: ~2 still frames to protect (fast, or a HUD is never captured) against
-`UIMaskMoveMemory` still frames to recover from a move (slow, so it outlasts a camera movement).
-`UIMaskMoveMemory` is therefore a duration rather than a confidence budget, and 0 restores the old
+`AutoMaskMoveMemory` still frames to recover from a move (slow, so it outlasts a camera movement).
+`AutoMaskMoveMemory` is therefore a duration rather than a confidence budget, and 0 restores the old
 behaviour exactly. Movement that fits inside the hold is still bridged and never banked, which is what
 keeps a draining bar or a scrolling list protected; movement past the hold costs the element its
 protection until the debt clears. What a frame then costs is read from the verdict the deadband reached,
 not from the graded magnitude: a frame is changing or it is not, and a changing one costs a frame's worth
-of `UIMaskFall`, however small the change was — the RGB step decides only that the pixel moved, and what
-the move costs is `UIMaskFall` and `UIMaskMoveMemory`'s business. The graded magnitude survives only in
+of `AutoMaskFall`, however small the change was — the RGB step decides only that the pixel moved, and what
+the move costs is `AutoMaskFall` and `AutoMaskMoveMemory`'s business. The graded magnitude survives only in
 the overlay, where red is the reading the user watches; banking against it would have made the deadband
 tune the confidence, which is the conflation the slider's role forbids.
 
-The heal is one frame's worth of `UIMaskFall` per still frame regardless of the slider, which is what
+The heal is one frame's worth of `AutoMaskFall` per still frame regardless of the slider, which is what
 keeps the memory a duration the user can reason about rather than a confidence number they have to
 convert. It runs as part of the same credit as the rise, so it happens while the world is drawn and
 stops while it is not — paying down a debt is still crediting the pixel, and a stopped world is not
-evidence. `UIMaskForget` is what protects a briefly-animating element from being banked in the first
-place, so it and `UIMaskMoveMemory` are tuned against each other.
+evidence. `AutoMaskForget` is what protects a briefly-animating element from being banked in the first
+place, so it and `AutoMaskMoveMemory` are tuned against each other.
 
 ### The `.fx` constraints that shape the design
 
@@ -146,14 +146,14 @@ Load-bearing, and follows from what each pass reads:
    frame.
 3. `PS_Copy`, `PS_Dilate` — the ping-pong back-edge and the boundary close, also before the store.
    `PS_Dilate` is one pass: a 2D max over a tiny fixed neighbourhood, stopping where the luma step
-   read from `BackBuffer` exceeds `UIMaskEdge`. Reading the frame there is safe only because it is
+   read from `BackBuffer` exceeds `AutoMaskEdge`. Reading the frame there is safe only because it is
    before every pass that writes it.
 4. `PS_Store`, keeping the mapped pixels.
 5. `PS_StoreFrame`, copying the untouched frame into the history target for the next frame.
 6. `PS_AntiBloom` — black the masked pixels in the live frame so a bloom pass downstream has no UI to
    pick up. It comes after the store, which is what keeps the real UI for the restore pass; blacking
    earlier would bank the black instead.
-7. The diagnostics overlay, last, and only when `UIMaskDiagnostics` is defined to 1 — a compile-time
+7. The diagnostics overlay, last, and only when `AutoMaskDiagnostics` is defined to 1 — a compile-time
    guard on the pass and the shader both, so with it off neither is compiled. It reads the accumulator
    directly rather than recomputing the difference, so it cannot report on itself instead of on the
    shader. It draws one of two views, picked by the live toggle `UIDebugMotion`: red where the graded
@@ -166,7 +166,7 @@ Load-bearing, and follows from what each pass reads:
    because the view reads one or the other), and alpha the screen state in two steps. The state is read
    from the same statistic the gate itself reads, one frame behind the frame it describes, so it shows
    the state that will shortly govern the mask rather than a value recomputed a second way. Its
-   strictness must match the gate's: `> UIMaskMotion`, not `step`, which is true at the threshold
+   strictness must match the gate's: `> AutoMaskMotion`, not `step`, which is true at the threshold
    itself and would disagree on exactly the boundary frame. The deadzone ring is drawn over either
    view.
    The corner marker is **not** drawn here: it is the one thing `AutoMask_Restore` adds, reading that
@@ -196,8 +196,8 @@ Load-bearing, and follows from what each pass reads:
   mismatched input and the draw still runs with the input undefined, so every pass samples one texel
   and the mask fills uniformly. `PS_MotionAvg` is the trap: its body has no `dcl_input_ps` at all and
   the parameter is still required, because linkage follows the *declared* signature.
-- Two structural switches are preprocessor definitions, not sliders: `UIMaskAntiBloom` and
-  `UIMaskDiagnostics`. Each is `#ifndef`-guarded with `// [0 or 1]` annotation comments, as the pack
+- Two structural switches are preprocessor definitions, not sliders: `AutoMaskAntiBloom` and
+  `AutoMaskDiagnostics`. Each is `#ifndef`-guarded with `// [0 or 1]` annotation comments, as the pack
   does it, and each guards everything that feature owns — its **pass and technique entry, its shader,
   and any `texture`/`sampler` only it uses** — the point being that ReShade allocates every declared
   target, so a target left outside its guard is memory paid for a feature that is compiled out. Values
@@ -214,7 +214,7 @@ offline compile check:
 - `uv run tools/verify_shaders.py init` fetches the pinned ReShade headers, then
   `uv run tools/verify_shaders.py check` preprocesses and compiles every pixel shader with `fxc` and
   reports instruction counts and opcode histograms. Keep the `tools/.work/` output out of commits.
-- The check compiles four variants — `UIMaskAntiBloom` and `UIMaskDiagnostics` each at 0 and 1, set
+- The check compiles four variants — `AutoMaskAntiBloom` and `AutoMaskDiagnostics` each at 0 and 1, set
   from the prelude exactly as a ReShade-level definition would be — because a `#if` guard can drop a
   pass from a technique body, and only compiling every combination shows that it did. `--pass-list`
   prints the wiring, `--opcodes` the histogram per shader.
@@ -268,9 +268,9 @@ The compile check needs `fxc.exe`, which is a Windows binary run under WSL:
   The move memory adds two scenarios of its own, and they are the pair the whole setting is balanced
   between: pan the camera across detailed scenery and then stop, with no interface in view — nothing
   the camera swept over should be grabbed as HUD, and with the world now stopped it must *stay* out for
-  good rather than clearing itself `UIMaskMoveMemory` frames later, which is the screen-wide fill the
+  good rather than clearing itself `AutoMaskMoveMemory` frames later, which is the screen-wide fill the
   one-sided hold exists to prevent; and then the same, with an animating element on screen the whole
-  time — a draining bar or a scrolling list that moves for longer than `UIMaskForget` — which should
+  time — a draining bar or a scrolling list that moves for longer than `AutoMaskForget` — which should
   lose its protection to the memory, and get it back once the animation stops and the world is drawn
   again. If both behave, the setting is doing what it says. Watching the overlay in its motion view is
   the cheap way to see movement the deadband is still admitting, and the corner marker tells you whether
@@ -292,7 +292,7 @@ discovered:
   whatever it held when it stopped, it keeps or loses.
   What remains is the deliberate cost: a panel that opens over an already-paused
   world, whose opening is the only evidence in frame, and which is therefore caught only if that
-  opening lifts the screen-wide reading over `UIMaskMotion`. A small panel in a large still scene may
+  opening lifts the screen-wide reading over `AutoMaskMotion`. A small panel in a large still scene may
   not, and then nothing separates it from the backdrop, because a paused world and a quiet room look
   identical to this shader.
   The move memory does not help here and cannot, which is the sharper way to state the limit: a wall
@@ -308,13 +308,13 @@ discovered:
   but a hard black step against a bright scene is itself contrast. Neither this shader nor
   `UIDetectMulti` blurs that step: the pack's blend is `lerp(colorOrig, color, maskChan)`, exactly
   proportional to the mask, over unfiltered samplers and masks that were hard-edged in practice. The
-  softness either comes from the mask (there) or from the map (here, via `UIMaskDilate` and the luma
+  softness either comes from the mask (there) or from the map (here, via `AutoMaskDilate` and the luma
   stop); nothing is added by the anti-bloom pass itself.
-- **HUD that animates more than briefly** needs the hold to bridge it. That makes `UIMaskForget` the
+- **HUD that animates more than briefly** needs the hold to bridge it. That makes `AutoMaskForget` the
   most important slider rather than a nicety, and it is now a hard boundary rather than a matter of
   degree: animation that fits inside the hold is bridged and never banked, while animation that
-  outlasts it is taken for the world and costs the element its protection until `UIMaskMoveMemory`
-  still frames have passed. The two sliders are tuned against each other — `UIMaskForget` must exceed
+  outlasts it is taken for the world and costs the element its protection until `AutoMaskMoveMemory`
+  still frames have passed. The two sliders are tuned against each other — `AutoMaskForget` must exceed
   the longest animation any real element performs.
 
 ## Repository rules

@@ -59,9 +59,9 @@ HEADER_URL = "https://raw.githubusercontent.com/crosire/reshade-shaders/{}/Shade
 # technique body cannot hide.
 VARIANTS = (
     ("default", {}),
-    ("antibloom-off", {"UIMaskAntiBloom": "0"}),
-    ("diagnostics", {"UIMaskDiagnostics": "1"}),
-    ("antibloom-off-diagnostics", {"UIMaskAntiBloom": "0", "UIMaskDiagnostics": "1"}),
+    ("antibloom-off", {"AutoMaskAntiBloom": "0"}),
+    ("diagnostics", {"AutoMaskDiagnostics": "1"}),
+    ("antibloom-off-diagnostics", {"AutoMaskAntiBloom": "0", "AutoMaskDiagnostics": "1"}),
 )
 
 # An annotation block is `< ... >` containing `key = value;` pairs and possibly a
