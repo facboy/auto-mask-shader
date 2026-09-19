@@ -26,30 +26,31 @@
 uniform float AutoMaskEps <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "RGB step counted as a change";
-	ui_tooltip = "The smallest change, in whole levels out of 255, that the frame calls motion: a pixel moving by this many levels or more is moving, and anything less is holding still. 1 means any change at all, which is as sensitive as this setting goes; 2 forgives a one-level difference, 3 forgives two levels, and so on. It decides detection and nothing else -- what a pixel the frame calls moving then costs the mask belongs to 'Confidence lost per changing frame' and 'Frames a move is remembered'. Raise it if the overlay shows red over things that are genuinely still, which is what capture noise or dithering looks like, at the price of no longer seeing the smallest movements; lower it to 1 if anything that is moving is shown without red. A channel can only move in whole levels, so the slider moves in whole levels too, and there is no position below one";
+	ui_tooltip = "The smallest change, in whole levels out of 255, that the frame calls motion: a pixel moving by this many levels or more is moving, and anything less is holding still. 1 means any change at all, which is as sensitive as this setting goes; 2 forgives a one-level difference, 3 forgives two levels, and so on. It decides detection and nothing else -- what a pixel the frame calls moving then costs the mask belongs to 'Frames moving before unmarked as interface' and 'Frames a move is remembered'. Raise it if the overlay shows red over things that are genuinely still, which is what capture noise or dithering looks like, at the price of no longer seeing the smallest movements; lower it to 1 if anything that is moving is shown without red. A channel can only move in whole levels, so the slider moves in whole levels too, and there is no position below one";
 	ui_category = "AutoMask";
 	ui_min = 1.0; ui_max = 8.0;
 	ui_step = 1.0;
 > = 1.0;
 
-//Confidence gained per still frame.
+//Still frames a pixel needs before it is taken for interface.
 uniform float AutoMaskRise <
 	__UNIFORM_SLIDER_FLOAT1
-	ui_label = "Confidence gained per still frame";
-	ui_tooltip = "How quickly a pixel earns protection once it stops moving. At 0.25 two still frames are enough; lower it to demand a longer run of stillness";
+	ui_label = "Frames still before marked as interface";
+	ui_tooltip = "How many frames a pixel has to hold still -- while the world is being drawn -- before it is taken for interface and added to the mask. Raise it if a backdrop that stops when you do keeps getting caught; lower it if a HUD that only briefly holds still fails to appear. A pixel seen moving has to repay its move memory first, one frame per still frame, so that countdown has to pass before this one starts";
 	ui_category = "AutoMask";
-	ui_min = 0.005; ui_max = 1.0;
-	ui_step = 0.005;
-> = 0.25;
+	ui_min = 1.0; ui_max = 100.0;
+	ui_step = 1.0;
+> = 2.0;
 
+//Changing frames a pixel needs before it is dropped from the interface.
 uniform float AutoMaskFall <
 	__UNIFORM_SLIDER_FLOAT1
-	ui_label = "Confidence lost per changing frame";
-	ui_tooltip = "Higher clears a region faster once the world starts moving over it again. Keep it above 'Confidence gained' or the mask will linger over moving scenery. Every frame the RGB step calls changing costs this much, however small the change was; frames it calls still cost nothing";
+	ui_label = "Frames moving before unmarked as interface";
+	ui_tooltip = "How many frames a pixel has to keep changing -- counting from full confidence, and past the grace period below -- before it is dropped from the mask. Lower clears a region faster once the world starts moving over it again; higher makes the mask linger. The count runs whether or not the world is being drawn, and frames the RGB step calls still cost nothing. Keep it short enough that the world takes the mask back promptly, long enough that one stray changing frame cannot punch holes in a protected element";
 	ui_category = "AutoMask";
-	ui_min = 0.005; ui_max = 1.0;
-	ui_step = 0.005;
-> = 0.5;
+	ui_min = 1.0; ui_max = 100.0;
+	ui_step = 1.0;
+> = 2.0;
 
 uniform float AutoMaskForget <
 	__UNIFORM_SLIDER_FLOAT1
@@ -64,7 +65,7 @@ uniform float AutoMaskForget <
 uniform float AutoMaskMoveMemory <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Frames a move is remembered";
-	ui_tooltip = "How long a pixel the frame shows as moving stays out of the mask. A frame the RGB step calls moving costs one 'Confidence lost' of confidence, however small the change was, and a still frame pays back a single frame's worth of it, so this is roughly how many still frames pass before the pixel can begin earning protection again -- at 60fps, 90 frames is a second and a half. The repayment happens whether or not the world is being drawn, so this is also how long a screen-wide move takes to clear once it stops. Below 1 it is off, and only the per-frame fall remains";
+	ui_tooltip = "How long a pixel the frame shows as moving stays out of the mask. A frame the RGB step calls moving costs one frame of the unmarking countdown, however small the change was, and a still frame pays one frame of it back, so this is exactly how many still frames pass before the pixel can begin earning protection again -- at 60fps, 90 frames is a second and a half. The repayment happens whether or not the world is being drawn, so this is also how long a screen-wide move takes to clear once it stops. Below 1 it is off, and only the unmarking countdown remains";
 	ui_category = "AutoMask";
 	ui_min = 0.0; ui_max = 600.0;
 	ui_step = 5.0;
@@ -184,6 +185,12 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	float motion = smoothstep(deadband - 1.0, deadband * 4.0 - 1.0, maxDiff);
 	float stable = maxDiff < deadband ? 1.0 : 0.0;
 
+	//The two sliders speak in frames; the accumulator is confidence against the 0.5 verdict step, so
+	//a frame of credit is that step divided by the slider, kept a hair above the exact share so the
+	//half-precision accumulator crosses the step on the frame it should and not one frame either way.
+	float gain = 0.504 / max(AutoMaskRise, 1.0);
+	float cost = 0.504 / max(AutoMaskFall, 1.0);
+
 	float4 prev = tex2D(AutoAccumA, texcoord);
 	float conf = prev.r;
 	float held = prev.g;
@@ -209,9 +216,9 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 		//one cannot tell a held HUD from its own backdrop, so it changes nothing else.
 		if (drawn){
 			if (conf < 0.0){
-				conf = min(0.0, conf + AutoMaskFall);
+				conf = min(0.0, conf + cost);
 			} else {
-				conf = min(1.0, conf + AutoMaskRise);
+				conf = min(1.0, conf + gain);
 			}
 		}
 	} else if (drawn && held < AutoMaskForget && !inDeadzone){
@@ -220,9 +227,9 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	} else {
 		//Decay confidence and bank move debt: the fall never waits on the world being drawn, and a
 		//frame the deadband calls changing costs the same however small the change was.
-		conf = conf - AutoMaskFall * (1.0 - stable);
+		conf = conf - cost * (1.0 - stable);
 		if (AutoMaskMoveMemory > 0.0){
-			conf = min(conf, -AutoMaskFall * AutoMaskMoveMemory * (1.0 - stable));
+			conf = min(conf, -cost * AutoMaskMoveMemory * (1.0 - stable));
 		}
 	}
 
@@ -231,7 +238,7 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 		held = 0.0;
 	}
 
-	return float4(clamp(conf, -AutoMaskFall * AutoMaskMoveMemory, 1.0), held, motion, 1.0);
+	return float4(clamp(conf, -cost * AutoMaskMoveMemory, 1.0), held, motion, 1.0);
 }
 
 //Downsamples motion flags into coarse block coverage.

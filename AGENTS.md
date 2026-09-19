@@ -59,6 +59,12 @@ the user to avoid rather than policed at runtime, and the README says so plainly
 The mask itself is one full-resolution HUD/non-HUD value per pixel, not one per element. Conflating
 health with inventory is accepted by design; per-element identity is not attempted.
 
+The accumulator's verdict step is fixed at 0.5 and the two frame sliders are converted into a step
+per frame (`0.504 / frames`, kept a hair above the exact share for the half-precision target), so a
+slider position is the duration it names and nothing else is retuned with it: the move memory is a
+count of still frames either way, and the debt it banks is `cost * AutoMaskMoveMemory`, whose depth
+does not change how long the repayment takes.
+
 Above the per-pixel verdict sits the question that gives it meaning: **is the world being drawn at
 all?** This is the premise, not a safety net under it. Stillness on its own proves nothing — a wall
 holds still too — so a pixel that holds still is only taken for interface while the world around it can
@@ -107,24 +113,31 @@ signal is trusted asymmetrically. A change that lasts longer than the hold is **
 what the game re-rendering from a new viewpoint looks like, and no panel is drawn that way. The memory
 lives in the sign of the accumulator's confidence, negative and clamped to the deepest a single move
 can reach, and a still frame pays it back one frame's worth at a time — so the two ends of the shader
-run on their own timescales: ~2 still frames to protect (fast, or a HUD is never captured) against
-`AutoMaskMoveMemory` still frames to recover from a move (slow, so it outlasts a camera movement).
+run on their own timescales: `AutoMaskRise` still frames to protect (fast, or a HUD is never captured)
+against `AutoMaskMoveMemory` still frames to recover from a move (slow, so it outlasts a camera movement).
 `AutoMaskMoveMemory` is therefore a duration rather than a confidence budget, and 0 restores the old
 behaviour exactly. Movement that fits inside the hold is still bridged and never banked, which is what
 keeps a draining bar or a scrolling list protected; movement past the hold costs the element its
 protection until the debt clears. What a frame then costs is read from the verdict the deadband reached,
-not from the graded magnitude: a frame is changing or it is not, and a changing one costs a frame's worth
-of `AutoMaskFall`, however small the change was — the RGB step decides only that the pixel moved, and what
-the move costs is `AutoMaskFall` and `AutoMaskMoveMemory`'s business. The graded magnitude survives only in
-the overlay, where red is the reading the user watches; banking against it would have made the deadband
-tune the confidence, which is the conflation the slider's role forbids.
+not from the graded magnitude: a frame is changing or it is not, and a changing one costs one frame of
+the unmarking countdown, however small the change was — the RGB step decides only that the pixel moved,
+and what the move costs is `AutoMaskFall` and `AutoMaskMoveMemory`'s business. The graded magnitude
+survives only in the overlay, where red is the reading the user watches; banking against it would have
+made the deadband tune the credit, which is the conflation the slider's role forbids.
 
-The heal is one frame's worth of `AutoMaskFall` per still frame regardless of the slider, which is what
-keeps the memory a duration the user can reason about rather than a confidence number they have to
-convert. It runs as part of the same credit as the rise, so it happens while the world is drawn and
-stops while it is not — paying down a debt is still crediting the pixel, and a stopped world is not
-evidence. `AutoMaskForget` is what protects a briefly-animating element from being banked in the first
-place, so it and `AutoMaskMoveMemory` are tuned against each other.
+The two frame sliders are expressed in whole frames rather than confidence per frame: the verdict is
+one fixed step (0.5), so "X frames still before marked" is that step divided by X, and the slider the
+user moves is the duration — a confidence share is a number that has to be converted into frames before
+it means anything. The conversion keeps a hair above the exact share (0.504 rather than 0.5) so the
+half-precision accumulator crosses the verdict step on the frame it should and not one frame either
+way. Keep `AutoMaskFall`'s frames at or under `AutoMaskRise`'s, or the mask lingers over moving scenery.
+
+The heal is one frame of the unmarking countdown per still frame, which is what keeps the memory a
+duration the user can reason about without a confidence number to convert. It runs as part of the same
+credit as the rise, so it happens while the world is drawn and stops while it is not — paying down a
+debt is still crediting the pixel, and a stopped world is not evidence. `AutoMaskForget` is what
+protects a briefly-animating element from being banked in the first place, so it and
+`AutoMaskMoveMemory` are tuned against each other.
 
 ### The `.fx` constraints that shape the design
 
