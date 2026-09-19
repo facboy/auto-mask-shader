@@ -13,6 +13,10 @@ is compiled -- so the way to get real bytecode out is to preprocess the file,
 drop those two constructs and hand the result to fxc, entirely in a scratch copy
 under tools/.work/. The repository files are never modified.
 
+The check is dual-host: it runs from WSL and natively on Windows alike, because
+it needs fxc.exe, which is a Windows binary. Under WSL the paths cross the
+boundary through wslpath; natively everything already speaks Windows.
+
     uv run tools/verify_shaders.py init    # fetch the pinned headers
     uv run tools/verify_shaders.py check   # compile every entry point
 
@@ -51,6 +55,16 @@ WORK = REPO / "tools" / ".work"
 HEADER_COMMIT = "6db142b4b1a05c764222e5b0bd9a644b7ccfe1dc"
 HEADERS = ("ReShade.fxh", "ReShadeUI.fxh", "DrawText.fxh")
 HEADER_URL = "https://raw.githubusercontent.com/crosire/reshade-shaders/{}/Shaders/{}"
+
+# Windows Kits roots in both spellings, WSL's /mnt/c and native Windows' C:\.
+# The candidates that are not real on the running host simply do not exist, so
+# scanning the whole list needs no host detection to get wrong.
+KITS = (
+    "/mnt/c/Program Files (x86)/Windows Kits/10/bin",
+    "/mnt/c/Program Files/Windows Kits/10/bin",
+    r"C:\Program Files (x86)\Windows Kits\10\bin",
+    r"C:\Program Files\Windows Kits\10\bin",
+)
 
 # (name, extra definitions). Both switches are `#ifndef`-guarded in the shader,
 # so defining them in the prelude is exactly the path a ReShade-level definition
@@ -94,6 +108,11 @@ def sha256_file(path: Path) -> str:
 def find_fxc() -> Path:
     """Locate fxc.exe: $FXC, then PATH, then the newest Windows Kits SDK.
 
+    The lookup is host-agnostic and runs under WSL and natively on Windows
+    alike: the kits sit behind /mnt/c under WSL and behind C:\\ natively, and
+    the candidates that are not real on the running host simply do not exist,
+    so both spellings are scanned and neither needs detecting.
+
     The choice of SDK version does not affect what this check reports. That was
     measured rather than assumed: the shader that ReShade refused to compile
     (X3511 on a forced unroll) compiles cleanly under every installed fxc at every
@@ -109,9 +128,8 @@ def find_fxc() -> Path:
         if candidate and Path(candidate).is_file():
             return Path(candidate)
     kits_found = []
-    for candidate in ("/mnt/c/Program Files (x86)/Windows Kits/10/bin",
-                      "/mnt/c/Program Files/Windows Kits/10/bin"):
-        kits = Path(candidate)
+    for root in KITS:
+        kits = Path(root)
         if kits.is_dir():
             kits_found += [p / "x64" / "fxc.exe" for p in kits.iterdir()
                            if (p / "x64" / "fxc.exe").is_file()]
@@ -122,6 +140,14 @@ def find_fxc() -> Path:
 
 
 def windows_path(path: Path) -> str:
+    """Hand the path over in the spelling fxc.exe wants on the running host.
+
+    Under WSL the check runs on the Linux side and fxc on the Windows side, so
+    the path crosses the boundary and wslpath -w translates it. Natively both
+    run on Windows and the path already is in the right spelling.
+    """
+    if sys.platform == "win32":
+        return str(path)
     out = subprocess.run(["wslpath", "-w", str(path)],
                          capture_output=True, text=True, check=True)
     return out.stdout.strip()
