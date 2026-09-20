@@ -20,6 +20,12 @@
 	#define AutoMaskAntiBloom		1		// [0 or 1] 1 blacks the masked pixels in the frame the other effects see
 #endif
 
+//The frame rate the frame-count bounds are sized for: each cap is a duration in seconds written as
+//seconds times this, so the caps grow with the frame rate and mean the same time everywhere.
+#ifndef AutoMaskTargetFPS
+	#define AutoMaskTargetFPS		60	// [30 to 240] frame rate the frame-count caps are sized for
+#endif
+
 //Uniforms
 //RGB change deadband in whole levels out of 255: the smallest change counted as motion, so the
 //smallest setting catches every change there is and is the most sensitive the detection goes.
@@ -40,23 +46,23 @@ uniform float AutoMaskEps <
 //A pixel seen moving repays its move memory first, one frame per still frame, so that countdown has to pass before
 //this one starts
 uniform float AutoMaskRise <
-	__UNIFORM_SLIDER_FLOAT1
+	__UNIFORM_DRAG_FLOAT1
 	ui_label = "Frames still before marked as interface";
 	ui_tooltip = "Frames of stillness a pixel needs before it is added to the mask.\nRaise it if scenery is getting caught, lower it if a HUD that briefly holds still fails to appear.";
 	ui_category = "AutoMask";
-	ui_min = 1.0; ui_max = 100.0;
+	ui_min = 1.0; ui_max = 10.0 * AutoMaskTargetFPS;
 	ui_step = 1.0;
-> = 2.0;
+> = 0.5 * AutoMaskTargetFPS;
 
 //Changing frames a pixel needs before it is dropped from the interface. Keep it short enough that
 //the world takes the mask back promptly, long enough that one stray changing frame cannot punch
 //holes in a protected element. Frames the RGB step calls still cost nothing.
 uniform float AutoMaskFall <
-	__UNIFORM_SLIDER_FLOAT1
+	__UNIFORM_DRAG_FLOAT1
 	ui_label = "Frames moving before unmarked as interface";
 	ui_tooltip = "Frames of change before a pixel is dropped from the mask.\nLower takes regions back faster, higher makes the mask linger.";
 	ui_category = "AutoMask";
-	ui_min = 1.0; ui_max = 100.0;
+	ui_min = 1.0; ui_max = AutoMaskTargetFPS;
 	ui_step = 1.0;
 > = 2.0;
 
@@ -65,26 +71,26 @@ uniform float AutoMaskFall <
 //rather than only when it runs unbroken. Also covers the one full-screen change after a load or a
 //resize, when the previous frame is still blank.
 uniform float AutoMaskForget <
-	__UNIFORM_SLIDER_FLOAT1
+	__UNIFORM_DRAG_FLOAT1
 	ui_label = "Frames of absence before decay starts";
 	ui_tooltip = "Frames of change absorbed before decay starts, so a draining health bar or scrolling list keeps its mask.\nA still frame pays half a frame of the balance back; only applies while the world is being drawn";
 	ui_category = "AutoMask";
-	ui_min = 0.0; ui_max = 120.0;
+	ui_min = 0.0; ui_max = 5.0 * AutoMaskTargetFPS;
 	ui_step = 1.0;
-> = 15.0;
+> = 0.25 * AutoMaskTargetFPS;
 
 //Frames a moving pixel remains penalized before earning protection again. A frame the RGB step
 //calls moving costs one frame of the unmarking countdown, however small the change was, and a
 //still frame pays one back -- at 60fps, 90 frames is a second and a half.
 //The repayment runs even while the world is stopped, so this is also how long a screen-wide move takes to clear.
 uniform float AutoMaskMoveMemory <
-	__UNIFORM_SLIDER_FLOAT1
+	__UNIFORM_DRAG_FLOAT1
 	ui_label = "Frames a move is remembered";
 	ui_tooltip = "Still frames after a move before the pixel can be claimed as interface again.\n0 forgets a move the frame after it happens";
 	ui_category = "AutoMask";
-	ui_min = 0.0; ui_max = 600.0;
+	ui_min = 0.0; ui_max = 10.0 * AutoMaskTargetFPS;
 	ui_step = 5.0;
-> = 90.0;
+> = 2.0 * AutoMaskTargetFPS;
 
 #define AUTOMASK_DILATE_MAX 3
 uniform float AutoMaskDilate <
@@ -115,8 +121,8 @@ uniform float AutoMaskMotion <
 	ui_tooltip = "How much of the screen must be changing before the world counts as being drawn and stillness can be taken for interface.";
 	ui_category = "AutoMask";
 	ui_min = 0.0; ui_max = 100.0;
-	ui_step = 0.5;
-> = 20.0;
+	ui_step = 1.0;
+> = 50.0;
 
 //Elliptical center deadzone suppressing accumulation on camera-tethered characters. Applies only
 //while the world is drawn when AutoMaskDeadzoneMotionOnly is set.

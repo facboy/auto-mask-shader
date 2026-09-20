@@ -228,7 +228,10 @@ Load-bearing, and follows from what each pass reads:
   into their ReShade folder takes the attribution with it.
 - LF line endings.
 - A uniform annotation must match the declared type: `__UNIFORM_SLIDER_FLOAT1`/`_FLOAT3` for floats,
-  `__UNIFORM_SLIDER_BOOL1` for bools. A mismatch is a silent ReShade UI bug.
+  `__UNIFORM_SLIDER_BOOL1` for bools. A mismatch is a silent ReShade UI bug. The widget is chosen by
+  the macro's family, and the family is chosen by what the value means: the frame-count settings
+  (`AutoMaskRise`, `AutoMaskFall`, `AutoMaskForget`, `AutoMaskMoveMemory`) use `__UNIFORM_DRAG_FLOAT1`,
+  a drag widget over free values rather than a stepped track; everything else is a slider.
 - `BUFFER_WIDTH`/`BUFFER_HEIGHT` are injected by ReShade at runtime, not defined here. Anything
   buffer-relative stays correct across resolutions; absolute pixel numbers do not.
 - Every pixel shader keeps `float4 pos : SV_Position` as its **first** parameter, even though no body
@@ -245,6 +248,12 @@ Load-bearing, and follows from what each pass reads:
   target, so a target left outside its guard is memory paid for a feature that is compiled out. Values
   tuned by watching stay live sliders; adding a third definition for one of those would cost a
   recompile per adjustment for no elision worth having.
+- `AutoMaskTargetFPS` is the one further definition, and it is not a third exception to the above but
+  a value of the same kind as the switches' defaults: a setup number, not a tuning one. The
+  frame-count settings are durations, so their `ui_max` caps are written as seconds ×
+  `AutoMaskTargetFPS` (rise 16.67 s, fall 1.67 s, grace 2 s, move memory 10 s) and grow with the
+  frame rate a user plays at, which no literal could. It is not watched and not elided — a runtime
+  `frametime` uniform cannot appear in an annotation, which is why it is a definition at all.
 - Update `README.md` in the same conversational, non-programmer voice whenever a user-facing
   behaviour changes.
 
