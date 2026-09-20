@@ -99,6 +99,24 @@ uniform float AutoMaskMoveMemory <
 	ui_step = 5.0;
 > = 2.0 * AutoMaskTargetFPS;
 
+#if AutoMaskCompute == 1
+	//The drift comparison's memory: how long a colour lingers in the average it reads. A backdrop
+	//shifting by a fraction of a level a frame -- a skybox panning slowly -- never crosses a level
+	//between two frames, so the frame-to-frame comparison reads it as exactly still and would bank
+	//it as interface; the average accumulates the shift until the pixel sits visibly away from
+	//where it has been, which is what marks it moving. Longer catches slower drift; 0 turns the
+	//comparison off. Declared with its pass so the pixel path, which has nothing to read it, does
+	//not show a setting that would do nothing.
+	uniform float AutoMaskDrift <
+		__UNIFORM_DRAG_FLOAT1
+		ui_label = "Drift horizon (seconds)";
+		ui_tooltip = "How long the slow colour average the drift comparison reads remembers.\nCatches scenery that shifts by less than a level a frame -- a skybox panning slowly -- which the frame-to-frame comparison cannot see.\n0 turns it off.";
+		ui_category = "AutoMask";
+		ui_min = 0.0; ui_max = 10.0;
+		ui_step = 0.25;
+	> = 0.5;
+#endif
+
 #define AUTOMASK_DILATE_MAX 3
 uniform float AutoMaskDilate <
 	__UNIFORM_SLIDER_FLOAT1
@@ -201,6 +219,14 @@ sampler AutoMap { Texture = texAutoMap; };
 	storage2D<float> AutoStatStore { Texture = texAutoStat; };
 	sampler MotionStat { Texture = texAutoStat; };
 	storage2D<float4> AutoAccumStore { Texture = texAutoAccumB; };
+	//The drift ping-pong: a long-baseline average of the colour, so a shift too small to
+	//cross a level between two frames still accumulates somewhere. Its own pair, because the
+	//accumulator has one spare channel and the average needs three.
+	texture texAutoDriftA { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA16F; };
+	texture texAutoDriftB { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA16F; };
+	sampler AutoDriftA { Texture = texAutoDriftA; };
+	sampler AutoDriftB { Texture = texAutoDriftB; };
+	storage2D<float4> AutoDriftStore { Texture = texAutoDriftB; };
 #else
 	//Motion reduction targets: coarse downscale and 1x1 global coverage statistic.
 	texture texMotionCoarse { Width = 16; Height = 16; Format = RGBA8; };
@@ -232,14 +258,35 @@ sampler AutoMap { Texture = texAutoMap; };
 
 		float3 now = tex2Dlod(ReShade::BackBuffer, float4(texcoord, 0.0, 0.0)).rgb;
 		float3 before = tex2Dlod(AutoHistory, float4(texcoord, 0.0, 0.0)).rgb;
+		float3 drift = tex2Dlod(AutoDriftA, float4(texcoord, 0.0, 0.0)).rgb;
 		now = round(now * 255.0) / 255.0;
+		//A pinned colour voids stillness on either side of the pair, on the same reasoning: what
+		//sits against a rail may be saturated rather than motionless, and the average of a pinned
+		//colour sits against the same rail.
 		float3 clipped = all(now == 0.0.xxx) + all(now == 1.0.xxx)
-		               + all(before == 0.0.xxx) + all(before == 1.0.xxx);
+		               + all(before == 0.0.xxx) + all(before == 1.0.xxx)
+		               + all(drift == 0.0.xxx) + all(drift == 1.0.xxx);
 		float3 diff = abs(now - before) * 255.0;
+		//The long-baseline reading, against the same deadband: how far the frame has got from
+		//where its colour has been, which is where a shift too small to cross a level between
+		//two frames still shows up. Either comparison calling it motion is motion.
+		float3 driftDiff = abs(now - drift) * 255.0;
 		float maxDiff = max(diff.r, max(diff.g, diff.b));
+		float maxDrift = max(driftDiff.r, max(driftDiff.g, driftDiff.b));
 		float deadband = max(ceil(AutoMaskEps), 1.0);
-		float motion = smoothstep(deadband - 1.0, deadband + 2.0, maxDiff);
-		float stable = (maxDiff < deadband && clipped == 0.0) ? 1.0 : 0.0;
+		float motion = max(smoothstep(deadband - 1.0, deadband + 2.0, maxDiff),
+		                   smoothstep(deadband - 1.0, deadband + 2.0, maxDrift));
+		float stable = (maxDiff < deadband && maxDrift < deadband && clipped == 0.0) ? 1.0 : 0.0;
+
+		//The average follows the frame at one horizon's worth a frame, and at once wherever the
+		//frame-to-frame comparison already sees a change: a cut, a load, a fast pan, the first
+		//frame of all. There the average has nothing to add -- the shader has already read that
+		//move -- and lagging it would only turn the move into drift for a horizon on end. What is
+		//left to accumulate is the case that comparison is blind to: a shift too small to cross a
+		//level, building until the pixel sits visibly away from where its colour has been. At 0
+		//the horizon is one frame, so the average is the frame and the channel is off.
+		float horizon = max(AutoMaskDrift * AutoMaskTargetFPS, 1.0);
+		float3 next = (maxDiff < deadband) ? lerp(now, drift, 1.0 - 1.0 / horizon) : now;
 
 		float gain = 0.504 / max(AutoMaskRise, 1.0);
 		float cost = 0.504 / max(AutoMaskFall, 1.0);
@@ -297,8 +344,10 @@ sampler AutoMap { Texture = texAutoMap; };
 		if (gi == 0)
 			atomicAdd(AutoMotionCount, int2(0, 0), groupChanged);
 
-		if (live)
+		if (live){
 			AutoAccumStore[int2(tid.xy)] = float4(clamp(conf, -cost * AutoMaskMoveMemory, 1.0), held, motion, 1.0);
+			AutoDriftStore[int2(tid.xy)] = float4(next, 1.0);
+		}
 	}
 
 	//Turns the frame's count into the share the next frame's gate reads, and clears the counter.
@@ -308,6 +357,12 @@ sampler AutoMap { Texture = texAutoMap; };
 		float share = float(AutoMotionCount[int2(0, 0)]) / (BUFFER_WIDTH * BUFFER_HEIGHT);
 		AutoMotionCount[int2(0, 0)] = 0u;
 		AutoStatStore[int2(0, 0)] = share;
+	}
+
+	//Drift ping-pong back-edge (copy B to A).
+	float4 PS_CopyDrift(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+	{
+		return float4(tex2D(AutoDriftB, texcoord).rgb, 1.0);
 	}
 #else
 //Accumulates confidence from stillness while the world is drawn; a stopped world can only lose it.
@@ -577,6 +632,12 @@ technique AutoMask
 		RenderTarget = texAutoAccumA;
 	}
 	#if AutoMaskCompute == 1
+		//Brings the drift average back to the side the accumulator reads next frame.
+		pass {
+			VertexShader = PostProcessVS;
+			PixelShader = PS_CopyDrift;
+			RenderTarget = texAutoDriftA;
+		}
 		//Hands the count over as the share the next frame's gate reads, and clears it.
 		pass {
 			ComputeShader = CS_Finish;

@@ -182,8 +182,10 @@ speaks, so the pinned colour and the history agree on what 'all 0' and 'all 255'
 ### The compute path
 
 `AutoMaskCompute=1` swaps the accumulator and the screen-motion gate for compute passes, under a guard
-that owns the shaders, the pass entries and every target only they use. It is a replacement rather than
-an addition, which is what keeps the cost claim honest:
+that owns the shaders, the pass entries and every target only they use. The gate half is a replacement
+rather than an addition — the coarse grid and its two reduction passes are gone, not skipped — which is
+what keeps that cost claim honest. The drift channel is the one thing this path *adds*: two full-res
+`RGBA16F` ping-pong targets, which the pixel path has nowhere to put and deliberately does not carry.
 
 - `CS_Accum` is `PS_Accum`'s state machine verbatim, plus one count. Every pixel it calls changed adds
   to a `groupshared` tally, and one thread per **group** adds that tally to a single 1×1 `r32u` counter
@@ -197,6 +199,28 @@ an addition, which is what keeps the cost claim honest:
   guarded line is needed at the read sites — only the declaration differs per variant.
 - The count replaces `PS_Motion`/`PS_MotionAvg` and the 16×16 coarse target. The gate was 1,024 taps
   standing in for every pixel; it is now exact.
+- The **drift channel** rides in the same pass and is guarded with it. Two full-res `RGBA16F`
+  ping-pong targets hold a long-baseline average of each pixel's colour (`drift' = lerp(now, drift,
+  1 - 1/K)`, `K = AutoMaskDrift × AutoMaskTargetFPS` frames), and a pixel is marked moving when
+  **either** the frame-to-frame difference or its distance from that average crosses the same
+  deadband; the graded overlay carries the max, so red is still the reading the verdict comes from.
+  It exists because the frame-to-frame comparison speaks in whole levels: a backdrop shifting by a
+  fraction of one a frame — a skybox panning slowly — reads as exactly still there and would be banked
+  as interface. The average accumulates the shift until the pixel sits visibly away from where it has
+  been. The clip-rail exclusion applies to the average symmetrically, and stillness now requires both
+  comparisons to read still, so the drift channel also feeds the world-drawn count and the premise
+  with it: a slowly panning sky can hold the premise up on its own. `PS_CopyDrift`, a pixel pass beside
+  `PS_Copy`, brings the average back to the side the next frame reads.
+- **An abrupt change follows at once, and only drift waits.** The average takes a horizon's worth of
+  the frame a frame while the short comparison reads still — that is what lets a sub-level shift
+  accumulate — but wherever the short comparison already reads a change it *becomes* the frame
+  instead. There the average has nothing to add, the shader has already taken that frame for motion,
+  and lagging behind by the whole colour distance is exactly what would hold a mask out of a scene
+  cut or a load for a horizon on end. So a cut drags the average straight to the new scene and only
+  the genuinely sub-deadband movement is left to accumulate. The cost is that a move the short
+  comparison reads — a camera pan, a fast object — resets the average rather than being remembered
+  by it; the drift channel is the long baseline for the case the short one is blind to, and that
+  case is a shift too small to cross a level.
 
 Three constraints the dialect imposes on any compute pass here, all found the hard way:
 
@@ -228,7 +252,8 @@ Load-bearing, and follows from what each pass reads:
    `PS_Dilate` is one pass: a 2D max over a tiny fixed neighbourhood, stopping where the luma step
    read from `BackBuffer` exceeds `AutoMaskEdge`. Reading the frame there is safe only because it is
    before every pass that writes it. `PS_Copy` stays a pixel pass in both variants: the accumulator is
-   `RGBA16F` and the copy has no statistics to do.
+   `RGBA16F` and the copy has no statistics to do, and `PS_CopyDrift` is its twin on the compute path,
+   bringing the drift average back across the same ping-pong.
 4. `PS_Store`, keeping the mapped pixels.
 5. `PS_StoreFrame`, copying the untouched frame into the history target for the next frame.
 6. `PS_AntiBloom` — black the masked pixels in the live frame so a bloom pass downstream has no UI to
@@ -268,9 +293,10 @@ Load-bearing, and follows from what each pass reads:
 - LF line endings.
 - A uniform annotation must match the declared type: `__UNIFORM_SLIDER_FLOAT1`/`_FLOAT3` for floats,
   `__UNIFORM_SLIDER_BOOL1` for bools. A mismatch is a silent ReShade UI bug. The widget is chosen by
-  the macro's family, and the family is chosen by what the value means: the frame-count settings
-  (`AutoMaskRise`, `AutoMaskFall`, `AutoMaskForget`, `AutoMaskMoveMemory`) use `__UNIFORM_DRAG_FLOAT1`,
-  a drag widget over free values rather than a stepped track; everything else is a slider.
+  the macro's family, and the family is chosen by what the value means: the duration settings
+  (`AutoMaskRise`, `AutoMaskFall`, `AutoMaskForget`, `AutoMaskMoveMemory`, and the compute path's
+  `AutoMaskDrift`) use `__UNIFORM_DRAG_FLOAT1`, a drag widget over free values rather than a stepped
+  track; everything else is a slider.
 - `BUFFER_WIDTH`/`BUFFER_HEIGHT` are injected by ReShade at runtime, not defined here. Anything
   buffer-relative stays correct across resolutions; absolute pixel numbers do not.
 - Every pixel shader keeps `float4 pos : SV_Position` as its **first** parameter, even though no body
@@ -293,6 +319,11 @@ Load-bearing, and follows from what each pass reads:
   `AutoMaskTargetFPS` (rise 16.67 s, fall 1.67 s, grace 2 s, move memory 10 s) and grow with the
   frame rate a user plays at, which no literal could. It is not watched and not elided — a runtime
   `frametime` uniform cannot appear in an annotation, which is why it is a definition at all.
+  The drift horizon is a duration of the other kind: the slider is already in seconds (its cap a
+  literal 10) and the frame count its average remembers is derived from it, so `AutoMaskTargetFPS`
+  multiplies it inside the shader rather than in the annotation. It is declared inside the compute
+  guard, beside the other uniforms, because the pixel path has no pass that would read it and a
+  setting that does nothing is worse than an absent one.
 - Update `README.md` in the same conversational, non-programmer voice whenever a user-facing
   behaviour changes.
 
@@ -394,6 +425,15 @@ The compile check needs `fxc.exe`, which is a Windows binary run under WSL:
   again. If both behave, the setting is doing what it says. Watching the overlay in its motion view is
   the cheap way to see movement the deadband is still admitting, and the corner marker tells you whether
   the reading you are looking at is current.
+  The drift channel adds the pair its horizon is balanced between, both on the compute path. Pan the
+  camera slowly across scenery that is otherwise still — a sky, a distant backdrop — and the backdrop
+  must stay out of the mask while a HUD in the same frame stays in; that is the reading the channel
+  exists for, and the overlay's motion view is where to watch it, since the short comparison alone
+  shows the sky as clean. Then cut between two scenes, or load one: the mask must reform within a
+  handful of frames rather than staying blank for the horizon, which is the follow-the-short-comparison
+  rule doing its work. The third is a HUD that does not move but does flicker — a static element with
+  temporal anti-aliasing on it — which must not be evicted by the channel at the default horizon; if it
+  is, the horizon is what to shorten.
 
 ## What this shader cannot do
 
@@ -417,7 +457,8 @@ discovered:
   The move memory does not help here and cannot, which is the sharper way to state the limit: a wall
   the player has been facing throughout never moved in the picture, so there is nothing to remember.
   It catches the wall that was *walked past* and then stopped in front of, which is the common case;
-  it cannot catch the one that was never in motion to begin with.
+  it cannot catch the one that was never in motion to begin with. The drift channel does not help
+  either, and for the same reason: a wall that never changes has no drift away from its own average.
 - **Something animating in a stopped scene is given up.** A spinner, a flashing icon, a background
   loop: while the world is not being drawn those pixels are still changing, so they read as moving and
   fall out of the mask even though they may genuinely be interface. That is the price of the hold being

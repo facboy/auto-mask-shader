@@ -230,8 +230,15 @@ Four implementation notes worth carrying forward:
 - README: document the switch, the D3D11+/Vulkan requirement, and what changes when it is on; also update `AGENTS.md`'s switch inventory (it currently says "two structural switches") once `AutoMaskCompute` exists.
 - Verify: eight variants pass; off-path bytecode hashes unchanged; on-path pass list shows the compute wiring; record instruction counts.
 
-###   Step 3: Implement the EMA drift channel in CS_Accum
+### ✓ Step 3: Implement the EMA drift channel in CS_Accum
 Slow backdrops that the frame-to-frame comparison reads as still are caught via the long-baseline channel, with the horizon as one drag slider.
+
+**Status: done.** `Shaders/AutoMask.fx` carries `texAutoDriftA/B`, `AutoDriftStore`, `PS_CopyDrift`, the `AutoMaskDrift` uniform and the drift arithmetic in `CS_Accum`; `README.md` and `AGENTS.md` are updated. All eight variants pass; the 40 off-path entry points still hash identically to the pre-change baseline; the drift targets appear only at `AutoMaskCompute=1` and the pixel path is untouched. Cost: `CS_Accum` 107 → 140 slots and `PS_CopyDrift` 4, i.e. one full-res compute pass plus one full-res copy, and two full-res `RGBA16F` targets — the compute path is no longer a wash on the pixel path, and the README no longer claims it is.
+
+Three implementation notes worth carrying forward:
+- **The snap is keyed on the short comparison, not on the clean-still test.** The plan had it "on clean-still frames", but the corrected model shows that test fires on exactly the case the channel exists for: real sub-deadband drift is *precisely* a clean-still frame whose average is a long way behind, so a lag-threshold snap would erase the signal it is meant to protect. Keyed on `maxDiff >= deadband` instead — the short comparison already calling the frame a change — the average follows a cut, a load or a fast pan at once (there it has nothing to add) and only the movement the short comparison is blind to is left to accumulate. Verified numerically: a 160-level cut settles in one frame, a 0.4-level-a-frame drift accumulates to a settled lag of ~12 levels and reads as motion continuously, a static HUD stays at zero lag.
+- **The deadband is what makes the channel necessary.** At `AutoMaskEps=1` a one-level step is motion in the short comparison, so the drift channel adds nothing; it earns its keep at the raised settings (`AutoMaskEps=3`, where a one-level step is still and the drift ramp is still climbing at four levels) — which is exactly the tuning case where a slow backdrop would otherwise be banked.
+- **The clip-rail exclusion is applied to the average**, not just to `now`/`before`: an average sitting at all 0 or all 255 is a saturated colour on the same reasoning, and it voids the still verdict through the same `clipped` count.
 
 - Add `texAutoDriftA/B` RGBA16F full-res ping-pong targets (+samplers +storages) and the guarded `PS_CopyDrift` copy pass.
 - Add `AutoMaskDrift` ("Drift horizon (seconds)") as a `__UNIFORM_DRAG_FLOAT1` duration capped by `AutoMaskTargetFPS`, default 0.5 s.
@@ -239,6 +246,8 @@ Slow backdrops that the frame-to-frame comparison reads as still are caught via 
 - Implement the accelerated snap of the EMA toward `now` on clean-still frames so a scene cut recovers in a few frames instead of the full horizon.
 - Overlay stays semantically unchanged (red = graded max of both channels); README: new settings row plus a slow-backdrop tuning note, replacing part of the manual recipe.
 - Verify: eight variants; drift targets only allocated when the switch is on; record cost delta.
+
+The horizon ships as a literal-seconds slider (cap `10.0`, step `0.25`, default `0.5`) rather than a `seconds × AutoMaskTargetFPS` cap: `AutoMaskTargetFPS` multiplies it *inside* the shader to turn it into a frame count, so the panel value stays in the unit the label names. It is declared inside the compute guard rather than with the other uniforms, because the pixel path has no pass that would read it.
 
 ###   Step 4: Add change-size histogram with auto-deadband
 The RGB step can be measured from the scene instead of hand-tuned, opt-in via a panel toggle, with the slider path untouched when off.

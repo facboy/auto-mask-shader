@@ -68,6 +68,7 @@ lives.
 | **Frames moving before unmarked as interface** | How many frames a pixel has to keep changing — counting from when it was last marked, and past the grace period below — before it is dropped from the mask. Lower clears a region faster once the world starts moving over it again; higher makes the mask linger. The count runs whether or not the world is being drawn, and frames the RGB step calls still cost nothing. Keep it short enough that the world takes the mask back promptly, long enough that one stray changing frame cannot punch holes in a protected element. |
 | **Frames of absence before decay starts** | The grace period before that decay begins. This is the one that matters most: it is what keeps an element covered while it animates a little — a draining bar, a scrolling list, a blinking cursor. It runs as a balance: a frame the RGB step calls changing adds one, and a still frame pays half of one back, so animation that outweighs its pauses banks toward the limit while brief bursts do not. Too short and you get holes over exactly the parts that move. It only applies while the world is being drawn. |
 | **Frames a move is remembered** | How long something stays out of the mask after the frame shows it moving. Holding still is only a hint — a wall holds still too — but movement is proof: the game re-renders moving things from a new viewpoint, and nothing paints a panel that way. So a move is remembered, and a pixel seen moving has to hold still for this many frames before it can be claimed as interface. This is what stops a wall you just walked past being grabbed the moment you stop. The repaying of that debt does not wait on the world being drawn, so this is also how long a screen-wide move takes to clear once the view stops — raise it and a pan takes longer to settle. At `0` a move is forgotten the frame after it happens, which is the old behaviour. |
+| **Drift horizon (seconds)** *(compute path only)* | How long the shader remembers where a pixel's colour has been, as a running average. It is the second reading a pixel is judged on, and it exists for one case: scenery that shifts by *less than a level a frame* — a skybox panning slowly, a distant backdrop drifting past — which the frame-to-frame comparison can't see, because half a level rounds to no change at all. Over a horizon that shift adds up, and a pixel that has been creeping away from where it was is not something the game paints in place. Longer catches slower movement; shorter lets the mask come back sooner after the picture changes abruptly. `0` turns the comparison off and leaves the frame-to-frame reading on its own. |
 | **Closing radius in pixels** | Grows the mask slightly to close anti-aliased edges and thin text. `0` turns it off. |
 | **Luma step counted as a boundary** | Stops that growth at a real edge in the picture, so the mask snaps to the HUD's outline instead of spilling out into the scenery. |
 | **Motion needed to trust stillness (percent)** | How much of the screen has to be changing before the shader believes the world is being drawn. Above it, a pixel that holds still is taken for interface and the mask builds; below it, stillness earns nothing, because what holds still in a still scene is the scenery. This is the line that decides whether the screen is being drawn at all — the premise rather than a refinement, which is why its default is not zero. Raise it if scenery is still getting caught, lower it if a HUD fails to appear. |
@@ -90,13 +91,26 @@ thousand samples stand in for every pixel on screen. A small panel arriving, or 
 to fall between the samples, can move that reading without the sampler seeing why. With the compute
 path on, the accumulator itself counts every pixel it calls changed — millions of them, with the count
 collapsed down per block of 256 pixels before it is added up, so the reading is exact and there is no
-grid to miss anything. The two passes that built the coarse grid disappear with it, so the cost is
-roughly a wash; what it buys is a reading you can trust rather than a faster shader.
+grid to miss anything. The two passes that built the coarse grid disappear with it; what it buys is a
+reading you can trust, and the drift horizon below, rather than a faster shader. It costs a little
+more than the pixel path and allocates two more full-screen buffers, so if you are on the pixel path
+and happy with it, there is no reason to move.
 
 It needs a Direct3D 11 or newer device, or Vulkan. On Direct3D 9 or 10, or any device without compute
 support, leave it off — the shader cannot fall back to the pixel path on its own, and the technique
 will fail to build. On anything modern it is safe to switch on, and worth doing if you have ever seen
-the screen-wide reading behave oddly — a mask that forms or refuses to form for no visible reason.
+the screen-wide reading behave oddly — a mask that forms or refuses to form for no visible reason, or
+scenery that creeps in slowly while nothing appears to be moving.
+
+The compute path also carries one thing the pixel path cannot: the **Drift horizon** in the settings
+above, which is the only setting that comes and goes with this switch. It answers the other half of the
+same question. A backdrop shifting by a fraction of a level a frame — a sky panning slowly, a hillside
+sliding past in the distance — reads as *exactly* still to a comparison that works in whole levels, and
+stillness is what the mask is built from, so the sky would be banked as interface. Over a horizon those
+fractions add up, and a pixel that has drifted away from where its colour has been is not something the
+game keeps repainting in place. Raise the horizon to catch slower drift, lower it if you want the mask
+back sooner after the picture changes abruptly; a scene cut or a load drags the average straight to the
+new scene, so it does not leave the mask blank while the horizon runs out.
 
 ## Seeing what it decided
 
@@ -216,6 +230,12 @@ time:
   character's back or torso stays locked at the exact same screen position. To the comparison that
   looks identical to a HUD element. Use the **Center deadzone** settings to carve out an elliptical
   exclusion zone around your character model.
+- **A HUD that flickers without moving, on the compute path.** Dithering and temporal anti-aliasing
+  make a pixel that is standing still differ by a level or two from frame to frame — usually forgiven
+  by the RGB step above, but not by the drift horizon, because a pixel that keeps wandering does end up
+  away from its own average. The direction it fails in is the mild one: the element is left out of the
+  mask rather than the scenery being taken in. If you see a static element being dropped when the
+  compute path is on, shorten the horizon.
 - **A wrong mask is worse than a wrong verdict.** Where a mask image toggles effects at the wrong
   moment, this one is continuously visible if it's wrong. If in doubt, tune toward a longer grace
   period and a tighter closing radius rather than an eager mask.
