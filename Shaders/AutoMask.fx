@@ -199,6 +199,11 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	//half a level reads as exactly zero instead of as a fraction the deadband forgives while the
 	//overlay's gain paints it red.
 	now = round(now * 255.0) / 255.0;
+	//A pixel pinned at all 0 or all 255 shows no difference while it stays there, but that is
+	//saturation, not stillness: a wholly clipped frame on either side voids the still verdict,
+	//while the moves onto and off a rail are read by the difference as usual.
+	float3 clipped = all(now == 0.0.xxx) + all(now == 1.0.xxx)
+	               + all(before == 0.0.xxx) + all(before == 1.0.xxx);
 	float3 diff = abs(now - before) * 255.0;
 	float maxDiff = max(diff.r, max(diff.g, diff.b));
 	//The deadband is a level count, so it is read as whole levels: a change of that many levels or
@@ -207,7 +212,7 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	//reads a quarter-strength change at every position.
 	float deadband = max(ceil(AutoMaskEps), 1.0);
 	float motion = smoothstep(deadband - 1.0, deadband + 2.0, maxDiff);
-	float stable = maxDiff < deadband ? 1.0 : 0.0;
+	float stable = (maxDiff < deadband && clipped == 0.0) ? 1.0 : 0.0;
 
 	//The two sliders speak in frames; the accumulator is confidence against the 0.5 verdict step, so
 	//a frame of credit is that step divided by the slider, kept a hair above the exact share so the

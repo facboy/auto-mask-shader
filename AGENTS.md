@@ -110,6 +110,20 @@ debt cleared in lockstep: ~`AutoMaskMoveMemory` frames after the motion stopped,
 crossed into the mask at once. Now the heal is part of crediting stillness, so it stops with the rest of
 it — a stopped world repays nothing, and the backdrop stays wherever the pan left it.
 
+The still verdict carries one further exclusion, and it follows from what the channels can tell the
+comparison: a frame pinned at all 0 or all 255 is never read as a hold, on either side of the pair. A
+wholly clipped colour is saturated rather than proved motionless — the frame that ran it against the
+rail pushed it there, and while it sits at the rail the difference reads zero no matter what the
+game is doing underneath — so 'staying at all 0' does not count as 'staying still', while the moves
+onto and off a rail are read by the difference as usual. A single pinned channel does not void the
+verdict: the visible channels still carry the evidence, and voiding on any channel would mis-punish
+the one-level move off a rail that the deadband exists to forgive. The cost is a frame a game
+presents as flat 0 or flat 255 — a letterbox bar, a hard fade, a sky at the top of the range — that
+earns nothing while it holds; that is the side to be wrong on, because a clipped backdrop filling
+the mask is the failure the verdict exists to prevent. In a stopped scene the exclusion is also a
+one-way door: a pinned frame takes the moving branch, so the letterboxed region keeps losing mask
+and can earn nothing back until the colour un-pins.
+
 Stillness is only a hint, though — the world holds still too — and motion is proof, so the per-pixel
 signal is trusted asymmetrically. A change that lasts longer than the hold is **remembered**: it is
 what the game re-rendering from a new viewpoint looks like, and no panel is drawn that way. The memory
@@ -151,7 +165,8 @@ also quantized onto whole levels (`round(now * 255.0) / 255.0`) before the diffe
 is stored on that grid, and on a higher-precision back buffer a sub-level change would otherwise be
 forgiven by the deadband — the pixel reads still, the mask holds or grows — while the overlay's gain
 painted those same small differences red, the flip side of the sub-level-hiding bug the ramp's foot
-closed.
+closed. The clip exclusion is checked after the quantization, on the grid the comparison itself
+speaks, so the pinned colour and the history agree on what 'all 0' and 'all 255' mean.
 
 ### The `.fx` constraints that shape the design
 
