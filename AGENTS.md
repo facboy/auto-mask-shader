@@ -151,8 +151,11 @@ and the history agree on what 'all 0' and 'all 255' mean.
 `AutoMaskCompute=1` swaps the accumulator and the screen-motion gate for compute passes, under a guard
 that owns the shaders, the pass entries and every target only they use. The gate half is a replacement
 rather than an addition — the coarse grid and its two reduction passes are gone, not skipped — which is
-what keeps that cost claim honest. The drift channel is the one thing this path *adds*: two full-res
-`RGBA16F` ping-pong targets, which the pixel path has nowhere to put and deliberately does not carry.
+what keeps that cost claim honest. Two readings are *added* rather than replaced, both resting on the
+compute path's ability to see every pixel: the drift channel's two full-res `RGBA16F` ping-pong targets,
+which the pixel path has nowhere to put and deliberately does not carry, and the histogram's 256×1
+`r32u` plus the 1×1 `r32f` step it feeds — 1 KB together — which the coarse grid cannot take at all,
+because 1,024 taps cannot tell a level of dithering from a level of real motion.
 
 - `CS_Accum` is `PS_Accum`'s state machine verbatim, plus one count: every pixel it calls changed adds to
   a `groupshared` tally, and one thread per **group** adds that tally to a single 1×1 `r32u` counter, so
@@ -166,6 +169,28 @@ what keeps that cost claim honest. The drift channel is the one thing this path 
   line is needed at the read sites — only the declaration differs per variant.
 - The count replaces `PS_Motion`/`PS_MotionAvg` and the 16×16 coarse target. The gate was 1,024 taps
   standing in for every pixel; it is now exact.
+- The **change-size histogram** rides in the same pass and is guarded with it: one `atomicAdd` per pixel
+  into one of 256 `r32u` bins, indexed by the whole level of frame-to-frame difference, so the frame
+  reports the whole distribution of its own movement rather than only the pixels above a threshold. The
+  histogram exists because the pixel path cannot take the reading at all — 1,024 taps cannot tell a level
+  of dithering from a level of real motion — and it is what makes an auto-deadband possible: `CS_Finish`
+  reads the low levels back, finds the smallest one leaving no more than `AutoMaskNoiseFloor` percent of
+  the screen changing above it, and writes that into a second 1×1 `r32f` target the next frame's
+  `CS_Accum` reads through a sampler named `AutoStep`, one frame behind exactly as the share is. The
+  measurement is per frame and never writes back into the slider. The walk covers levels 1 to 8 only,
+  because 8 is where the `AutoMaskEps` slider ends and a step outside that range is not a position the
+  manual path could take either. Running out of the range means no level separated the frame's noise from
+  its content — what a fully live frame looks like, every level still changing somewhere — and there the
+  slider's own value stands rather than the measurement guessing, so a fast camera movement cannot talk
+  the shader into forgiving real motion. The bins are filled only while the toggle is on — that is the
+  per-pixel atomic, so gating it is what keeps the off path costing what it cost before the feature
+  existed — but the clear runs unconditionally, because a toggle flip with the bins left full would have
+  the first measured step read off a stale frame. Clearing 256 bins from a 1-thread pass costs nothing
+  worth eliding. `AutoMaskAutoStep` and `AutoMaskNoiseFloor` are declared beside the horizon inside the compute
+  guard for the same reason it is: the pixel path has no pass that would read them. The auto-deadband is
+  a live toggle rather than a fourth structural switch, so its targets stay allocated while it is off —
+  the convention is that a value tuned by watching stays a slider and costs nothing but the memory its
+  guard already owns, and 1 KB is not worth a recompile per comparison.
 - The **drift channel** rides in the same pass and is guarded with it. Two full-res `RGBA16F` ping-pong
   targets hold a long-baseline average of each pixel's colour (`drift' = lerp(now, drift, 1 - 1/K)`,
   `K = AutoMaskDrift × AutoMaskTargetFPS` frames), and a pixel is marked moving when **either** the
@@ -212,7 +237,9 @@ Load-bearing, and follows from what each pass reads:
 2. The two sub-resolution passes that average the still flag into the share of the screen being redrawn —
    after the accumulate, since their only input is what it just wrote, and read on the next frame. With
    `AutoMaskCompute` on these two are gone, replaced by `CS_Finish`, which turns the exact count into the
-   same share.
+   same share — and, off the same histogram, the measured step the next frame reads. The auto-deadband
+   therefore lands in the same slot and keeps the same one-frame-behind timing as the share: the frame
+   being judged is never the frame that set its own threshold.
 3. `PS_Copy`, `PS_Dilate` — the ping-pong back-edge and the boundary close, also before the store.
    `PS_Dilate` is one pass: a 2D max over a tiny fixed neighbourhood, stopping where the luma step read
    from `BackBuffer` exceeds `AutoMaskEdge`. Reading the frame there is safe only because it is before
@@ -284,7 +311,8 @@ Load-bearing, and follows from what each pass reads:
   its slider is already in seconds (cap a literal 10) and the frame count its average remembers is
   derived from it, so `AutoMaskTargetFPS` multiplies it inside the shader. It is declared inside the
   compute guard beside the other uniforms, because the pixel path has no pass that would read it and a
-  setting that does nothing is worse than an absent one.
+  setting that does nothing is worse than an absent one. `AutoMaskAutoStep` and `AutoMaskNoiseFloor` sit
+  there with it for the same reason.
 - Update `README.md` in the same conversational, non-programmer voice whenever a user-facing behaviour
   changes.
 
@@ -389,6 +417,12 @@ The compile check needs `fxc.exe`, which is a Windows binary run under WSL:
     of frames rather than staying blank for the horizon. The third is a HUD that does not move but does
     flicker — a static element with temporal anti-aliasing on it — which must not be evicted by the
     channel at the default horizon; if it is, the horizon is what to shorten.
+  - The auto-deadband's pair, both on the compute path: the same scene with the toggle on and off, and
+    the step the measurement settles on should sit above the dithering the overlay shows as red without
+    losing movement you can see — with the toggle off it must match the manual slider exactly, slider
+    value and all. The third is a fully live frame — pan across detailed scenery with auto-detect on —
+    where there is no quiet majority to measure and the slider's own value is what must govern, so the
+    mask cannot start forgiving real motion just because the camera is moving.
 
 ## What this shader cannot do
 

@@ -65,6 +65,8 @@ lives.
 | **Frames of absence before decay starts** | The grace period before that decay begins, and the one that matters most: it is what keeps an element covered while it animates a little — a draining bar, a scrolling list, a blinking cursor. It runs as a balance, a changing frame adding one and a still frame paying half of one back, so animation that outweighs its pauses banks toward the limit while brief bursts do not. Too short and you get holes over exactly the parts that move; it only applies while the world is being drawn. |
 | **Frames a move is remembered** | How long something stays out of the mask after the frame shows it moving. Holding still is only a hint — a wall holds still too — but movement is proof: the game re-renders moving things from a new viewpoint, and nothing paints a panel that way. So a pixel seen moving has to hold still for this many frames before it can be claimed as interface, which is what stops a wall you just walked past being grabbed the moment you stop. The repayment does not wait on the world being drawn, so this is also how long a screen-wide move takes to clear once the view stops. At `0` a move is forgotten the frame after it happens. |
 | **Drift horizon (seconds)** *(compute path only)* | How long the shader remembers where a pixel's colour has been, as a running average. It is the second reading a pixel is judged on, and it exists for one case: scenery that shifts by *less than a level a frame* — a skybox panning slowly, a distant backdrop drifting past — which the frame-to-frame comparison can't see, because half a level rounds to no change at all. Over a horizon that shift adds up, and a pixel that has been creeping away from where it was is not something the game paints in place. Longer catches slower movement; shorter lets the mask come back sooner after an abrupt change. `0` turns the comparison off. |
+| **Auto-detect RGB step** *(compute path only)* | When this is checked, the shader stops asking *you* what counts as a change and works it out from the scene instead. Every frame it tallies how far each pixel moved — one tally per size of change — and then reads off the smallest change that only a sliver of the screen is still making. Everything below that is the picture's own noise: dithering, temporal anti-aliasing, the little shimmer that makes a static pixel differ by a level or two. The shader forgives all of it and takes everything above it as real movement. If no change size separates the two — a frame where the whole screen is genuinely moving — there is nothing to measure, so it keeps whatever the slider above says rather than guessing from a scene that has no floor. When this is off, the **RGB step counted as a change** slider rules exactly as it always has. Start here if you have ever found yourself nudging that slider, and only go back to setting it by hand if the measurement leaves you with a step you don't like: the two are alternatives, not companions. The motion view of the overlay is how you watch the measurement work, since the red it draws is graded against the step that was measured — a scene where something you can see moving shows no red is a scene the shader has read correctly. |
+| **Noise floor (percent)** *(compute path only)* | The share of the screen the measured step is allowed to leave changing above it, and the whole of how strict the measurement is. Lower it and the shader forgives more — the step it chooses sits higher, so more of the picture's small movement passes as still; raise it and the step sits lower, keeping the smallest movements at the cost of counting more of the noise as motion. It does nothing while **Auto-detect RGB step** is off. |
 | **Closing radius in pixels** | Grows the mask slightly to close anti-aliased edges and thin text. `0` turns it off. |
 | **Luma step counted as a boundary** | Stops that growth at a real edge in the picture, so the mask snaps to the HUD's outline instead of spilling out into the scenery. |
 | **Motion needed to trust stillness (percent)** | How much of the screen has to be changing before the shader believes the world is being drawn. Above it, a pixel that holds still is taken for interface and the mask builds; below it, stillness earns nothing, because what holds still in a still scene is the scenery. This is the line that decides whether the screen is being drawn at all — the premise rather than a refinement, which is why its default is not zero. Raise it if scenery is still getting caught, lower it if a HUD fails to appear. |
@@ -86,10 +88,10 @@ approximation: the picture is reduced to a 16×16 grid with four samples per blo
 samples stand in for every pixel on screen, and a small panel arriving — or a region falling between
 the samples — can move that reading without the sampler seeing why. With the compute path on, the
 accumulator itself counts every pixel it calls changed, collapsed per block of 256 before it is added
-up, so the reading is exact and the two coarse-grid passes disappear. What it buys is a reading you can
-trust, and the drift horizon below, rather than a faster shader: it costs a little more than the pixel
-path and allocates two more full-screen buffers, so if you are happy with the pixel path, there is no
-reason to move.
+up, so the reading is exact and the two coarse-grid passes disappear. What it buys is not a faster
+shader — it costs a little more than the pixel path and allocates two more full-screen buffers — but a
+reading you can trust, the drift horizon below, and a step measured from the scene rather than guessed.
+If you are happy with the pixel path, there is no reason to move.
 
 It needs a Direct3D 11 or newer device, or Vulkan. On Direct3D 9 or 10, or any device without compute
 support, leave it off — the shader cannot fall back to the pixel path on its own, and the technique
@@ -97,11 +99,17 @@ will fail to build. On anything modern it is safe to switch on, and worth doing 
 the screen-wide reading behave oddly — a mask that forms or refuses to form for no visible reason, or
 scenery that creeps in slowly while nothing appears to be moving.
 
-The compute path also carries the **Drift horizon** setting above, the only one that comes and goes
-with this switch: a second, long-baseline reading of each pixel, for the slow drift the frame-to-frame
-comparison is blind to. Raise it to catch slower drift, lower it to get the mask back sooner; a scene
-cut or a load drags the average straight to the new scene, so the mask is not left blank while the
-horizon runs out.
+The compute path also carries the **Drift horizon** setting above: a second, long-baseline reading of
+each pixel, for the slow drift the frame-to-frame comparison is blind to. Raise it to catch slower
+drift, lower it to get the mask back sooner; a scene cut or a load drags the average straight to the
+new scene, so the mask is not left blank while the horizon runs out.
+
+It carries **Auto-detect RGB step** and its **Noise floor** as well, the other settings that come and
+go with this switch. On the pixel path the step has to be a number you chose; here the shader can count
+up exactly how many pixels changed by each amount — one tally per size of change, over every pixel on
+screen — and put the step where the scene's own noise stops and the movement starts. The two are
+alternatives: with auto-detect on the slider is ignored rather than blended with the measurement, so
+you can turn it on and off to compare the two without either interfering with the other.
 
 ## Seeing what it decided
 
@@ -216,6 +224,16 @@ time:
   away from its own average. The direction it fails in is the mild one: the element is left out of the
   mask rather than the scenery being taken in. If you see a static element being dropped when the
   compute path is on, shorten the horizon.
+- **The measured RGB step has nothing to measure in a fully live frame, on the compute path.**
+  Auto-detect works by finding where the picture's noise stops, and that only exists while most of the
+  screen is holding still. Pan across a detailed scene, or stand in a crowd of moving things, and every
+  change size is being made by something somewhere across the whole screen — there is no quiet majority
+  for the floor to be read off. The shader notices and keeps the slider's own value for those frames
+  rather than guessing a step from a scene that has no floor, so a fast camera movement cannot talk it
+  into forgiving real motion. It only means the measurement is a reading of calm scenes, which is
+  exactly where the slider is hardest to set by hand. If it settles on a step you don't like in a
+  particular game, turn it off and use the slider — the two are alternatives, and the slider is
+  untouched while auto-detect is on.
 - **A wrong mask is worse than a wrong verdict.** Where a mask image toggles effects at the wrong
   moment, this one is continuously visible if it's wrong. If in doubt, tune toward a longer grace
   period and a tighter closing radius rather than an eager mask.

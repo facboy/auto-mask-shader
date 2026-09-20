@@ -115,6 +115,26 @@ uniform float AutoMaskMoveMemory <
 		ui_min = 0.0; ui_max = 10.0;
 		ui_step = 0.25;
 	> = 0.5;
+
+	//The step measured rather than tuned: on, each frame's deadband is the level last frame's
+	//histogram put it at, so the smallest change that counts as motion is read off the scene's own
+	//noise floor. Off, AutoMaskEps rules exactly as on the pixel path. The floor is the share of
+	//the screen the derived step may leave changing above it, so lowering it forgives more.
+	uniform bool AutoMaskAutoStep <
+		__UNIFORM_SLIDER_BOOL1
+		ui_label = "Auto-detect RGB step";
+		ui_tooltip = "On, the RGB step is measured from the scene each frame rather than read from the slider above.\nThe step is set where only a sliver of the screen still changes above it.";
+		ui_category = "AutoMask";
+	> = false;
+
+	uniform float AutoMaskNoiseFloor <
+		__UNIFORM_SLIDER_FLOAT1
+		ui_label = "Noise floor (percent)";
+		ui_tooltip = "How much of the screen the measured step may leave changing above it.\nLower finds a higher step and forgives more; higher finds a lower step and keeps the smaller movements.";
+		ui_category = "AutoMask";
+		ui_min = 0.0; ui_max = 5.0;
+		ui_step = 0.05;
+	> = 0.5;
 #endif
 
 #define AUTOMASK_DILATE_MAX 3
@@ -215,9 +235,17 @@ sampler AutoMap { Texture = texAutoMap; };
 #if AutoMaskCompute == 1
 	texture texAutoMotionCount { Width = 1; Height = 1; Format = r32u; };
 	storage2D<uint> AutoMotionCount { Texture = texAutoMotionCount; };
+	//The change-size histogram: one bin per level of difference, so the scene itself says where
+	//its noise floor is. The bins are integers because the atomics counting them need one.
+	texture texAutoMotionHist { Width = 256; Height = 1; Format = r32u; };
+	storage2D<uint> AutoMotionHist { Texture = texAutoMotionHist; };
 	texture texAutoStat { Width = 1; Height = 1; Format = r32f; };
 	storage2D<float> AutoStatStore { Texture = texAutoStat; };
 	sampler MotionStat { Texture = texAutoStat; };
+	//The step measured off that histogram, one frame behind exactly as the share is.
+	texture texAutoStep { Width = 1; Height = 1; Format = r32f; };
+	storage2D<float> AutoStepStore { Texture = texAutoStep; };
+	sampler AutoStep { Texture = texAutoStep; };
 	storage2D<float4> AutoAccumStore { Texture = texAutoAccumB; };
 	//The drift ping-pong: a long-baseline average of the colour, so a shift too small to
 	//cross a level between two frames still accumulates somewhere. Its own pair, because the
@@ -273,7 +301,13 @@ sampler AutoMap { Texture = texAutoMap; };
 		float3 driftDiff = abs(now - drift) * 255.0;
 		float maxDiff = max(diff.r, max(diff.g, diff.b));
 		float maxDrift = max(driftDiff.r, max(driftDiff.g, driftDiff.b));
-		float deadband = max(ceil(AutoMaskEps), 1.0);
+		//The step is either tuned or measured: with auto-detect on it is the level the last frame's
+		//histogram found the scene's noise floor at, one frame behind exactly as the share is. The
+		//clamp is what keeps an unwritten or stale target from taking the deadband off the slider's
+		//own scale, so the first frame after the toggle goes on reads the most sensitive setting.
+		float deadband = AutoMaskAutoStep
+			? clamp(tex2Dlod(AutoStep, float4(0.5, 0.5, 0.0, 0.0)).r, 1.0, 8.0)
+			: max(ceil(AutoMaskEps), 1.0);
 		float motion = max(smoothstep(deadband - 1.0, deadband + 2.0, maxDiff),
 		                   smoothstep(deadband - 1.0, deadband + 2.0, maxDrift));
 		float stable = (maxDiff < deadband && maxDrift < deadband && clipped == 0.0) ? 1.0 : 0.0;
@@ -344,19 +378,57 @@ sampler AutoMap { Texture = texAutoMap; };
 		if (gi == 0)
 			atomicAdd(AutoMotionCount, int2(0, 0), groupChanged);
 
+		//One bin per whole level of frame-to-frame difference, so the next frame can be told where
+		//this scene's noise ends rather than being given the answer. Every live pixel lands in a bin,
+		//moved or not, because it is the shape of the whole distribution that names the floor. The
+		//index truncates, which is what puts bin b exactly at the difference the verdict calls motion
+		//at deadband b -- the same `maxDiff < deadband` comparison, in the same units -- so the share
+		//above a level read here is the share that level would call moving; 255 is the last bin rather
+		//than an overflow, so anything larger is counted as the largest step there is. Only while the
+		//step is being measured: with auto-detect off the histogram is neither filled nor read.
+		if (live && AutoMaskAutoStep)
+			atomicAdd(AutoMotionHist, int2(min(int(maxDiff), 255), 0), 1u);
+
 		if (live){
 			AutoAccumStore[int2(tid.xy)] = float4(clamp(conf, -cost * AutoMaskMoveMemory, 1.0), held, motion, 1.0);
 			AutoDriftStore[int2(tid.xy)] = float4(next, 1.0);
 		}
 	}
 
-	//Turns the frame's count into the share the next frame's gate reads, and clears the counter.
+	//Turns the frame's count into the share the next frame's gate reads, measures the step off the
+	//histogram, and clears both for the next frame.
 	[numthreads(1, 1, 1)]
 	void CS_Finish(uint3 tid : SV_DispatchThreadID)
 	{
 		float share = float(AutoMotionCount[int2(0, 0)]) / (BUFFER_WIDTH * BUFFER_HEIGHT);
 		AutoMotionCount[int2(0, 0)] = 0u;
 		AutoStatStore[int2(0, 0)] = share;
+
+		//Every live pixel landed in a bin, so only the low levels the walk speaks in have to be read
+		//back. The step is the smallest level that leaves no more than the noise floor changing above
+		//it, so the levels under it are the scene's noise -- which is what the deadband should be
+		//forgiving. Running out of the range means no level separates this frame's noise from its
+		//content, which is what a fully live frame looks like: every level still changes across the
+		//screen there, and a step picked from it would forgive real motion, so the slider's own
+		//value stands rather than the measurement guessing.
+		if (AutoMaskAutoStep){
+			float floorCount = AutoMaskNoiseFloor * 0.01 * float(BUFFER_WIDTH * BUFFER_HEIGHT);
+			float step = max(ceil(AutoMaskEps), 1.0);
+			uint above = uint(BUFFER_WIDTH * BUFFER_HEIGHT) - AutoMotionHist[int2(0, 0)];
+			for (int level = 1; level <= 8; level++){
+				if (float(above) <= floorCount){
+					step = float(level);
+					break;
+				}
+				above -= AutoMotionHist[int2(level, 0)];
+			}
+			AutoStepStore[int2(0, 0)] = step;
+		}
+
+		//Cleared whether or not the step is being measured, so the bins are empty at the start of
+		//every frame and the toggle can be flipped without a frame of counts left over in them.
+		for (int i = 0; i < 256; i++)
+			AutoMotionHist[int2(i, 0)] = 0u;
 	}
 
 	//Drift ping-pong back-edge (copy B to A).
