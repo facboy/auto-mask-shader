@@ -107,6 +107,12 @@ uniform float AutoMaskMoveMemory <
 	//where it has been, which is what marks it moving. Longer catches slower drift; 0 turns the
 	//comparison off. Declared with its pass so the pixel path, which has nothing to read it, does
 	//not show a setting that would do nothing.
+	//The default is the shortest horizon that does the job, and it is a longer duration than the
+	//frame sliders' kind: this one has to build a lag that clears the deadband out of a shift
+	//below one level a frame, and that lag is the shift times the horizon in frames, so a horizon
+	//of a few frames rounds away to nothing. At 2 seconds a backdrop drifting 0.05 of a level a
+	//frame -- 3 levels a second -- reads as moving, where half a second sat under the deadband and
+	//caught none of it.
 	uniform float AutoMaskDrift <
 		__UNIFORM_DRAG_FLOAT1
 		ui_label = "Drift horizon (seconds)";
@@ -114,7 +120,7 @@ uniform float AutoMaskMoveMemory <
 		ui_category = "AutoMask";
 		ui_min = 0.0; ui_max = 10.0;
 		ui_step = 0.25;
-	> = 0.5;
+	> = 2.0;
 
 	//The step measured rather than tuned: on, each frame's deadband is the level last frame's
 	//histogram put it at, so the smallest change that counts as motion is read off the scene's own

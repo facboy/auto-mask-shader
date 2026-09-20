@@ -317,14 +317,18 @@ Load-bearing, and follows from what each pass reads:
   recompile per adjustment for no elision worth having.
 - `AutoMaskTargetFPS` is the one further definition, a setup number rather than a tuning one. The
   frame-count settings are durations, so their `ui_max` caps are seconds × `AutoMaskTargetFPS` (rise
-  16.67 s, fall 1.67 s, grace 2 s, move memory 10 s) and grow with the frame rate a user plays at, which
+  10 s, fall 1 s, grace 5 s, move memory 10 s) and grow with the frame rate a user plays at, which
   no literal could. It is not watched and not elided — a runtime `frametime` uniform cannot appear in an
   annotation, which is why it is a definition at all. The drift horizon is a duration of the other kind:
-  its slider is already in seconds (cap a literal 10) and the frame count its average remembers is
-  derived from it, so `AutoMaskTargetFPS` multiplies it inside the shader. It is declared inside the
-  compute guard beside the other uniforms, because the pixel path has no pass that would read it and a
-  setting that does nothing is worse than an absent one. `AutoMaskAutoStep` and `AutoMaskNoiseFloor` sit
-  there with it for the same reason.
+  its slider is already in seconds (cap a literal 10, step 0.25, default 2) and the frame count its
+  average remembers is derived from it, so `AutoMaskTargetFPS` multiplies it inside the shader. Its
+  default is the one value chosen from the mechanism rather than from the frame sliders' convention:
+  the settled lag is the per-frame shift times the horizon in frames, so the shortest horizon that can
+  clear the deadband out of a sub-level shift is what makes the channel do anything at all — a default
+  of a few frames reads as no drift whatsoever. It is declared inside the compute guard beside the other
+  uniforms, because the pixel path has no pass that would read it and a setting that does nothing is
+  worse than an absent one. `AutoMaskAutoStep` and `AutoMaskNoiseFloor` sit there with it for the same
+  reason.
 - Update `README.md` in the same conversational, non-programmer voice whenever a user-facing behaviour
   changes.
 
