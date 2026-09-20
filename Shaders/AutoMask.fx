@@ -20,6 +20,13 @@
 	#define AutoMaskAntiBloom		1		// [0 or 1] 1 blacks the masked pixels in the frame the other effects see
 #endif
 
+//Runs the accumulator and the screen-motion gate as compute passes, so the gate counts every
+//pixel instead of sampling a 16x16 grid with four taps. Needs D3D11 or newer, or Vulkan: below
+//that the atomics compile to nothing and the effect belongs on the pixel path.
+#ifndef AutoMaskCompute
+	#define AutoMaskCompute		0		// [0 or 1] 1 runs the accumulator and the motion gate as compute passes
+#endif
+
 //The frame rate the frame-count bounds are sized for: each cap is a duration in seconds written as
 //seconds times this, so the caps grow with the frame rate and mean the same time everywhere.
 #ifndef AutoMaskTargetFPS
@@ -183,11 +190,24 @@ sampler AutoDilate { Texture = texAutoDilate; };
 texture texAutoMap { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
 sampler AutoMap { Texture = texAutoMap; };
 
-//Motion reduction targets: coarse downscale and 1x1 global coverage statistic.
-texture texMotionCoarse { Width = 16; Height = 16; Format = RGBA8; };
-sampler MotionCoarse { Texture = texMotionCoarse; };
-texture texMotionStat { Width = 1; Height = 1; Format = RGBA8; };
-sampler MotionStat { Texture = texMotionStat; };
+//The exact screen-motion gate, as compute: a 1x1 integer counter every moved pixel adds to, and
+//a 1x1 float share the pixel passes can sample. The counter is an integer because atomics need
+//one, and the handoff is a second pass because the statistic has to stay readable as a float.
+//The accumulator's new value is written as storage: a compute pass has no render target.
+#if AutoMaskCompute == 1
+	texture texAutoMotionCount { Width = 1; Height = 1; Format = r32u; };
+	storage2D<uint> AutoMotionCount { Texture = texAutoMotionCount; };
+	texture texAutoStat { Width = 1; Height = 1; Format = r32f; };
+	storage2D<float> AutoStatStore { Texture = texAutoStat; };
+	sampler MotionStat { Texture = texAutoStat; };
+	storage2D<float4> AutoAccumStore { Texture = texAutoAccumB; };
+#else
+	//Motion reduction targets: coarse downscale and 1x1 global coverage statistic.
+	texture texMotionCoarse { Width = 16; Height = 16; Format = RGBA8; };
+	sampler MotionCoarse { Texture = texMotionCoarse; };
+	texture texMotionStat { Width = 1; Height = 1; Format = RGBA8; };
+	sampler MotionStat { Texture = texMotionStat; };
+#endif
 
 #if AutoMaskDiagnostics == 1
 	texture texAutoDebug { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
@@ -195,6 +215,101 @@ sampler MotionStat { Texture = texMotionStat; };
 #endif
 
 //Pixel shaders
+#if AutoMaskCompute == 1
+	//Per-group tally of moved pixels, so the one global counter takes one add per group instead of
+	//one per pixel. Every group starts it at zero before any of them counts.
+	groupshared uint groupChanged;
+
+	//The accumulator as compute: the same state machine, plus the moved-pixel count the gate reads.
+	//The bounds guard is a predicate and not an early return, because a barrier has to sit in
+	//uniform flow control; and compute has no implicit derivatives, so every sample names its level.
+	[numthreads(64, 4, 1)]
+	void CS_Accum(uint3 tid : SV_DispatchThreadID, uint gi : SV_GroupIndex)
+	{
+		//The dispatch rounds up, so the last group can cover pixels outside the frame.
+		bool live = (tid.x < BUFFER_WIDTH && tid.y < BUFFER_HEIGHT);
+		float2 texcoord = (float2(tid.xy) + 0.5) * float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT);
+
+		float3 now = tex2Dlod(ReShade::BackBuffer, float4(texcoord, 0.0, 0.0)).rgb;
+		float3 before = tex2Dlod(AutoHistory, float4(texcoord, 0.0, 0.0)).rgb;
+		now = round(now * 255.0) / 255.0;
+		float3 clipped = all(now == 0.0.xxx) + all(now == 1.0.xxx)
+		               + all(before == 0.0.xxx) + all(before == 1.0.xxx);
+		float3 diff = abs(now - before) * 255.0;
+		float maxDiff = max(diff.r, max(diff.g, diff.b));
+		float deadband = max(ceil(AutoMaskEps), 1.0);
+		float motion = smoothstep(deadband - 1.0, deadband + 2.0, maxDiff);
+		float stable = (maxDiff < deadband && clipped == 0.0) ? 1.0 : 0.0;
+
+		float gain = 0.504 / max(AutoMaskRise, 1.0);
+		float cost = 0.504 / max(AutoMaskFall, 1.0);
+
+		float4 prev = tex2Dlod(AutoAccumA, float4(texcoord, 0.0, 0.0));
+		float conf = prev.r;
+		float held = prev.g;
+
+		float live_share = tex2Dlod(MotionStat, float4(0.5, 0.5, 0.0, 0.0)).r * 100.0;
+		bool drawn = live_share > AutoMaskMotion;
+
+		bool inDeadzone = false;
+		if (AutoMaskDeadzoneWidth > 0.0 && AutoMaskDeadzoneHeight > 0.0){
+			float rx = AutoMaskDeadzoneWidth * 0.005;
+			float ry = AutoMaskDeadzoneHeight * 0.005;
+			float2 offset = float2(texcoord.x - 0.5, texcoord.y - AutoMaskDeadzoneY * 0.01);
+			if (dot(offset / float2(rx, ry), offset / float2(rx, ry)) <= 1.0){
+				inDeadzone = !AutoMaskDeadzoneMotionOnly || drawn;
+			}
+		}
+
+		if (stable > 0.5 && !inDeadzone){
+			held = max(held - 0.5, 0.0);
+			if (drawn){
+				if (conf < 0.0){
+					conf = min(0.0, conf + cost);
+				} else {
+					conf = min(1.0, conf + gain);
+				}
+			}
+		} else if (drawn && held < AutoMaskForget && !inDeadzone){
+			held += 1.0;
+		} else {
+			conf = conf - cost * (1.0 - stable);
+			if (AutoMaskMoveMemory > 0.0){
+				conf = min(conf, -cost * AutoMaskMoveMemory * (1.0 - stable));
+			}
+		}
+
+		if (inDeadzone){
+			conf = min(conf, 0.0);
+			held = 0.0;
+		}
+
+		//Count first, then reduce: a group only has to agree on the tally once every thread has
+		//added to it, and the two barriers are what make that ordering hold. The pixel path counted
+		//the same motion off the accumulator's flag, so the threshold is the same one.
+		bool changed = live && step(0.001, motion) > 0.5;
+		if (gi == 0)
+			groupChanged = 0u;
+		barrier();
+		if (changed)
+			atomicAdd(groupChanged, 1u);
+		barrier();
+		if (gi == 0)
+			atomicAdd(AutoMotionCount, int2(0, 0), groupChanged);
+
+		if (live)
+			AutoAccumStore[int2(tid.xy)] = float4(clamp(conf, -cost * AutoMaskMoveMemory, 1.0), held, motion, 1.0);
+	}
+
+	//Turns the frame's count into the share the next frame's gate reads, and clears the counter.
+	[numthreads(1, 1, 1)]
+	void CS_Finish(uint3 tid : SV_DispatchThreadID)
+	{
+		float share = float(AutoMotionCount[int2(0, 0)]) / (BUFFER_WIDTH * BUFFER_HEIGHT);
+		AutoMotionCount[int2(0, 0)] = 0u;
+		AutoStatStore[int2(0, 0)] = share;
+	}
+#else
 //Accumulates confidence from stillness while the world is drawn; a stopped world can only lose it.
 float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
@@ -303,6 +418,7 @@ float4 PS_MotionAvg(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_T
 	}
 	return float4((sum / 256.0).xxx, 1.0);
 }
+#endif
 
 //Ping-pong back-edge (copy B to A).
 float4 PS_Copy(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
@@ -441,26 +557,44 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 //Techniques
 technique AutoMask
 {
-	pass {
-		VertexShader = PostProcessVS;
-		PixelShader = PS_Accum;
-		RenderTarget = texAutoAccumB;
-	}
+	#if AutoMaskCompute == 1
+		//Counts every moved pixel, and does the accumulator's own work in the same dispatch.
+		pass {
+			ComputeShader = CS_Accum;
+			DispatchSizeX = (BUFFER_WIDTH + 63) / 64;
+			DispatchSizeY = (BUFFER_HEIGHT + 3) / 4;
+		}
+	#else
+		pass {
+			VertexShader = PostProcessVS;
+			PixelShader = PS_Accum;
+			RenderTarget = texAutoAccumB;
+		}
+	#endif
 	pass {
 		VertexShader = PostProcessVS;
 		PixelShader = PS_Copy;
 		RenderTarget = texAutoAccumA;
 	}
-	pass {
-		VertexShader = PostProcessVS;
-		PixelShader = PS_Motion;
-		RenderTarget = texMotionCoarse;
-	}
-	pass {
-		VertexShader = PostProcessVS;
-		PixelShader = PS_MotionAvg;
-		RenderTarget = texMotionStat;
-	}
+	#if AutoMaskCompute == 1
+		//Hands the count over as the share the next frame's gate reads, and clears it.
+		pass {
+			ComputeShader = CS_Finish;
+			DispatchSizeX = 1;
+			DispatchSizeY = 1;
+		}
+	#else
+		pass {
+			VertexShader = PostProcessVS;
+			PixelShader = PS_Motion;
+			RenderTarget = texMotionCoarse;
+		}
+		pass {
+			VertexShader = PostProcessVS;
+			PixelShader = PS_MotionAvg;
+			RenderTarget = texMotionStat;
+		}
+	#endif
 	pass {
 		VertexShader = PostProcessVS;
 		PixelShader = PS_DilateH;

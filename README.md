@@ -77,10 +77,26 @@ lives.
 | **Only suppress deadzone while world moves** | When checked, the deadzone only suppresses accumulation while the world is being drawn. When the scene is still, full-screen menus can accumulate even inside the deadzone. When unchecked, the deadzone is suppressed at all times. |
 | **Diagnostics: motion view** | Which reading the overlay draws when it is switched on. On, it is the motion view: red where the frame sees a change, nothing where it does not. Off, it is the verdict view: green where a pixel has earned its place in the mask — the shader's own verdict, without the closing radius — nothing where it has not. Both tint only the pixels they name and leave the rest of the picture exactly as the game drew it; the deadzone ring and the bottom-left corner marker show in both. |
 
-There are two more switches that are not sliders — **anti-bloom** (on by default) and the
-**diagnostics overlay** (off). Both are compile-time switches rather than sliders, which is why
-turning one on or off causes a short recompile rather than taking effect instantly. The trade is worth
-it: with a switch off, the work it would have done is not just skipped, it isn't in the shader at all.
+There are three more switches that are not sliders — **anti-bloom** (on by default), the
+**diagnostics overlay** (off), and the **compute path** (off). All three are compile-time switches
+rather than sliders, which is why turning one on or off causes a short recompile rather than taking
+effect instantly. The trade is worth it: with a switch off, the work it would have done is not just
+skipped, it isn't in the shader at all.
+
+**The compute path** changes *how* the mask is worked out, not what it means, and everything in the
+table above still applies. On the pixel path the screen-wide reading that the mask depends on is an
+approximation: the picture is reduced to a 16×16 grid and four samples are taken per block, so about a
+thousand samples stand in for every pixel on screen. A small panel arriving, or a region that happens
+to fall between the samples, can move that reading without the sampler seeing why. With the compute
+path on, the accumulator itself counts every pixel it calls changed — millions of them, with the count
+collapsed down per block of 256 pixels before it is added up, so the reading is exact and there is no
+grid to miss anything. The two passes that built the coarse grid disappear with it, so the cost is
+roughly a wash; what it buys is a reading you can trust rather than a faster shader.
+
+It needs a Direct3D 11 or newer device, or Vulkan. On Direct3D 9 or 10, or any device without compute
+support, leave it off — the shader cannot fall back to the pixel path on its own, and the technique
+will fail to build. On anything modern it is safe to switch on, and worth doing if you have ever seen
+the screen-wide reading behave oddly — a mask that forms or refuses to form for no visible reason.
 
 ## Seeing what it decided
 

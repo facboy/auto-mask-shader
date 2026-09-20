@@ -170,12 +170,47 @@ speaks, so the pinned colour and the history agree on what 'all 0' and 'all 255'
 
 ### The `.fx` constraints that shape the design
 
-- **A render target cannot be read while it is written.** There are no atomics and no compute
-  shaders in this dialect, so the accumulator has to **ping-pong**: read `A`, write `B`, then a copy
-  pass brings `B` back to `A`.
+- **A render target cannot be read while it is written.** So the accumulator has to **ping-pong**:
+  read `A`, write `B`, then a copy pass brings `B` back to `A`. Compute adds one more form of the same
+  rule: a texture written as storage in a pass cannot also be sampled in it, and a compute pass has no
+  render target at all — the accumulator's write in `CS_Accum` is a `storage2D` write to `texAutoAccumB`
+  for that reason.
 - **There are no shared textures.** `ReShade.fxh` declares only `BackBufferTex` and `DepthBufferTex`,
   so another effect's stored frame is unreachable. This shader needs its own store target; it cannot
   borrow `UIDetectMulti`'s `texColorBeforeMulti`.
+
+### The compute path
+
+`AutoMaskCompute=1` swaps the accumulator and the screen-motion gate for compute passes, under a guard
+that owns the shaders, the pass entries and every target only they use. It is a replacement rather than
+an addition, which is what keeps the cost claim honest:
+
+- `CS_Accum` is `PS_Accum`'s state machine verbatim, plus one count. Every pixel it calls changed adds
+  to a `groupshared` tally, and one thread per **group** adds that tally to a single 1×1 `r32u` counter
+  — so the global counter takes thousands of adds a frame instead of millions. The per-group thread is
+  picked with `SV_GroupIndex` (`gi == 0`); `SV_DispatchThreadID` is the *global* thread address, so
+  testing that for zero would fire in one group only — the other groups would never reset or add their
+  tally, and the count would be wrong in a way nothing on screen makes obvious.
+- `CS_Finish` (1×1 dispatch, right after `CS_Accum`) divides the count by the pixel count, writes the
+  share into a 1×1 `r32f` target and zeroes the counter. The pixel passes read that float target
+  through a sampler named `MotionStat`, the same name the pixel path gives its RGBA8 statistic, so no
+  guarded line is needed at the read sites — only the declaration differs per variant.
+- The count replaces `PS_Motion`/`PS_MotionAvg` and the 16×16 coarse target. The gate was 1,024 taps
+  standing in for every pixel; it is now exact.
+
+Three constraints the dialect imposes on any compute pass here, all found the hard way:
+
+- **Sampling has no implicit derivatives.** `tex2D` is rejected outright at `cs_5_0` (X4532); a compute
+  pass must use `tex2Dlod` and name its mip level. The pixel passes are unaffected.
+- **A barrier must sit in uniform flow control.** A bounds `return` on the thread address before a
+  `barrier()` is rejected (X4026), so the ceil-div guard has to be a predicate:
+  `bool live = (tid.x < BUFFER_WIDTH && tid.y < BUFFER_HEIGHT)`, with the frame sample and the store
+  gated on it rather than skipped early.
+- **`groupshared` is a file-scope declaration**, not a local: declaring it inside the shader body is
+  error X3010.
+
+`DispatchSizeX/Y` are group counts, taken from `BUFFER_WIDTH`/`BUFFER_HEIGHT` so they stay right at any
+resolution, and the dispatch rounds up — which is exactly why the in-shader bounds predicate exists.
 
 ### Pass order inside `AutoMask`
 
@@ -183,13 +218,17 @@ Load-bearing, and follows from what each pass reads:
 
 1. `PS_Accum` — builds the new confidence against the *previous* frame, **before** the history store. It
    also applies the world-drawn premise, reading the statistic the previous frame left behind.
+   With `AutoMaskCompute` on, this pass is `CS_Accum` instead, and it takes the same slot and does the
+   same work — plus the count — before the same history store.
 2. The two sub-resolution passes that average the still flag into the share of the screen being
    redrawn — after the accumulate, since their only input is what it just wrote, and read on the next
-   frame.
+   frame. With `AutoMaskCompute` on these two are gone, replaced by `CS_Finish`, which turns the exact
+   count into the same share.
 3. `PS_Copy`, `PS_Dilate` — the ping-pong back-edge and the boundary close, also before the store.
    `PS_Dilate` is one pass: a 2D max over a tiny fixed neighbourhood, stopping where the luma step
    read from `BackBuffer` exceeds `AutoMaskEdge`. Reading the frame there is safe only because it is
-   before every pass that writes it.
+   before every pass that writes it. `PS_Copy` stays a pixel pass in both variants: the accumulator is
+   `RGBA16F` and the copy has no statistics to do.
 4. `PS_Store`, keeping the mapped pixels.
 5. `PS_StoreFrame`, copying the untouched frame into the history target for the next frame.
 6. `PS_AntiBloom` — black the masked pixels in the live frame so a bloom pass downstream has no UI to
@@ -241,14 +280,14 @@ Load-bearing, and follows from what each pass reads:
   mismatched input and the draw still runs with the input undefined, so every pass samples one texel
   and the mask fills uniformly. `PS_MotionAvg` is the trap: its body has no `dcl_input_ps` at all and
   the parameter is still required, because linkage follows the *declared* signature.
-- Two structural switches are preprocessor definitions, not sliders: `AutoMaskAntiBloom` and
-  `AutoMaskDiagnostics`. Each is `#ifndef`-guarded with `// [0 or 1]` annotation comments, as the pack
-  does it, and each guards everything that feature owns — its **pass and technique entry, its shader,
-  and any `texture`/`sampler` only it uses** — the point being that ReShade allocates every declared
-  target, so a target left outside its guard is memory paid for a feature that is compiled out. Values
-  tuned by watching stay live sliders; adding a third definition for one of those would cost a
-  recompile per adjustment for no elision worth having.
-- `AutoMaskTargetFPS` is the one further definition, and it is not a third exception to the above but
+- Three structural switches are preprocessor definitions, not sliders: `AutoMaskAntiBloom`,
+  `AutoMaskDiagnostics` and `AutoMaskCompute`. Each is `#ifndef`-guarded with `// [0 or 1]` annotation
+  comments, as the pack does it, and each guards everything that feature owns — its **pass and
+  technique entry, its shader, and any `texture`/`sampler` only it uses** — the point being that
+  ReShade allocates every declared target, so a target left outside its guard is memory paid for a
+  feature that is compiled out. Values tuned by watching stay live sliders; adding a fourth definition
+  for one of those would cost a recompile per adjustment for no elision worth having.
+- `AutoMaskTargetFPS` is the one further definition, and it is not a further exception to the above but
   a value of the same kind as the switches' defaults: a setup number, not a tuning one. The
   frame-count settings are durations, so their `ui_max` caps are written as seconds ×
   `AutoMaskTargetFPS` (rise 16.67 s, fall 1.67 s, grace 2 s, move memory 10 s) and grow with the

@@ -211,8 +211,16 @@ Per AGENTS.md: verification is the offline compile check plus a review pass; rea
 - Extend `VARIANTS` to the four existing combos × `AutoMaskCompute` 0/1 (eight variants), with the prelude-override mechanism the tool already uses.
 - Re-exercise the four loud-failure behaviours by hand after the parse changes; confirm the current file passes all eight variants with unchanged off-path hashes.
 
-###   Step 2: Add AutoMaskCompute switch with CS_Accum and atomic gate
+### ✓ Step 2: Add AutoMaskCompute switch with CS_Accum and atomic gate
 With `AutoMaskCompute=1` the gate counts every pixel via a groupshared atomic reduction and the 16×16 tap approximation is compiled out; with 0 the file compiles byte-for-byte as today.
+
+**Status: done.** `Shaders/AutoMask.fx` carries the switch, `CS_Accum`/`CS_Finish`, the exact gate, the swapped pass entries, and the guarded target declarations; `README.md` and `AGENTS.md` are updated. All eight variants pass; the 40 off-path entry points still hash identically; the parity check shows the two accumulators share 47 statements and differ only in the bounds predicate, thread addressing, group reduction and store-vs-return. Cost: `CS_Accum` 107 slots + `CS_Finish` 6 replacing `PS_Accum` 87 + `PS_Motion` 25 + `PS_MotionAvg` 23 and the whole 16×16 pass.
+
+Four implementation notes worth carrying forward:
+- **`tex2D` cannot be compiled at `cs_5_0`** (X4532, no implicit derivatives). `CS_Accum` samples through `tex2Dlod` with an explicit level; the pixel passes are untouched.
+- **The bounds guard must be a predicate, not an early `return`** (X4026): `bool live = (tid.x < BUFFER_WIDTH && tid.y < BUFFER_HEIGHT)`, with the sample and the store gated on it.
+- **`groupshared` is file-scope**, and the per-group thread is selected with `SV_GroupIndex` — `SV_DispatchThreadID` is global, so `tid.x == 0` would only fire in one group.
+- **The read sites need no guarded line.** Both variants declare the sampler under the same name `MotionStat` (an `r32f` target on the compute side, the old RGBA8 one on the pixel side), so `PS_DebugMap` and the marker keep reading `tex2D(MotionStat, ...)` unchanged. This is a simplification of the plan's "guarded sampler line".
 
 - Add the `AutoMaskCompute` switch block after the existing two, same `#ifndef` + `// [0 or 1]` convention, guarding everything the feature owns.
 - Write `CS_Accum` mirroring `PS_Accum`'s state machine exactly (quantize, clip rails, deadband ramp, confidence/hold/move-memory), adding `SV_DispatchThreadID` addressing with ceil-div bounds **predicates** (not early returns — barriers must sit in uniform flow control, X4026) and `[numthreads(64,4,1)]`.
