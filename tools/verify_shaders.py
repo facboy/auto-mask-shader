@@ -24,7 +24,7 @@ There is no baseline to compare against: this project has no shipped behaviour
 to preserve, so the point is only "it compiles, here is the pass list, and here
 is what it costs".
 
-Two properties are deliberate and must survive any change to this file:
+Four properties are deliberate and must survive any change to this file:
 
 - Every failure is loud. A shader that compiles *and emits no bytecode* is an
   error here, not a pass, because a missing hash compares equal to another
@@ -33,6 +33,19 @@ Two properties are deliberate and must survive any change to this file:
 - An entry point that is missed is a failure. The guard is not line-anchored:
   a macro-generated entry point can sit mid-line once macros expand, and a
   silently skipped entry point is indistinguishable from a passing one.
+- A dialect spelling this tool rewrites cannot be checked by compiling. Storage
+  declarations are translated to `RWTexture*` before fxc sees them, so a keyword
+  ReShade would reject compiles here regardless -- a shader that loads in this
+  check but not in the game. The spellings the translation touches are therefore
+  pinned to ReShade's own lexer and a near-miss fails loudly instead of being
+  rewritten; that is the `MISSPELLED_STORAGE` guard. It was added after a
+  lowercase `storage2d` passed this check and failed in ReShade with a bare
+  X3000 pointing at the line rather than the case.
+- A compute pass is read from its own wiring: `ComputeShader` and
+  `DispatchSizeX/Y/Z` alongside `PixelShader`, compiled at `cs_5_0` rather than
+  `ps_5_0`, and a compute pass declaring no dispatch size exits non-zero the way
+  ReShade rejects it (error 3012). A pixel-only parse sees none of that and
+  would call a technique with a dropped compute pass clean.
 """
 
 from __future__ import annotations
@@ -46,6 +59,7 @@ import subprocess
 import sys
 import urllib.request
 from pathlib import Path
+from typing import NamedTuple
 
 REPO = Path(__file__).resolve().parent.parent
 SHADERS = REPO / "Shaders"
@@ -66,16 +80,24 @@ KITS = (
     r"C:\Program Files\Windows Kits\10\bin",
 )
 
-# (name, extra definitions). Both switches are `#ifndef`-guarded in the shader,
-# so defining them in the prelude is exactly the path a ReShade-level definition
-# or a preset takes -- the check exercises the override rather than a patched
-# copy, and every combination is compiled so a guard that drops a pass from the
-# technique body cannot hide.
-VARIANTS = (
+# (name, extra definitions). Every switch is `#ifndef`-guarded in the shader, so
+# defining one in the prelude is exactly the path a ReShade-level definition or a
+# preset takes -- the check exercises the override rather than a patched copy, and
+# every combination is compiled so a guard that drops a pass from the technique
+# body cannot hide.
+BASE_VARIANTS = (
     ("default", {}),
     ("antibloom-off", {"AutoMaskAntiBloom": "0"}),
     ("diagnostics", {"AutoMaskDiagnostics": "1"}),
     ("antibloom-off-diagnostics", {"AutoMaskAntiBloom": "0", "AutoMaskDiagnostics": "1"}),
+)
+# The compute switch is crossed with all four rather than added to them: it swaps
+# a pass for one of another type instead of removing it, so a guard that drops or
+# misbinds a pass has to show at both settings and neither may hide the other.
+VARIANTS = tuple(
+    (("%s-compute" % name) if compute else name, dict(definitions, AutoMaskCompute=str(compute)))
+    for compute in (0, 1)
+    for name, definitions in BASE_VARIANTS
 )
 
 # An annotation block is `< ... >` containing `key = value;` pairs and possibly a
@@ -90,15 +112,92 @@ ANNOTATION = re.compile(
     r'(?:\s*(?:__UNIFORM_\w+'                                        # bare macro token
     r'|[A-Za-z_]\w*\s*=\s*(?:"[^"]*"|[^;>])*\s*;))*'                 # key = value;
     r'\s*>')
-# Deliberately NOT line-anchored: a generated entry point can sit mid-line.
-ENTRY_POINT = re.compile(
+# Entry points come in two shapes, and which one a function is decides how it is
+# compiled. Both patterns are deliberately NOT line-anchored: a generated entry
+# point can sit mid-line once macros expand.
+PIXEL_ENTRY_POINT = re.compile(
     r'(?:float4|float3|float2|void)\s+(\w+)\s*\([^)]*\)\s*:\s*SV_Target')
+# A compute entry point is a void function, addressed by a group-size attribute on
+# it or by a thread-addressing parameter. ReShade takes the group size from the
+# function or inline in the pass, so either shape is an entry point; a pass
+# binding a name neither pattern finds cannot hide, because every binding is
+# cross-checked against the entry points gathered here.
+COMPUTE_ENTRY_POINT = re.compile(
+    r'\[\s*numthreads\s*\([^)]*\)\s*\]\s*void\s+(\w+)\s*\(')
+COMPUTE_ENTRY_POINT_THREADED = re.compile(
+    r'void\s+(\w+)\s*\([^)]*SV_(?:DispatchThreadID|GroupID|GroupThreadID|GroupIndex)[^)]*\)')
+
+# The fxc profile each kind of entry point compiles under.
+PROFILES = {"pixel": "ps_5_0", "compute": "cs_5_0"}
+
+# ReShade's compute dialect is not HLSL: storage objects, group barriers and the
+# atomic family are its own surface vocabulary, and ReShade's own codegen
+# translates them before handing the result to a shader compiler (storage becomes
+# a `RWTexture*`, `barrier()` becomes `GroupMemoryBarrierWithGroupSync()`, and the
+# atomics become the `Interlocked*` family). fxc compiles the source itself here,
+# so the same translation is written out below -- otherwise no compute entry point
+# could be compiled at all, and the whole point of stage 1 would be unreachable.
+#
+# The declaration spelling of a storage is `<dimension><element>`, and the group
+# the storage belongs to is its position in the file; fxc wants neither, so the
+# `{ Texture = ...; }` block is dropped and the element type goes into the
+# `RWTexture` form.
+#
+# The dimension letter is CAPITAL and only these spellings are real: ReShade's own
+# lexer registers `storage`, `storage1D`, `storage2D` and `storage3D`, nothing
+# else. `storage2d` therefore lexes as an ordinary identifier and the declaration
+# fails inside ReShade with a bare X3000 pointing at the line rather than the case
+# -- and since this tool rewrites the dialect before compiling, a pattern that
+# accepted either case would translate an invalid shader into a valid one and
+# report it clean. So the pattern is strict here and the near-miss is a loud
+# failure below.
+STORAGE = re.compile(
+    r'\bstorage(1D|2D|3D)?\s*<\s*(\w+)\s*>\s*(\w+)'
+    r'\s*(?::[^{};]*)?\{[^{}]*\}\s*;')
+# A storage keyword with the dimension letter lowercased: not a keyword at all to
+# ReShade, so it is a failure here rather than something to rewrite.
+MISSPELLED_STORAGE = re.compile(r'\bstorage[123]d\b')
+STORAGE_DIMENSIONS = {None: "2D", "1D": "1D", "2D": "2D", "3D": "3D"}
+# A call, so the arguments are read by balancing parens rather than by a regex:
+# an argument can itself contain parens and commas (`uint2(0, 0)`), which a
+# comma-splitting pattern would cut through the middle of.
+ATOMIC = re.compile(r'\batomic(Add|And|Or|Xor|Min|Max|Exchange|CompareExchange)\s*\(')
+# The group barrier and the two memory barriers, which are ReShade intrinsics with
+# no fxc counterpart under those names. `barrier` needs the word boundary so it does
+# not match inside the other two.
+BARRIERS = (
+    (re.compile(r'\bbarrier\s*\(\s*\)'), "GroupMemoryBarrierWithGroupSync()"),
+    (re.compile(r'\bgroupMemoryBarrier\s*\(\s*\)'), "GroupMemoryBarrier()"),
+    (re.compile(r'\bmemoryBarrier\s*\(\s*\)'), "AllMemoryBarrier()"),
+)
 TECHNIQUE = re.compile(r'technique\s+(\w+)[^{]*\{', re.S)
 # A pass may be named (`pass P0 {`) or not (`pass {`), so the name is optional.
 # Requiring it to be absent silently matches nothing for a named pass, which is
 # indistinguishable from a technique that has no passes at all.
 PASS = re.compile(r'pass\s+(?:\w+\s*)?\{([^}]*)\}')
 INSTRUCTION_COUNT = re.compile(r'// Approximately (\d+) instruction slots used')
+
+
+class Pass(NamedTuple):
+    """One pass of a technique, as the wiring reads it from the source.
+
+    `kind` is the shader type the pass runs, and it is what decides how the
+    entry point compiles. `dispatch` is the group count a compute pass declares
+    (x, y and optionally z); a pixel pass has none.
+    """
+
+    technique: str
+    shader: str | None
+    kind: str
+    target: str | None
+    dispatch: tuple[str, ...] | None
+
+
+class EntryPoint(NamedTuple):
+    """A compilable function and the profile its shape compiles under."""
+
+    name: str
+    kind: str
 
 
 def sha256_file(path: Path) -> str:
@@ -211,13 +310,21 @@ def build_workspace(source: Path, definitions: dict[str, str]) -> Path:
     return WORK / "preprocessed.i"
 
 
-def strip_render_metadata(text: str) -> str:
-    """Remove annotations and technique blocks -- neither produces code.
+def strip_for_fxc(text: str) -> str:
+    """Turn the `.fx` dialect into source fxc can compile.
 
-    The technique strip runs to end-of-file, which assumes the techniques are the
+    Two jobs. Annotations and technique blocks carry no code, so they go -- the
+    technique strip runs to end-of-file, which assumes the techniques are the
     last thing in the shader. That is the ReShade convention and what the pack
     does. If code ever followed them it would be dropped here, and a missing
     symbol would surface as a compile error -- loud, not silent.
+
+    Then the compute dialect, which is what ReShade's own codegen emits before it
+    calls a shader compiler: storage objects become `RWTexture*`, the group and
+    memory barriers get their HLSL names, and the atomics become `Interlocked*`.
+    A storage element is addressed as it is in the dialect; the two-argument form
+    addresses a `groupshared` variable directly, and the three-argument form picks
+    an element out of a storage, which is the only difference between them.
     """
     text = ANNOTATION.sub("", text)
     # Loud guard: if any annotation residue survives, fxc reports it as an
@@ -227,29 +334,184 @@ def strip_render_metadata(text: str) -> str:
     if residue:
         sys.exit("FAIL -- annotation stripping left %r in the source; the "
                  "annotation pattern is wrong" % residue.group(0))
-    return re.sub(r"(?sm)^[ \t]*technique\b.*\Z", "", text)
+    # Loud guard, same reasoning as the annotation one above: a storage keyword
+    # ReShade does not know is not a compile error here, because the translation
+    # below would rewrite it into valid HLSL and the check would pass a shader the
+    # game cannot load. The dimension letter is capital in ReShade's lexer, so a
+    # lowercased one is exactly that case. Comments are dropped from the search so
+    # prose about the dialect cannot trip it.
+    misspelled = MISSPELLED_STORAGE.search(re.sub(r"//[^\n]*", "", text))
+    if misspelled:
+        sys.exit("FAIL -- %r is not a ReShade keyword; the dimension letter is "
+                 "capital (storage, storage1D, storage2D, storage3D). ReShade "
+                 "lexes it as an identifier and fails with a bare X3000, and this "
+                 "check would otherwise translate it into valid HLSL and report it "
+                 "clean" % misspelled.group(0))
+    text = re.sub(r"(?sm)^[ \t]*technique\b.*\Z", "", text)
+    text = translate_storage(text)
+    for pattern, replacement in BARRIERS:
+        text = pattern.sub(replacement, text)
+    return translate_atomics(text)
 
 
-def compile_entry(stripped: Path, entry: str) -> dict:
-    asm = WORK / ("%s.asm" % entry)
-    binary = WORK / ("%s.bin" % entry)
+def translate_storage(text: str) -> str:
+    def rewrite(match: re.Match) -> str:
+        dimensions = STORAGE_DIMENSIONS[match.group(1)]
+        return "RWTexture%s<%s> %s;" % (dimensions, match.group(2), match.group(3))
+    return STORAGE.sub(rewrite, text)
+
+
+def call_arguments(text: str, open_paren: int) -> tuple[list[str], int]:
+    """The arguments of the call whose `(` is at `open_paren`, and its `)`."""
+    depth, index, arguments, current = 1, open_paren + 1, [], ""
+    while index < len(text):
+        char = text[index]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        if char == "," and depth == 1:
+            arguments.append(current)
+            current = ""
+        else:
+            current += char
+        index += 1
+    arguments.append(current)
+    return [argument.strip() for argument in arguments], index
+
+
+def translate_atomics(text: str) -> str:
+    """Rewrite the atomic family into its `Interlocked*` counterpart.
+
+    The argument shapes differ from the HLSL ones: the dialect takes a storage
+    object and an index as two arguments, HLSL takes the addressed element. The
+    shared-variable form is passed through with the name alone changed, which is
+    the same call in both.
+
+    `atomicCompareExchange` has no expression form in HLSL -- it needs an `out`
+    variable for the original, which a call cannot supply -- so it is refused
+    rather than translated into something that would not compile for a reason
+    nothing here could explain. It is not used by this shader.
+    """
+    out: list[str] = []
+    index = 0
+    while True:
+        match = ATOMIC.search(text, index)
+        if not match:
+            out.append(text[index:])
+            return "".join(out)
+        out.append(text[index:match.start()])
+        arguments, close = call_arguments(text, match.end() - 1)
+        name = "Interlocked%s" % match.group(1)
+        if match.group(1) == "CompareExchange":
+            sys.exit("FAIL -- atomicCompareExchange has no HLSL expression form "
+                     "(it needs an out parameter); translate it by hand if it is "
+                     "ever needed")
+        if len(arguments) == 3:
+            call = "%s(%s[%s], %s)" % (name, arguments[0], arguments[1], arguments[2])
+        else:
+            call = "%s(%s)" % (name, ", ".join(arguments))
+        out.append(call)
+        index = close + 1
+
+
+def entry_points(text: str) -> dict[str, str]:
+    """Every entry point in the source, mapped to the kind of shader it is.
+
+    The kind is read from the shape of the function rather than from the pass
+    that binds it, because that is what fxc's target has to match: a compute
+    entry point compiled at `ps_5_0` fails on its thread-address semantic, and a
+    pixel entry point compiled at `cs_5_0` fails on `SV_Target`.
+    """
+    found: dict[str, str] = {}
+    for name in PIXEL_ENTRY_POINT.findall(text):
+        found[name] = "pixel"
+    for pattern in (COMPUTE_ENTRY_POINT, COMPUTE_ENTRY_POINT_THREADED):
+        for name in pattern.findall(text):
+            found.setdefault(name, "compute")
+    return found
+
+
+def technique_bindings(preprocessed: str) -> list[Pass]:
+    """Every pass of every technique, in order, as it is wired in the source.
+
+    Compiling a single entry point discards the technique blocks, so the pass
+    wiring has to be read from the preprocessed source. This is what shows the
+    passes still bind the same shader in the documented order -- and what makes
+    a pass dropped by a guard visible as a missing pass rather than a silent
+    pass. Compute passes are read for their dispatches here; a compute pass
+    without both dispatch sizes is rejected the way ReShade rejects it, so a
+    technique that loses a compute pass cannot pass for a technique that never
+    had one.
+    """
+    text = re.sub(r"//[^\n]*", "", preprocessed)
+    out: list[Pass] = []
+    for tech, body in technique_blocks(text):
+        passes = PASS.findall(body)
+        # Cross-check the parse against the keyword count, the same way the
+        # instruction count is cross-checked against the histogram: a pattern
+        # that misses a pass must not look like a technique with fewer passes.
+        keywords = len(re.findall(r"\bpass\b", body))
+        if keywords != len(passes):
+            sys.exit("FAIL -- technique %s: parsed %d pass(es) but found %d pass keyword(s); "
+                     "the pass pattern is wrong" % (tech, len(passes), keywords))
+        found: list[Pass] = []
+        for one in passes:
+            cs = re.search(r"ComputeShader\s*=\s*(\w+)", one)
+            ps = re.search(r"PixelShader\s*=\s*(\w+)", one)
+            kind = "compute" if cs else "pixel"
+            shader = cs or ps
+            rt = re.search(r"RenderTarget\s*=\s*(\w+)", one)
+            dispatch = tuple(match.group(1).strip() for match in re.finditer(
+                r"DispatchSize[XYZ]\s*=\s*([^;\n]+?)\s*;", one))
+            if kind == "compute" and len(dispatch) < 2:
+                # ReShade's own error 3012: a compute pass needs both sizes, and
+                # a pass that lost one to a bad guard would otherwise read as a
+                # pass that simply has fewer properties.
+                sys.exit("FAIL -- technique %s: compute pass '%s' declares %d dispatch "
+                         "size(s); ReShade requires both DispatchSizeX and DispatchSizeY"
+                         % (tech, shader.group(1) if shader else "?", len(dispatch)))
+            found.append(Pass(tech, shader.group(1) if shader else None, kind,
+                              rt.group(1) if rt else None, dispatch or None))
+        # The parse is cross-checked against the keyword counts the same way the
+        # pass list is: a compute binding or dispatch size the patterns miss must
+        # not look like a pass that never declared one.
+        for label, pattern, parsed in (
+                ("ComputeShader", r"\bComputeShader\b\s*=",
+                 sum(1 for bound in found if bound.kind == "compute")),
+                ("DispatchSize", r"\bDispatchSize[XYZ]\b\s*=",
+                 sum(len(bound.dispatch or ()) for bound in found))):
+            keywords = len(re.findall(pattern, body))
+            if keywords != parsed:
+                sys.exit("FAIL -- technique %s: parsed %d %s binding(s) but found %d keyword(s); "
+                         "the pass pattern is wrong" % (tech, parsed, label, keywords))
+        out += found
+    return out
+
+
+def compile_entry(stripped: Path, entry: EntryPoint) -> dict:
+    asm = WORK / ("%s.asm" % entry.name)
+    binary = WORK / ("%s.bin" % entry.name)
     # Never let a previous run's output be mistaken for this run's result.
     for stale in (asm, binary):
         stale.unlink(missing_ok=True)
-    result = run_fxc(["/Gec", "/T", "ps_5_0", "/E", entry, "/I", windows_path(WORK),
-                      stripped.name, "/Fc", asm.name, "/Fo", binary.name])
+    result = run_fxc(["/Gec", "/T", PROFILES[entry.kind], "/E", entry.name,
+                      "/I", windows_path(WORK), stripped.name,
+                      "/Fc", asm.name, "/Fo", binary.name])
     log = result.stdout + result.stderr
     if result.returncode != 0:
         return {"status": "error", "error": first_error(log)}
     if not binary.is_file():
         # Compiling "succeeded" but emitted nothing: refuse to report it as ok.
-        return {"status": "error", "error": "fxc produced no bytecode for %s" % entry}
+        return {"status": "error", "error": "fxc produced no bytecode for %s" % entry.name}
     text = asm.read_text(encoding="utf-8", errors="replace")
     match = INSTRUCTION_COUNT.search(text)
     histogram: dict[str, int] = {}
     # fxc's slot count covers executable instructions only, so dcl_* is excluded
     # here too -- otherwise the cross-check trips on a purely definitional gap.
-    body = text.split("ps_5_0", 1)[-1]
+    body = text.split(PROFILES[entry.kind], 1)[-1]
     for line in body.splitlines():
         line = line.strip()
         if not line or line.startswith("//") or line.startswith("dcl_"):
@@ -260,7 +522,7 @@ def compile_entry(stripped: Path, entry: str) -> dict:
     # Two independent readings of the same shader, so a broken parse cannot
     # masquerade as a clean result.
     if instructions is None:
-        return {"status": "error", "error": "no instruction count in the assembly for %s" % entry}
+        return {"status": "error", "error": "no instruction count in the assembly for %s" % entry.name}
     if sum(histogram.values()) != instructions:
         return {"status": "error",
                 "error": "histogram sums to %d but fxc reports %d instructions"
@@ -293,34 +555,6 @@ def technique_blocks(text: str) -> list[tuple[str, str]]:
     return out
 
 
-def technique_bindings(preprocessed: str) -> list[list[str | None]]:
-    """Every pass as [technique, pixel shader, render target], in order.
-
-    Compiling a single entry point discards the technique blocks, so the pass
-    wiring has to be read from the preprocessed source. This is what shows the
-    passes still bind the same shader in the documented order -- and what makes
-    a pass dropped by a guard visible as a missing pass rather than a silent
-    pass.
-    """
-    text = re.sub(r"//[^\n]*", "", preprocessed)
-    out: list[list[str | None]] = []
-    for tech, body in technique_blocks(text):
-        passes = PASS.findall(body)
-        # Cross-check the parse against the keyword count, the same way the
-        # instruction count is cross-checked against the histogram: a pattern
-        # that misses a pass must not look like a technique with fewer passes.
-        keywords = len(re.findall(r"\bpass\b", body))
-        if keywords != len(passes):
-            sys.exit("FAIL -- technique %s: parsed %d pass(es) but found %d pass keyword(s); "
-                     "the pass pattern is wrong" % (tech, len(passes), keywords))
-        for one in passes:
-            ps = re.search(r"PixelShader\s*=\s*(\w+)", one)
-            rt = re.search(r"RenderTarget\s*=\s*(\w+)", one)
-            out.append([tech, ps.group(1) if ps else None,
-                        rt.group(1) if rt else None])
-    return out
-
-
 def cmd_check(args) -> int:
     if not (WORK / "ReShade.fxh").is_file():
         sys.exit("FAIL -- headers missing; run: uv run tools/verify_shaders.py init")
@@ -338,9 +572,9 @@ def cmd_check(args) -> int:
             preprocessed = build_workspace(source, definitions)
             text = preprocessed.read_text(encoding="utf-8", errors="replace")
             bindings = technique_bindings(text)
-            entries = sorted(set(ENTRY_POINT.findall(text)))
+            entries = entry_points(text)
             if not entries:
-                failed.append("%s %s: no pixel shader entry points found"
+                failed.append("%s %s: no shader entry points found"
                               % (name, source.name))
                 continue
             if not bindings:
@@ -350,28 +584,45 @@ def cmd_check(args) -> int:
                               % (name, source.name))
                 continue
             if args.pass_list:
-                for tech, ps, rt in bindings:
-                    print("  %-24s %-22s %s -> %s" % (name, tech, ps, rt))
-            used = {ps for _, ps, _ in bindings}
-            missing = sorted(used - set(entries))
+                for bound in bindings:
+                    wire = bound.shader or "?"
+                    if bound.dispatch:
+                        wire += " [%s]" % ", ".join(bound.dispatch)
+                    print("  %-24s %-22s %-9s %s -> %s"
+                          % (name, bound.technique, bound.kind, wire, bound.target))
+            # Every binding is checked twice: against the entry points that exist,
+            # and against the kind its shape declares. A pass whose shader is a
+            # compute entry point but whose function the patterns read as a pixel
+            # one would otherwise be compiled at the wrong profile and reported
+            # clean.
+            missing = sorted({bound.shader for bound in bindings
+                              if bound.shader and bound.shader not in entries})
             if missing:
                 failed.append("%s %s: techniques bind %s but no such entry point was found"
                               % (name, source.name, ", ".join(missing)))
+            for bound in bindings:
+                actual = entries.get(bound.shader)
+                if actual and actual != bound.kind:
+                    failed.append("%s %s: pass binds %s as a %s shader but it reads as a %s one"
+                                  % (name, source.name, bound.shader, bound.kind, actual))
             stripped = WORK / "stripped.fx"
-            stripped.write_text(strip_render_metadata(text), encoding="utf-8", newline="\n")
-            for entry in entries:
-                outcome = compile_entry(stripped, entry)
+            stripped.write_text(strip_for_fxc(text), encoding="utf-8", newline="\n")
+            for entry_name, kind in sorted(entries.items()):
+                outcome = compile_entry(stripped, EntryPoint(entry_name, kind))
                 if outcome["status"] != "ok":
-                    failed.append("%s %s %s: %s"
-                                  % (name, source.name, entry, outcome.get("error")))
+                    failed.append("%s %s %s (%s): %s"
+                                  % (name, source.name, entry_name, kind,
+                                     outcome.get("error")))
                 print("%-26s %-30s %6s  %s"
-                      % (name, entry, outcome.get("instructions", "-"), outcome["status"]))
+                      % (name, entry_name, outcome.get("instructions", "-"), outcome["status"]))
+                if args.hashes and outcome["status"] == "ok":
+                    print("  %s %s sha256=%s" % (name, entry_name, outcome["bytecode_sha256"]))
                 if args.opcodes and outcome["status"] == "ok":
                     for opcode, count in outcome["histogram"].items():
                         print("      %-14s %d" % (opcode, count))
             print("  %s: %d technique pass(es): %s"
                   % (name, len(bindings),
-                     ", ".join(ps or "?" for _, ps, _ in bindings)))
+                     ", ".join(bound.shader or "?" for bound in bindings)))
 
     if failed:
         print("\nFAIL -- %d problem(s):" % len(failed))
@@ -393,6 +644,9 @@ def main() -> int:
     check = sub.add_parser("check", help="compile every entry point in every variant")
     check.add_argument("--opcodes", action="store_true",
                        help="print the opcode histogram for each shader")
+    check.add_argument("--hashes", action="store_true",
+                       help="print the bytecode sha256 of each shader, for comparing "
+                            "a variant against the same variant before a change")
     check.add_argument("--pass-list", action="store_true",
                        help="print each technique's passes before compiling")
     check.set_defaults(func=cmd_check)

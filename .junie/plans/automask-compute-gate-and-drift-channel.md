@@ -62,7 +62,7 @@ The compute path is a **replacement, not an addition**: roughly cost-neutral GPU
 ### Current Implementation
 
 - `Shaders/AutoMask.fx`: `PS_Accum` (state machine, lines 199–278), `PS_Motion`→16×16 `texMotionCoarse`, `PS_MotionAvg`→1×1 RGBA8 `texMotionStat` (lines 281–305), ping-pong `PS_Copy`, two-technique wiring (lines 442–507). The accumulator reads the statistic one frame behind (`live = tex2D(MotionStat,...).r * 100.0 > AutoMaskMotion`).
-- `tools/verify_shaders.py`: compiles every entry point it can find at `ps_5_0` (`ENTRY_POINT` matches `: SV_Target` only, line 94), parses passes via `PixelShader`/`RenderTarget` only (`technique_bindings`, lines 296–321), four variants (`VARIANTS`, line 74), loud-failure properties (empty shader set, pass-count cross-check, missing binding, broken syntax; no-bytecode is an error).
+- `tools/verify_shaders.py`: compiles every entry point at a profile chosen from its shape (`ps_5_0`/`cs_5_0`, `entry_points`), parses passes via `PixelShader`/`ComputeShader`/`RenderTarget`/`DispatchSize` (`technique_bindings`), eight variants (`VARIANTS`), and translates ReShade's compute dialect into HLSL (`strip_for_fxc`) so fxc can compile it at all. Loud-failure properties now cover five cases (empty shader set, pass-count cross-check, missing binding, broken syntax, compute pass missing a dispatch size); no-bytecode is an error.
 
 ### Key Decisions
 
@@ -76,16 +76,25 @@ The compute path is a **replacement, not an addition**: roughly cost-neutral GPU
 
 ### Proposed Changes
 
-**Stage 1 — `tools/verify_shaders.py` compute support.**
-- `ENTRY_POINT`: also match `void\s+(\w+)\s*\([^)]*\)\s*:\s*SV_DispatchThreadID`-style compute signatures (void return, no `SV_Target`).
-- Per-entry target profile: `ps_5_0` for `SV_Target` entries, `cs_5_0` for compute entries.
-- `technique_bindings`: parse `ComputeShader\s*=\s*(\w+)` and `DispatchSizeX/Y`; bindings rows carry the shader kind; a compute pass without both dispatch sizes is a loud failure (mirror of parser error 3012); `RenderTarget` absent on compute passes is expected, not a miss.
-- `VARIANTS`: extend the matrix to the four existing combos × `AutoMaskCompute` 0/1 (eight variants) so a guard that drops or swaps a pass cannot hide at either setting.
-- Keep the two deliberate properties: loud empty/missing failures, histogram-vs-instruction-count cross-check (opcode histogram works unchanged for `cs_5_0` asm).
+**Stage 1 — `tools/verify_shaders.py` compute support.** ✅ *Done, committed as `teach verify_shaders.py compute passes`.*
+- `ENTRY_POINT` split into `PIXEL_ENTRY_POINT` (`: SV_Target`) and two compute patterns (`[numthreads]`-attributed and thread-addressed), all unanchored; `entry_points` returns a name→kind map.
+- Per-entry target profile: `PROFILES` picks `ps_5_0` for pixel, `cs_5_0` for compute; hash and histogram cross-checks apply to both.
+- `technique_bindings`: parses `ComputeShader` and `DispatchSizeX/Y/Z`; `Pass` rows carry kind, shader, target and dispatch; a compute pass with fewer than two dispatch sizes is a loud failure (mirror of parser error 3012); keyword cross-checks extended to `ComputeShader` and `DispatchSize`; absent `RenderTarget` on a compute pass is expected.
+- `VARIANTS`: `BASE_VARIANTS` (four combos) × `AutoMaskCompute` 0/1 = eight, with the prelude-override mechanism unchanged.
+- **Unplanned but load-bearing: `strip_for_fxc` now translates ReShade's compute dialect into HLSL.** `storage1D/2D/3D<T>` → `RWTexture*<T>`, `barrier()`/`groupMemoryBarrier()`/`memoryBarrier()` → the HLSL barrier names, and the `atomic*` family → `Interlocked*` with storage+index folded into `Obj[idx]` (paren-balanced argument reading; `atomicCompareExchange` refused loudly, as it has no HLSL expression form). ReShade's own codegen does this before calling a shader compiler, and fxc cannot read the dialect directly — without it no compute entry point compiles at all, so Stage 1 is unreachable otherwise.
+- Added `--hashes` (per-entry bytecode sha256) because the plan's off-path regression check needs it and the tool never printed hashes before.
+- Kept the deliberate properties: loud empty/missing failures, histogram-vs-instruction-count cross-check (works unchanged on `cs_5_0` asm).
+
+**Stage 1 verification evidence.**
+- All eight variants pass: `uv run tools/verify_shaders.py check --pass-list --opcodes`.
+- Off-path regression **proven identical**: the 40 entry points of the four `AutoMaskCompute=0` variants hash byte-for-byte the same as the pre-change tool's output (captured by importing the pre-change module from a scratch copy before editing).
+- Five loud-failure cases each exit non-zero (empty `Shaders/`, unparsable passes, missing binding, broken syntax, compute pass missing a dispatch size), plus 15 direct parser-guard and translation assertions.
+- A synthetic compute probe (`CS_Count` + `CS_Finish` with `groupshared` reduction + atomics) compiled clean end to end under the new tool, confirming the compute path is genuinely reachable, not just parseable.
+- **New constraint for Stage 2, discovered here:** a `barrier()` must sit in uniform flow control, so a compute shader's ceil-div bounds guard must be a *predicate* (`bool live = tid.x < BUFFER_WIDTH && ...`) and not an early `return` — fxc rejects the latter outright (X4026). Stage 2's `CS_Accum` must be written that way.
 
 **Stage 2 — `AutoMaskCompute` switch + `CS_Accum` + exact gate.**
 - Switch block after the existing two (same annotation comments).
-- `#if AutoMaskCompute == 1`: `CS_Accum` (state machine mirrored from `PS_Accum`, plus `SV_DispatchThreadID` bounds check `if (tid.x < BUFFER_WIDTH && tid.y < BUFFER_HEIGHT)` for ceil-div dispatch sizes), `texAutoMotionCount` 1×1 `r32u` + storage, `texAutoStat` 1×1 `r32f` + sampler, `CS_Finish`; technique passes swapped (`CS_Accum` for `PS_Accum`, `CS_Finish` for the motion pair); `PS_Motion`/`PS_MotionAvg`/`texMotionCoarse`/`texMotionStat` compiled out; `PS_Accum`'s gate read in `PS_DebugMap`/corner-marker paths redirected to the float stat via a guarded sampler line.
+- `#if AutoMaskCompute == 1`: `CS_Accum` (state machine mirrored from `PS_Accum`, plus a `SV_DispatchThreadID` bounds **predicate** `bool live = tid.x < BUFFER_WIDTH && tid.y < BUFFER_HEIGHT;` for ceil-div dispatch sizes — a predicate rather than an early `return`, which fxc rejects in front of a `barrier()`, X4026), `texAutoMotionCount` 1×1 `r32u` + storage, `texAutoStat` 1×1 `r32f` + sampler, `CS_Finish`; technique passes swapped (`CS_Accum` for `PS_Accum`, `CS_Finish` for the motion pair); `PS_Motion`/`PS_MotionAvg`/`texMotionCoarse`/`texMotionStat` compiled out; `PS_Accum`'s gate read in `PS_DebugMap`/corner-marker paths redirected to the float stat via a guarded sampler line.
 - `#else`: the file remains as today.
 
 **Stage 3 — EMA drift channel.**
@@ -126,7 +135,7 @@ uniform float AutoMaskNoiseFloor < __UNIFORM_SLIDER_FLOAT1 "Noise floor (percent
 //          -> PS_Store -> PS_StoreFrame -> [PS_AntiBloom] -> [PS_DebugMap]
 ```
 
-Dispatch shape: `DispatchSizeX = (BUFFER_WIDTH + 63) / 64; DispatchSizeY = (BUFFER_HEIGHT + 3) / 4;` with `[numthreads(64,4,1)]` on `CS_Accum` and an in-shader bounds guard, so odd resolutions keep full coverage (the AGENTS.md `BUFFER_*` rule).
+Dispatch shape: `DispatchSizeX = (BUFFER_WIDTH + 63) / 64; DispatchSizeY = (BUFFER_HEIGHT + 3) / 4;` with `[numthreads(64,4,1)]` on `CS_Accum` and an in-shader bounds **predicate** (not an early `return` — see Stage 1 evidence), so odd resolutions keep full coverage (the AGENTS.md `BUFFER_*` rule).
 
 ### File Structure
 
@@ -174,10 +183,10 @@ Per AGENTS.md: verification is the offline compile check plus a review pass; rea
 
 **Automated (agent-runnable)**
 - `uv run tools/verify_shaders.py init && uv run tools/verify_shaders.py check --pass-list --opcodes` after every stage; all eight variants must pass.
-- **Off-path regression:** bytecode sha256 of every entry point in the four `AutoMaskCompute=0` variants must be **identical** to the pre-change hashes (the tool prints them) — the strongest available proof the default behaviour is untouched.
+- **Off-path regression:** bytecode sha256 of every entry point in the four `AutoMaskCompute=0` variants must be **identical** to the pre-change hashes (the tool prints them with `--hashes`) — the strongest available proof the default behaviour is untouched. *Stage 1 baseline captured:* the 40 off-path entry points of `94710ad`, the commit before the Stage 1 one (`add plan for the compute gate and drift channel`); see Stage 1 evidence.
 - **On-path wiring:** `--pass-list` must show the compute pass order (`CS_Accum`, `PS_Copy`, `PS_CopyDrift`, `CS_Finish`, …) at `AutoMaskCompute=1` and the current order at 0; a compute pass missing `DispatchSizeX/Y` must fail loudly (new tool guard).
 - Cost reporting: instruction counts for `CS_Accum`/`CS_Finish` vs the removed `PS_Motion`/`PS_MotionAvg` pair, recorded in the stage summary.
-- The tool's four loud-failure behaviours re-exercised by hand after the parser changes (empty shader set, pass-pattern miss, missing binding, broken syntax — each must exit non-zero).
+- The tool's loud-failure behaviours re-exercised by hand after any parser change: empty `Shaders/`, pass-pattern miss, missing binding, broken syntax, and a compute pass with one dispatch size — each must exit non-zero.
 
 **Manual (needs eyes in ReShade — listed, not claimed)**
 - Walking with HUD up; menu open/close; quiet room (mask must stay empty); fire/water in view.
@@ -191,8 +200,10 @@ Per AGENTS.md: verification is the offline compile check plus a review pass; rea
 
 # Delivery Steps
 
-###   Step 1: Teach verify_shaders.py compute passes
+### ✓ Step 1: Teach verify_shaders.py compute passes
 `tools/verify_shaders.py` compiles compute entry points and reports their wiring, so later stages are verifiable at all.
+
+**Status: done, committed as `teach verify_shaders.py compute passes`.** All eight variants pass; the 40 off-path entry points hash identically to their pre-change values; five loud-failure cases and 15 direct parser/translation assertions hold; a synthetic compute probe compiled clean end to end. Delivered beyond the plan as written: a ReShade-dialect→HLSL translation in `strip_for_fxc` (without which no compute entry point compiles) and a `--hashes` flag for the off-path regression. Constraint handed to Step 2: the ceil-div bounds guard must be a predicate, not an early `return` (fxc X4026 in front of a `barrier()`).
 
 - Extend `ENTRY_POINT` to also match compute signatures (`void ... : SV_DispatchThreadID` style, not line-anchored), keeping the existing pixel pattern intact.
 - Pick the fxc target per entry: `ps_5_0` for `SV_Target` shaders, `cs_5_0` for compute; keep the bytecode-hash and histogram cross-checks for both.
@@ -204,11 +215,11 @@ Per AGENTS.md: verification is the offline compile check plus a review pass; rea
 With `AutoMaskCompute=1` the gate counts every pixel via a groupshared atomic reduction and the 16×16 tap approximation is compiled out; with 0 the file compiles byte-for-byte as today.
 
 - Add the `AutoMaskCompute` switch block after the existing two, same `#ifndef` + `// [0 or 1]` convention, guarding everything the feature owns.
-- Write `CS_Accum` mirroring `PS_Accum`'s state machine exactly (quantize, clip rails, deadband ramp, confidence/hold/move-memory), adding `SV_DispatchThreadID` addressing with ceil-div bounds guards and `[numthreads(64,4,1)]`.
+- Write `CS_Accum` mirroring `PS_Accum`'s state machine exactly (quantize, clip rails, deadband ramp, confidence/hold/move-memory), adding `SV_DispatchThreadID` addressing with ceil-div bounds **predicates** (not early returns — barriers must sit in uniform flow control, X4026) and `[numthreads(64,4,1)]`.
 - Add the 1×1 `r32u` motion counter (+storage) and `texAutoStat` 1×1 `r32f` handoff target; implement the `groupshared` per-group reduction and per-thread `atomicAdd`.
 - Write `CS_Finish` (1×1 dispatch, right after `CS_Accum`): count → share, clear the counter for next frame, keeping the statistic's one-frame-behind semantics.
 - Guard the technique: compute pass entries replace `PS_Accum` and the `PS_Motion`/`PS_MotionAvg` pair when on; compile out `PS_Motion`, `PS_MotionAvg`, `texMotionCoarse`, `texMotionStat` when on; redirect `PS_DebugMap`/corner-marker stat reads to `texAutoStat` via a guarded sampler line.
-- README: document the switch, the D3D11+/Vulkan requirement, and what changes when it is on.
+- README: document the switch, the D3D11+/Vulkan requirement, and what changes when it is on; also update `AGENTS.md`'s switch inventory (it currently says "two structural switches") once `AutoMaskCompute` exists.
 - Verify: eight variants pass; off-path bytecode hashes unchanged; on-path pass list shows the compute wiring; record instruction counts.
 
 ###   Step 3: Implement the EMA drift channel in CS_Accum

@@ -263,18 +263,36 @@ Nothing here is testable automatically in the true sense, so verification is a r
 offline compile check:
 
 - `uv run tools/verify_shaders.py init` fetches the pinned ReShade headers, then
-  `uv run tools/verify_shaders.py check` preprocesses and compiles every pixel shader with `fxc` and
+  `uv run tools/verify_shaders.py check` preprocesses and compiles every shader with `fxc` and
   reports instruction counts and opcode histograms. Keep the `tools/.work/` output out of commits.
-- The check compiles four variants — `AutoMaskAntiBloom` and `AutoMaskDiagnostics` each at 0 and 1, set
-  from the prelude exactly as a ReShade-level definition would be — because a `#if` guard can drop a
-  pass from a technique body, and only compiling every combination shows that it did. `--pass-list`
-  prints the wiring, `--opcodes` the histogram per shader.
+- The check compiles eight variants — `AutoMaskAntiBloom` and `AutoMaskDiagnostics` each at 0 and 1,
+  crossed with `AutoMaskCompute` at 0 and 1, set from the prelude exactly as a ReShade-level
+  definition would be — because a `#if` guard can drop a pass from a technique body, and only
+  compiling every combination shows that it did. The compute switch is crossed with the other two
+  rather than added beside them because it swaps a pass for one of another type instead of removing
+  it, so a guard that drops or misbinds a pass has to show at both settings. `--pass-list` prints the
+  wiring, `--opcodes` the histogram per shader, `--hashes` the bytecode sha256 of each entry point —
+  which is how the `AutoMaskCompute=0` variants are shown to compile byte-for-byte as before a change.
+- An entry point is compiled at the profile its shape calls for: `ps_5_0` for a `SV_Target` function,
+  `cs_5_0` for a compute one, so a compute pass cannot slip through unread or be compiled as a pixel
+  shader. A pass is read for `ComputeShader` as well as `PixelShader`, and a compute pass declaring
+  fewer than two `DispatchSize`s exits non-zero the way ReShade rejects it (its error 3012).
 - **It must fail loudly on missing data.** An earlier version of the companion tool reported a clean
   pass while emitting no bytecode at all, because a missing hash compares equal to another missing
-  hash. Four cases must keep exiting non-zero, and each is exercised by hand before committing a
+  hash. Five cases must keep exiting non-zero, and each is exercised by hand before committing a
   change here: an empty `Shaders/`; a technique whose passes the parser cannot find (cross-checked
   against the `pass` keyword count, so a pattern miss cannot look like a technique with fewer passes);
-  a technique binding a shader that does not exist; and a shader whose syntax is broken.
+  a technique binding a shader that does not exist; a shader whose syntax is broken; and a compute
+  pass missing one of its dispatch sizes.
+- **A spelling the tool rewrites cannot be checked by compiling.** Storage declarations are translated to
+  `RWTexture*` before fxc sees them, so a keyword ReShade would reject compiles in the check regardless —
+  which is the one failure mode the check cannot see on its own. That already bit: a lowercase `storage2d`
+  passed every variant and failed in ReShade with a bare X3000 pointing at the line rather than the case,
+  and because the bad declaration dropped its target, two further X3004 errors followed from it. The
+  dialect keywords are therefore pinned to ReShade's own lexer — `storage`, `storage1D`, `storage2D`,
+  `storage3D` with a **capital** dimension letter, and those four only — and a near-miss is a loud
+  failure rather than something to rewrite. Exercise it by hand with the file changed back to the
+  lowercase spelling before committing any change to the translation.
 - `pyproject.toml` lives in `tools/`, not at the repo root: this is a shader project, and `uv run`
   discovers the project by searching upward from the script, so the root-level command above works.
 
@@ -298,9 +316,20 @@ The compile check needs `fxc.exe`, which is a Windows binary run under WSL:
   #define RGBA8 28
   ```
 
-  Compiling is `/Gec /T ps_5_0 /E <entry> /Fc <asm> /Fo <binary>`; the instruction count is read from
+  Compiling is `/Gec /T <profile> /E <entry> /Fc <asm> /Fo <binary>`, with `ps_5_0` for a pixel
+  entry point and `cs_5_0` for a compute one; the instruction count is read from
   `// Approximately N instruction slots used` in the assembly, and that count is cross-checked
   against the opcode histogram so a parsing miss cannot look like a pass.
+- ReShade's compute dialect is not HLSL: `storage2D`/`storage1D`/`storage3D` objects, the group and
+  memory barriers, and the `atomic*` family are its own surface vocabulary, and ReShade's own codegen
+  translates them (`RWTexture*`, `GroupMemoryBarrierWithGroupSync()`, `Interlocked*`) before handing
+  the result to a shader compiler. The check compiles the source itself, so it writes the same
+  translation out in `strip_for_fxc`; without it no compute entry point could be compiled at all. The dimension
+  letter is capital and those spellings are the only ones the lexer knows: a lowercased one is not a
+  keyword, so it is guarded against rather than translated (see the loud-failure list above).
+- A barrier must sit in uniform flow control, so in a compute shader the `BUFFER_*` bounds guard for a
+  ceil-div dispatch has to be a predicate rather than an early `return` — fxc rejects a `return` on the
+  thread address before a barrier outright (X4026).
 
 - **Real end-to-end testing means loading both techniques in ReShade in a game**, which an agent
   cannot do. State that clearly instead of claiming the change is verified, and say which scenarios
