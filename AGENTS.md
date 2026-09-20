@@ -87,11 +87,13 @@ separate slider, and the two must not be conflated — the reading the user watc
 same channel the verdict comes from, but the cost is banked against the verdict, not the reading. The two
 verdicts are complements of one number rather than two tests that happen to meet: the deadband is read as
 whole levels, `max(ceil(AutoMaskEps), 1)`, a pixel is still below it and moving at or above it, and the ramp
-runs from a level under the deadband to four times it, keeping the same offset under at its ceiling. Foot
-and ceiling sit a full level under so that, at the smallest setting, any change at all is seen — the old
-ramp footed half a level up and hid every sub-level change, which is what made 0 look more sensitive than
-1 — while the setting's own level reads only a quarter of full strength, so the integer levels on either
-side of the deadband stay the boundary rather than the deadband itself.
+spans a fixed three levels footed one under the deadband (`smoothstep(deadband - 1, deadband + 2, maxDiff)`).
+The foot sits a full level under so that, at the smallest setting, any change at all is seen — the old ramp
+footed half a level up and hid every sub-level change, which is what made 0 look more sensitive than 1 — and
+the span is fixed rather than scaled with the deadband: a ceiling that moved with it (`deadband * 4 - 1`)
+squashed the first visible levels toward zero as the slider rose (its own level read 0.26 at 1 but 0.005 at
+8), so the integer levels on either side of the deadband stay the boundary at every position and the
+setting's own level reads a quarter of full strength everywhere.
 
 On the still side of the threshold the reading becomes a **hold**, and it is one-sided: while the world
 is not being drawn a still pixel is carried over untouched — no rise, no fall, no heal — and a moving

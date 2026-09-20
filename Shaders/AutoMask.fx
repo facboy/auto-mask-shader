@@ -195,11 +195,11 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	float3 diff = abs(now - before) * 255.0;
 	float maxDiff = max(diff.r, max(diff.g, diff.b));
 	//The deadband is a level count, so it is read as whole levels: a change of that many levels or
-	//more is motion, anything less is still. The foot sits a level under it -- zero at the smallest
-	//setting, so any change at all is caught -- and the ceiling keeps the same offset so the
-	//setting's own level reads a quarter-strength change, not the full one it becomes at eps+1.
+	//more is motion, anything less is still. The ramp spans a fixed three levels, footed one under
+	//-- zero at the smallest setting, so any change at all is caught -- so the setting's own level
+	//reads a quarter-strength change at every position.
 	float deadband = max(ceil(AutoMaskEps), 1.0);
-	float motion = smoothstep(deadband - 1.0, deadband * 4.0 - 1.0, maxDiff);
+	float motion = smoothstep(deadband - 1.0, deadband + 2.0, maxDiff);
 	float stable = maxDiff < deadband ? 1.0 : 0.0;
 
 	//The two sliders speak in frames; the accumulator is confidence against the 0.5 verdict step, so
