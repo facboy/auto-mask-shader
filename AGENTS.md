@@ -213,7 +213,7 @@ because 1,024 taps cannot tell a level of dithering from a level of real motion.
   the drift channel is the long baseline for the case the short one is blind to, a shift too small to
   cross a level.
 
-Three constraints the dialect imposes on any compute pass here, all found the hard way:
+Four constraints the dialect imposes on any compute pass here, all found the hard way:
 
 - **Sampling has no implicit derivatives.** `tex2D` is rejected outright at `cs_5_0` (X4532); a compute
   pass must use `tex2Dlod` and name its mip level. The pixel passes are unaffected.
@@ -223,6 +223,18 @@ Three constraints the dialect imposes on any compute pass here, all found the ha
   gated on it rather than skipped early.
 - **`groupshared` is a file-scope declaration**, not a local: declaring it inside the shader body is
   error X3010.
+- **A storage object cannot be indexed.** `store[int2(x, y)] = v` looks like HLSL and is not: the
+  declaration's element type is a storage type, and the index-expression rule accepts only arrays,
+  vectors and matrices, so ReShade rejects the bracket form with X3121 (`array, matrix, vector, or
+  indexable object type expected in index expression`), reported against the *use* rather than the
+  declaration. Reading and writing one goes through **`tex2Dfetch(store, coord)`** and
+  **`tex2Dstore(store, coord, value)`** — the intrinsics are the only legal access, and ReShade's own
+  codegen emits the bracket form for them before it calls a shader compiler, which is why the mistake is
+  invisible in the emitted HLSL and compiles there. `storage2D<T>` remains the right thing to declare;
+  only the access has to go through the intrinsics. The `atomic*` family is the one exception that is
+  not a trap: it takes the storage and the coordinate as two arguments rather than indexing
+  (`atomicAdd(AutoMotionCount, int2(0, 0), 1u)`), so those calls stay as they are and must not be
+  "corrected" into bracket form.
 
 `DispatchSizeX/Y` are group counts, taken from `BUFFER_WIDTH`/`BUFFER_HEIGHT` so they stay right at any
 resolution, and the dispatch rounds up — which is exactly why the in-shader bounds predicate exists.
@@ -352,6 +364,15 @@ offline compile check:
   `storage3D` with a **capital** dimension letter, and those four only — and a near-miss is a loud
   failure rather than something to rewrite. Exercise it by hand with the file changed back to the
   lowercase spelling before committing any change to the translation.
+- **The same rule covers the access intrinsics, and it bit a second time.** `tex2Dfetch`/`tex2Dstore` are
+  translated to bracket form before fxc sees them, so their spellings are pinned the same way (a
+  lowercased one is a loud failure, and a wrong argument count is too — it cannot be translated and must
+  not be dropped). The sharper case is the *inverse*: because the translation produces the bracket form,
+  that form compiles here even though ReShade rejects it, so the check would pass the very bug it exists
+  to catch. A storage object indexed directly is therefore a loud failure in its own right (see the
+  dialect constraint above), alongside the spelling and arity guards. Exercise all three by hand before
+  committing a change to the translation, plus a texture indexed with brackets as the negative control,
+  which must stay untouched.
 - `pyproject.toml` lives in `tools/`, not at the repo root: this is a shader project, and `uv run`
   discovers the project by searching upward from the script, so the root-level command above works.
 
@@ -386,6 +407,12 @@ The compile check needs `fxc.exe`, which is a Windows binary run under WSL:
   out in `strip_for_fxc`; without it no compute entry point could be compiled at all. The dimension
   letter is capital and those spellings are the only ones the lexer knows: a lowercased one is not a
   keyword, so it is guarded against rather than translated (see the loud-failure list above).
+- The access intrinsics are part of the same translation: `tex2Dfetch(s, coord)` and
+  `tex2Dstore(s, coord, value)` become `s[coord]` before fxc sees them, because a storage object cannot
+  be indexed in the dialect at all and those calls are the only legal access. So the same
+  unverifiable-by-compiling caveat applies, in both directions — the spelling and argument count are
+  pinned (see the loud-failure list above), and the bracket form the translation produces, which ReShade
+  would reject, is refused rather than passed.
 - A barrier must sit in uniform flow control, so in a compute shader the `BUFFER_*` bounds guard for a
   ceil-div dispatch has to be a predicate rather than an early `return` — fxc rejects a `return` on the
   thread address before a barrier outright (X4026).

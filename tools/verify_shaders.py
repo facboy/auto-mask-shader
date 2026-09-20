@@ -158,6 +158,21 @@ STORAGE = re.compile(
 # ReShade, so it is a failure here rather than something to rewrite.
 MISSPELLED_STORAGE = re.compile(r'\bstorage[123]d\b')
 STORAGE_DIMENSIONS = {None: "2D", "1D": "1D", "2D": "2D", "3D": "3D"}
+# Reading and writing a storage object goes through these intrinsics: a storage
+# cannot be indexed in the dialect at all. Its element type is a storage type
+# rather than a vector, matrix or array, and the index-expression rule accepts
+# only those three -- so `store[coord]` is rejected by ReShade's own parser with
+# X3121 (`array, matrix, vector, or indexable object type expected in index
+# expression`), reported against the call site rather than the declaration. The
+# two intrinsics are the only legal access, and ReShade's codegen emits the
+# `name[coord]` form for them before handing the result to a shader compiler,
+# which is the same rewrite written out below. The dimensions are spelled as
+# ReShade's intrinsics are (`tex1Dfetch`/`tex2Dstore`/`tex3Dstore`), and the
+# count of arguments is fixed: a load takes the object and its coordinate, a
+# store takes those plus the value.
+STORAGE_ACCESS = re.compile(r'\btex([123])D(fetch|store)\s*\(')
+MISSPELLED_STORAGE_ACCESS = re.compile(r'\btex[123]d(fetch|store)\b')
+STORAGE_ACCESS_ARITY = {"fetch": 2, "store": 3}
 # A call, so the arguments are read by balancing parens rather than by a regex:
 # an argument can itself contain parens and commas (`uint2(0, 0)`), which a
 # comma-splitting pattern would cut through the middle of.
@@ -347,11 +362,60 @@ def strip_for_fxc(text: str) -> str:
                  "lexes it as an identifier and fails with a bare X3000, and this "
                  "check would otherwise translate it into valid HLSL and report it "
                  "clean" % misspelled.group(0))
+    # Loud guard, on the same reasoning as the storage keyword one above: the
+    # intrinsic name is case sensitive, and the translation below would rewrite
+    # a lowercased one into valid HLSL, so the misspelling has to fail here.
+    misspelled_access = MISSPELLED_STORAGE_ACCESS.search(re.sub(r"//[^\n]*", "", text))
+    if misspelled_access:
+        sys.exit("FAIL -- %r is not a ReShade intrinsic; the dimension letter is "
+                 "capital (tex1Dfetch, tex2Dfetch, tex3Dfetch and their store "
+                 "counterparts). ReShade would report the bare identifier as "
+                 "undeclared, and this check would otherwise translate it into "
+                 "valid HLSL and report it clean" % misspelled_access.group(0))
     text = re.sub(r"(?sm)^[ \t]*technique\b.*\Z", "", text)
+    # Guard before any translation below: the bracket form this rejects is what
+    # the access translation produces on its way out, and the declaration names
+    # are what it has to read, so it needs the source as written.
+    guard_storage_index(text, storages_in(text))
     text = translate_storage(text)
     for pattern, replacement in BARRIERS:
         text = pattern.sub(replacement, text)
-    return translate_atomics(text)
+    text = translate_atomics(text)
+    return translate_storage_access(text)
+
+
+def storages_in(text: str) -> set[str]:
+    """The names a storage object is declared as.
+
+    The one property a storage declaration carries is its `Texture`, so the name
+    to look for in an index expression is the declared name, not the texture's:
+    that is the symbol in scope at the call site.
+    """
+    return {match.group(3) for match in STORAGE.finditer(text)}
+
+
+def guard_storage_index(text: str, names: set[str]) -> None:
+    """Refuse a storage object indexed directly, the way ReShade does.
+
+    A storage cannot be indexed in this dialect at all, so the source this tool
+    compiles and ReShade rejects has to be caught here rather than translated
+    into valid HLSL: the declaration's element type is a storage type rather
+    than a vector, matrix or array, and the index-expression rule accepts only
+    those three. ReShade reports it against the call site -- `array, matrix,
+    vector, or indexable object type expected in index expression` (X3121) --
+    while this check would compile the translated `name[coord]` form clean,
+    which is exactly how this reached a real game. Reading and writing a storage
+    goes through `tex2Dfetch`/`tex2Dstore` (see `translate_storage_access`).
+    """
+    code = re.sub(r"//[^\n]*", "", text)
+    for name in sorted(names):
+        if re.search(r'\b%s\s*\[' % re.escape(name), code):
+            sys.exit("FAIL -- '%s' is a storage object, which cannot be indexed in "
+                     "ReShade (it would fail with X3121, 'array, matrix, vector, or "
+                     "indexable object type expected in index expression'); read and "
+                     "write it with tex2Dfetch/tex2Dstore. This check would otherwise "
+                     "translate the bracket access into valid HLSL and report it clean"
+                     % name)
 
 
 def translate_storage(text: str) -> str:
@@ -414,6 +478,44 @@ def translate_atomics(text: str) -> str:
         else:
             call = "%s(%s)" % (name, ", ".join(arguments))
         out.append(call)
+        index = close + 1
+
+
+def translate_storage_access(text: str) -> str:
+    """Rewrite the storage-access intrinsics into the HLSL they stand for.
+
+    This is the other half of the storage translation above: ReShade's dialect
+    has no bracket access on a storage object at all, so the only way to read or
+    write one is `tex2Dfetch(s, coord)` / `tex2Dstore(s, coord, value)`, and
+    ReShade's own codegen turns those into `s[coord] = value` before calling a
+    shader compiler. fxc compiles the source itself here, so the same rewrite is
+    written out -- and, as with the storage keyword, the spelling the rewrite
+    touches is pinned to the real one (see `MISSPELLED_STORAGE_ACCESS`).
+
+    The call is read by balancing parens rather than by a regex, so an argument
+    can be any expression. Both forms end at the same place -- the value's
+    position in the call -- which is why one function covers the load and the
+    store: a load names the element, a store names it and assigns to it. An
+    arity that is not the fixed one is a loud failure, because a mismatch would
+    otherwise be silently dropped on the floor here while ReShade rejected it.
+    """
+    out: list[str] = []
+    index = 0
+    while True:
+        match = STORAGE_ACCESS.search(text, index)
+        if not match:
+            out.append(text[index:])
+            return "".join(out)
+        out.append(text[index:match.start()])
+        arguments, close = call_arguments(text, match.end() - 1)
+        kind = match.group(2)
+        if len(arguments) != STORAGE_ACCESS_ARITY[kind]:
+            sys.exit("FAIL -- tex%sD%s takes %d argument(s) in ReShade but %d were "
+                     "given; the call cannot be translated and would otherwise be "
+                     "dropped silently"
+                     % (match.group(1), kind, STORAGE_ACCESS_ARITY[kind], len(arguments)))
+        addressed = "%s[%s]" % (arguments[0], arguments[1])
+        out.append(addressed if kind == "fetch" else "%s = %s" % (addressed, arguments[2]))
         index = close + 1
 
 

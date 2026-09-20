@@ -231,7 +231,9 @@ sampler AutoMap { Texture = texAutoMap; };
 //The exact screen-motion gate, as compute: a 1x1 integer counter every moved pixel adds to, and
 //a 1x1 float share the pixel passes can sample. The counter is an integer because atomics need
 //one, and the handoff is a second pass because the statistic has to stay readable as a float.
-//The accumulator's new value is written as storage: a compute pass has no render target.
+//The accumulator's new value is written as storage: a compute pass has no render target. A storage
+//cannot be indexed -- its element type is a storage type, not a vector -- so every read and write goes
+//through tex2Dfetch/tex2Dstore; a bracket would fail in ReShade with X3121.
 #if AutoMaskCompute == 1
 	texture texAutoMotionCount { Width = 1; Height = 1; Format = r32u; };
 	storage2D<uint> AutoMotionCount { Texture = texAutoMotionCount; };
@@ -390,8 +392,8 @@ sampler AutoMap { Texture = texAutoMap; };
 			atomicAdd(AutoMotionHist, int2(min(int(maxDiff), 255), 0), 1u);
 
 		if (live){
-			AutoAccumStore[int2(tid.xy)] = float4(clamp(conf, -cost * AutoMaskMoveMemory, 1.0), held, motion, 1.0);
-			AutoDriftStore[int2(tid.xy)] = float4(next, 1.0);
+			tex2Dstore(AutoAccumStore, int2(tid.xy), float4(clamp(conf, -cost * AutoMaskMoveMemory, 1.0), held, motion, 1.0));
+			tex2Dstore(AutoDriftStore, int2(tid.xy), float4(next, 1.0));
 		}
 	}
 
@@ -400,9 +402,9 @@ sampler AutoMap { Texture = texAutoMap; };
 	[numthreads(1, 1, 1)]
 	void CS_Finish(uint3 tid : SV_DispatchThreadID)
 	{
-		float share = float(AutoMotionCount[int2(0, 0)]) / (BUFFER_WIDTH * BUFFER_HEIGHT);
-		AutoMotionCount[int2(0, 0)] = 0u;
-		AutoStatStore[int2(0, 0)] = share;
+		float share = float(tex2Dfetch(AutoMotionCount, int2(0, 0))) / (BUFFER_WIDTH * BUFFER_HEIGHT);
+		tex2Dstore(AutoMotionCount, int2(0, 0), 0u);
+		tex2Dstore(AutoStatStore, int2(0, 0), share);
 
 		//Every live pixel landed in a bin, so only the low levels the walk speaks in have to be read
 		//back. The step is the smallest level that leaves no more than the noise floor changing above
@@ -414,21 +416,21 @@ sampler AutoMap { Texture = texAutoMap; };
 		if (AutoMaskAutoStep){
 			float floorCount = AutoMaskNoiseFloor * 0.01 * float(BUFFER_WIDTH * BUFFER_HEIGHT);
 			float step = max(ceil(AutoMaskEps), 1.0);
-			uint above = uint(BUFFER_WIDTH * BUFFER_HEIGHT) - AutoMotionHist[int2(0, 0)];
+			uint above = uint(BUFFER_WIDTH * BUFFER_HEIGHT) - tex2Dfetch(AutoMotionHist, int2(0, 0));
 			for (int level = 1; level <= 8; level++){
 				if (float(above) <= floorCount){
 					step = float(level);
 					break;
 				}
-				above -= AutoMotionHist[int2(level, 0)];
+				above -= tex2Dfetch(AutoMotionHist, int2(level, 0));
 			}
-			AutoStepStore[int2(0, 0)] = step;
+			tex2Dstore(AutoStepStore, int2(0, 0), step);
 		}
 
 		//Cleared whether or not the step is being measured, so the bins are empty at the start of
 		//every frame and the toggle can be flipped without a frame of counts left over in them.
 		for (int i = 0; i < 256; i++)
-			AutoMotionHist[int2(i, 0)] = 0u;
+			tex2Dstore(AutoMotionHist, int2(i, 0), 0u);
 	}
 
 	//Drift ping-pong back-edge (copy B to A).
