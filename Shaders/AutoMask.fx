@@ -60,12 +60,14 @@ uniform float AutoMaskFall <
 	ui_step = 1.0;
 > = 2.0;
 
-//Bridges brief animation. Also covers the one full-screen change after a load or a resize, when
-//the previous frame is still blank.
+//Bridges brief animation as a running balance: a frame the deadband calls changing adds one and a
+//still frame pays half of one back, so the bridge banks while the animation outweighs its pauses
+//rather than only when it runs unbroken. Also covers the one full-screen change after a load or a
+//resize, when the previous frame is still blank.
 uniform float AutoMaskForget <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Frames of absence before decay starts";
-	ui_tooltip = "Frames of animation absorbed before decay starts, so a draining health bar or scrolling list keeps its mask.\nOnly applies while the world is being drawn";
+	ui_tooltip = "Frames of change absorbed before decay starts, so a draining health bar or scrolling list keeps its mask.\nA still frame pays half a frame of the balance back; only applies while the world is being drawn";
 	ui_category = "AutoMask";
 	ui_min = 0.0; ui_max = 120.0;
 	ui_step = 1.0;
@@ -192,6 +194,11 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 {
 	float3 now = tex2D(ReShade::BackBuffer, texcoord).rgb;
 	float3 before = tex2D(AutoHistory, texcoord).rgb;
+	//The comparison speaks in whole 8-bit levels and the history is stored on that grid, so on a
+	//higher-precision back buffer the live sample is quantized onto it first: a change smaller than
+	//half a level reads as exactly zero instead of as a fraction the deadband forgives while the
+	//overlay's gain paints it red.
+	now = round(now * 255.0) / 255.0;
 	float3 diff = abs(now - before) * 255.0;
 	float maxDiff = max(diff.r, max(diff.g, diff.b));
 	//The deadband is a level count, so it is read as whole levels: a change of that many levels or
@@ -227,8 +234,9 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	}
 
 	if (stable > 0.5 && !inDeadzone){
-		//Still, so nothing is animating here: end any bridge that was running.
-		held = 0.0;
+		//Still, so nothing is animating here: pay half a frame of the bridge back rather than ending
+		//it, so animation that outweighs its pauses still banks and brief bursts do not.
+		held = max(held - 0.5, 0.0);
 		//A drawn world turns stillness into interface: repay debt, then earn. A stopped
 		//one cannot tell a held HUD from its own backdrop, so it changes nothing else.
 		if (drawn){

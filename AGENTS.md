@@ -141,6 +141,18 @@ debt is still crediting the pixel, and a stopped world is not evidence. `AutoMas
 protects a briefly-animating element from being banked in the first place, so it and
 `AutoMaskMoveMemory` are tuned against each other.
 
+`AutoMaskForget` runs as a balance rather than an unbroken run: a frame the deadband calls changing
+adds one to the bridge and a still frame pays half of one back, so the bridge banks while the
+animation outweighs its pauses. An unbroken run let a pixel that animates with still gaps inside
+every window — a list that scrolls at half the frame rate, flickering shimmer — hold its mask
+indefinitely while visibly animating, which is what made the mask linger for seconds; the balance
+closes that without shortening the grace a continuously animating element gets. The comparison is
+also quantized onto whole levels (`round(now * 255.0) / 255.0`) before the difference: the history
+is stored on that grid, and on a higher-precision back buffer a sub-level change would otherwise be
+forgiven by the deadband — the pixel reads still, the mask holds or grows — while the overlay's gain
+painted those same small differences red, the flip side of the sub-level-hiding bug the ramp's foot
+closed.
+
 ### The `.fx` constraints that shape the design
 
 - **A render target cannot be read while it is written.** There are no atomics and no compute
