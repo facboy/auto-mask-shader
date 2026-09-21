@@ -27,6 +27,15 @@
 	#define AutoMaskCompute		0		// [0 or 1] 1 runs the accumulator and the motion gate as compute passes
 #endif
 
+//Draws one low-resolution motion estimate -- where the picture as a whole moved from, worked out from
+//the image alone -- on the diagnostics overlay. It is an instrument rather than part of the mask:
+//nothing the verdict reads ever samples it, so neither position changes what is protected.
+//Needs AutoMaskCompute=1 and a D3D11 or newer device, or Vulkan, for the same reason the compute path
+//does; with compute off this switch is the plain pixel path.
+#ifndef AutoMaskOpticalFlow
+	#define AutoMaskOpticalFlow	0	// [0 or 1] 1 draws a low-resolution motion estimate from the
+#endif								// image alone (needs AutoMaskCompute=1; D3D11+/Vulkan)
+
 //The frame rate the frame-count bounds are sized for: each cap is a duration in seconds written as
 //seconds times this, so the caps grow with the frame rate and mean the same time everywhere.
 #ifndef AutoMaskTargetFPS
@@ -141,6 +150,29 @@ uniform float AutoMaskMoveMemory <
 		ui_min = 0.0; ui_max = 5.0;
 		ui_step = 0.05;
 	> = 0.5;
+#endif
+
+#if AutoMaskCompute == 1 && AutoMaskOpticalFlow == 1
+	//Frames between the lagged reference frames the probe matches against. Real past frames a whole
+	//step apart -- not the blended average the drift store is, which would confound "the match
+	//degraded over the baseline" with "the reference is not a frame" -- and at a quarter of the frame
+	//rather than on the accumulator's coarse grid, because a one-pixel shift is unfindable inside a
+	//coarse cell. This is the baseline the whole experiment turns on: sub-pixel per-frame motion is not
+	//in the image at all -- an integer search reads (0,0) at every speed until the shift adds up to
+	//whole pixels -- so the match has to compare frames far enough apart to contain one, and it is
+	//swept live because sweeping it is the experiment: too short and there is nothing to find, too
+	//long and a skybox whose animation loops matches itself at (0,0).
+	//A frame count rather than a duration, so it is a slider: it names how many frames apart the
+	//references are rather than how long a memory lasts. Declared with the rest of the guard because
+	//the pixel path has no pass that would read it.
+	uniform float AutoMaskFlowStride <
+		__UNIFORM_SLIDER_FLOAT1
+		ui_label = "Frames between motion-estimate references";
+		ui_tooltip = "How many frames apart the pictures the motion estimate matches are.\nShort is coherent but may show no whole pixel of movement; long finds slower movement but a looping sky matches itself at zero.";
+		ui_category = "AutoMask";
+		ui_min = 4.0; ui_max = 64.0;
+		ui_step = 1.0;
+	> = 16.0;
 #endif
 
 #define AUTOMASK_DILATE_MAX 3
@@ -275,6 +307,56 @@ sampler AutoMap { Texture = texAutoMap; };
 	sampler MotionCoarse { Texture = texMotionCoarse; };
 	texture texMotionStat { Width = 1; Height = 1; Format = RGBA8; };
 	sampler MotionStat { Texture = texMotionStat; };
+#endif
+
+//One low-resolution motion estimate per frame: where the picture as a whole moved from, worked out
+//from the image alone. It is an instrument rather than part of the mask -- nothing the verdict reads
+//samples any target below -- so all of it sits inside its own switch, gated on the compute path as
+//well, and costs nothing when either is off. This is the compute path's own machinery, the pixel path
+//having no pass that could take the reading.
+#if AutoMaskCompute == 1 && AutoMaskOpticalFlow == 1
+	//The ring of lagged reference frames, one real past frame per slot on the whole-level grid every
+	//other comparison here judges on: slot i holds the frame (i + 1) steps of AutoMaskFlowStride
+	//back. Real frames rather than a blended average, which is what the drift store is -- a blend
+	//would confound "the match degraded over the baseline" with "the reference is not a frame".
+	//Eight slots at roughly a quarter of the frame, because the search can only find a shift of one
+	//ring pixel or more: this is the scale that keeps a four-screen-pixel move findable. The compute
+	//path's coarse grid could not do it -- a whole-pixel shift is inside one of its cells -- so the
+	//probe reduces into its own ring rather than reusing that grid.
+	#define FLOW_RING 8
+	texture texFlowRef0 { Width = 640; Height = 360; Format = RGBA8; };
+	texture texFlowRef1 { Width = 640; Height = 360; Format = RGBA8; };
+	texture texFlowRef2 { Width = 640; Height = 360; Format = RGBA8; };
+	texture texFlowRef3 { Width = 640; Height = 360; Format = RGBA8; };
+	texture texFlowRef4 { Width = 640; Height = 360; Format = RGBA8; };
+	texture texFlowRef5 { Width = 640; Height = 360; Format = RGBA8; };
+	texture texFlowRef6 { Width = 640; Height = 360; Format = RGBA8; };
+	texture texFlowRef7 { Width = 640; Height = 360; Format = RGBA8; };
+	//Point filtered like the drift samplers, and for the same reason: these are data rather than
+	//pictures, so interpolating one would blend a neighbour's history into the pixel being matched.
+	sampler FlowRef0 { Texture = texFlowRef0; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
+	sampler FlowRef1 { Texture = texFlowRef1; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
+	sampler FlowRef2 { Texture = texFlowRef2; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
+	sampler FlowRef3 { Texture = texFlowRef3; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
+	sampler FlowRef4 { Texture = texFlowRef4; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
+	sampler FlowRef5 { Texture = texFlowRef5; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
+	sampler FlowRef6 { Texture = texFlowRef6; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
+	sampler FlowRef7 { Texture = texFlowRef7; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
+	//The estimate the search settles on, one global value per frame: .x and .y are the offset, .z the
+	//confidence and .w the slot that won, which is reported because a short baseline matching and a
+	//long one breaking down is part of what the probe is looking at.
+	texture texFlowVec { Width = 1; Height = 1; Format = RGBA32F; };
+	storage2D<float4> FlowVecStore { Texture = texFlowVec; };
+	sampler FlowVec { Texture = texFlowVec; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
+	//The ring cursor: which slot this frame's picture goes into, advanced by CS_Finish so the
+	//reduction reads it one frame behind, the same lag the share and the measured step carry.
+	texture texFlowCursor { Width = 1; Height = 1; Format = r32u; };
+	storage2D<uint> FlowCursorStore { Texture = texFlowCursor; };
+	//Where the match held up, one cell per 16 of the ring's pixels -- a coarse map of the picture's
+	//texture. The overlay tints only the cells whose estimate is trustworthy, which is what shows the
+	//featureless parts of a sky instead of painting them a direction no match supports.
+	texture texFlowCoverage { Width = 40; Height = 23; Format = R8; };
+	sampler FlowCoverage { Texture = texFlowCoverage; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
 #endif
 
 #if AutoMaskDiagnostics == 1

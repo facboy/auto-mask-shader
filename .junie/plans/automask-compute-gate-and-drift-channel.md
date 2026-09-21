@@ -30,7 +30,13 @@ The compute path is a **replacement, not an addition**: roughly cost-neutral GPU
 **Out of scope**
 - A pixel-shader-only EMA fallback variant (deliberately deferred; see above).
 - Any change to the two-technique contract, pass order semantics, or the anti-bloom/restore passes (they stay pixel passes — compute cannot write the back buffer).
-- Block matching / optical flow.
+- Block matching / optical flow. **Reversed**, deliberately and visibly: `docs/optical-flow.md` §6
+  reopens it as a *fourth signal* that supports the verdict rather than replacing it, and its §6.1
+  cheap decisive experiment is what the later plan
+  `.junie/plans/optical-flow-probe-first-step.md` implements — one global low-resolution translation
+  estimate per frame, drawn on the diagnostics overlay, behind the fourth structural switch
+  `AutoMaskOpticalFlow`. It is recorded here as a reversal so this entry is not read as still standing;
+  nothing in the stages above is reopened by it, the probe being additive and wired into no verdict.
 - D3D9/D3D10 support for the compute path (inherent; documented as a limit).
 
 ### User Stories

@@ -21,7 +21,23 @@ Constraints taken as given:
   `.junie/plans/automask-compute-gate-and-drift-channel.md`). Anything added here is a further
   addition, not a replacement.
 
-**Nothing has been implemented.** This is a feasibility review; §6 is what I would do first.
+**Adopted, in the smallest form.** The reversal §6 asks for has been recorded in
+`.junie/plans/automask-compute-gate-and-drift-channel.md`, whose *Out of scope* entry for block
+matching now says it is reopened rather than silently dropped. What is built is **§6.1's experiment
+and nothing else**: one global low-resolution translation estimate per frame, drawn on the
+diagnostics overlay behind a fourth structural switch (`AutoMaskOpticalFlow`, compute path required)
+and wired into no verdict — no vector feeds the accumulator, the gate, the drift channel or the mask.
+It exists to answer §6.2's two questions against a real skybox, and if either answer is no then §6.3
+is not worth starting. The rest of this review stands as written: §3's baseline tension is why the
+probe sweeps its baseline live and reports which one matched, §4's patchiness is what its coverage
+map is there to show, and §5's "a vector is not the same question as 'is this HUD'" is why it is an
+instrument rather than a fix. The repeat detector of `docs/drift-snap-review.md` §5.1 is still not
+implemented — the two are alternatives, and §6's "Against the alternative" is the comparison between
+them.
+
+**Nothing below this line has been revised to match the probe.** This is a feasibility review as
+written; it is kept that way on purpose, so the reasoning that led to the experiment can be read
+against its result.
 
 ---
 

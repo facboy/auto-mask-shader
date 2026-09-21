@@ -29,8 +29,9 @@ anti-bloom suppression belongs to Kaiser (UIDetectMulti) and Brussels1 (the orig
 There is **no `.fxh` companion header and there deliberately never will be**. A header holds authored
 data — pixel tables, coordinates, stored colours — and this shader has none: every tuning value is a
 live slider, and the only preprocessor definitions are the structural switches (`AutoMaskAntiBloom`,
-`AutoMaskDiagnostics`, `AutoMaskCompute`), which elide a pass rather than hold data. Configuration in a
-file the user edits and restarts would be a usability regression, so do not introduce one.
+`AutoMaskDiagnostics`, `AutoMaskCompute`, `AutoMaskOpticalFlow`), which elide a pass rather than hold
+data. Configuration in a file the user edits and restarts would be a usability regression, so do not
+introduce one.
 
 There is no build system and no CI beyond the offline check, by design. Never vendor ReShade's headers.
 
@@ -225,6 +226,20 @@ because 1,024 taps cannot tell a level of dithering from a level of real motion.
   the drift channel is the long baseline for the case the short one is blind to, a shift too small to
   cross a level.
 
+The fourth structural switch, `AutoMaskOpticalFlow`, carries the compute condition in its own guard
+rather than sitting beside it, so it always requires the compute path. It owns one **measuring** feature
+and nothing else: a ring of eight lagged low-resolution reference frames at ~1/4 scale, a 1×1 `RGBA32F`
+readout (`dx`, `dy`, confidence, winning slot), a 1×1 `r32u` cursor and a low-res `R8` coverage map. The
+scale is a design constraint rather than a detail — the search can only find a shift of one ring pixel or
+more, so ~1/4 is what keeps a four-screen-pixel move findable, and the compute path's old 16×16 coarse
+grid could not have served it because a whole-pixel shift lives inside one of its cells. It is an
+instrument, not part of the mask: no line of `CS_Accum`'s state machine, the gate, the drift channel or
+the mask reads any of its targets, so neither position of the switch changes what is protected.
+`AutoMaskFlowStride` is a slider rather than a drag because it is a frame count rather than a duration,
+and it is swept live because sweeping the baseline is the experiment §3 of `docs/optical-flow.md` turns
+on; its uniforms are declared beside the horizon for the same reason the horizon's are, the pixel path
+having no pass that would read them.
+
 Four constraints the dialect imposes on any compute pass here, all found the hard way:
 
 - **Sampling has no implicit derivatives.** `tex2D` is rejected outright at `cs_5_0` (X4532); a compute
@@ -320,13 +335,15 @@ Load-bearing, and follows from what each pass reads:
   the draw still runs with the input undefined, so every pass samples one texel and the mask fills
   uniformly. `PS_MotionAvg` is the trap: its body has no `dcl_input_ps` at all and the parameter is still
   required, because linkage follows the *declared* signature.
-- Three structural switches are preprocessor definitions, not sliders: `AutoMaskAntiBloom`,
-  `AutoMaskDiagnostics` and `AutoMaskCompute`. Each is `#ifndef`-guarded with `// [0 or 1]` annotation
-  comments, as the pack does it, and each guards everything that feature owns — its **pass and technique
-  entry, its shader, and any `texture`/`sampler` only it uses** — because ReShade allocates every
-  declared target, so a target left outside its guard is memory paid for a feature that is compiled out.
-  Values tuned by watching stay live sliders; adding a fourth definition for one of those would cost a
-  recompile per adjustment for no elision worth having.
+- Four structural switches are preprocessor definitions, not sliders: `AutoMaskAntiBloom`,
+  `AutoMaskDiagnostics`, `AutoMaskCompute` and `AutoMaskOpticalFlow`. Each is `#ifndef`-guarded with
+  `// [0 or 1]` annotation comments, as the pack does it, and each guards everything that feature owns —
+  its **pass and technique entry, its shader, and any `texture`/`sampler` only it uses** — because
+  ReShade allocates every declared target, so a target left outside its guard is memory paid for a
+  feature that is compiled out. The fourth also carries the compute switch as a condition, rather than
+  sitting beside it: it requires `AutoMaskCompute=1`, so with compute off it is simply the pixel path — a
+  combination that is compiled rather than assumed. Values tuned by watching stay live sliders; a
+  definition is only for work that can be elided.
 - `AutoMaskTargetFPS` is the one further definition, a setup number rather than a tuning one. The
   frame-count settings are durations, so their `ui_max` caps are seconds × `AutoMaskTargetFPS` (rise
   10 s, fall 1 s, grace 5 s, move memory 10 s) and grow with the frame rate a user plays at, which

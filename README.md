@@ -76,11 +76,19 @@ lives.
 | **Only suppress deadzone while world moves** | When checked, the deadzone only suppresses accumulation while the world is being drawn. When the scene is still, full-screen menus can accumulate even inside the deadzone. When unchecked, the deadzone is suppressed at all times. |
 | **Diagnostics: motion view** | Which reading the overlay draws when it is switched on. On, it is the motion view: red where the frame sees a change, nothing where it does not. Off, it is the verdict view: green where a pixel has earned its place in the mask — the shader's own verdict, without the closing radius — nothing where it has not. Both tint only the pixels they name and leave the rest of the picture exactly as the game drew it; the deadzone ring and the bottom-left corner marker show in both. |
 
-There are three more switches that are not sliders — **anti-bloom** (on by default), the
-**diagnostics overlay** (off), and the **compute path** (off). All three are compile-time switches
-rather than sliders, which is why turning one on or off causes a short recompile rather than taking
-effect instantly. The trade is worth it: with a switch off, the work it would have done is not just
-skipped, it isn't in the shader at all.
+There are four more switches that are not sliders — **anti-bloom** (on by default), the
+**diagnostics overlay** (off), the **compute path** (off), and the **motion estimate** (off). All four
+are compile-time switches rather than sliders, which is why turning one on or off causes a short
+recompile rather than taking effect instantly. The trade is worth it: with a switch off, the work it
+would have done is not just skipped, it isn't in the shader at all.
+
+**The motion estimate** is the one that measures rather than protects: it works out, from the picture
+alone, roughly how far the whole image moved since a moment ago. **It changes nothing about which pixels
+are protected**, with the switch on or off — it exists on its own because whether a panning sky reads as
+one steady movement is worth knowing before anything is built on top of it. It needs the compute path
+below, and so a Direct3D 11 or newer device, or Vulkan: with the compute path off there is nothing for it
+to run on and it is simply the pixel path. It allocates about 7 MB of buffers while it is on, and none
+while it is off.
 
 **The compute path** changes *how* the mask is worked out, not what it means, and everything in the
 table above still applies. On the pixel path the screen-wide reading the mask depends on is an
