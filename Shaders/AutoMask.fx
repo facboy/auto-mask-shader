@@ -316,11 +316,14 @@ sampler AutoMap { Texture = texAutoMap; };
 //having no pass that could take the reading.
 #if AutoMaskCompute == 1 && AutoMaskOpticalFlow == 1
 	//The ring of lagged reference frames, one real past frame per slot on the whole-level grid every
-	//other comparison here judges on: each slot holds the frame the cursor filed into it a whole
-	//AutoMaskFlowStride-long window ago, so the slots stand a stride apart -- the baselines the
-	//experiment sweeps by moving that slider. Real frames rather than a blended average, which is
-	//what the drift store is -- a blend would confound "the match degraded over the baseline"
-	//with "the reference is not a frame".
+	//other comparison here judges on. The slots stand one AutoMaskFlowStride apart, which is the
+	//baseline the experiment sweeps by moving that slider, and the slot just written holds the frame
+	//being reduced now -- the current frame, the shortest baseline there is and the one the search
+	//reads first. Real frames rather than a blended average, which is what the drift store is -- a
+	//blend would confound "the match degraded over the baseline" with "the reference is not a frame".
+	//A full ring needs the cursor to have wrapped once before every slot holds a real frame; the
+	//search reports which slot won, so a slot still holding whatever it was allocated with is
+	//visible as one rather than mistaken for a match at the longest baseline.
 	//Eight slots at a fixed 640x360 -- a quarter of a 1440p frame, so a four-screen-pixel move is the
 	//smallest the search can find there and a larger buffer only raises that floor -- because the
 	//search can only see a shift of one ring pixel or more. The compute path's coarse grid could not
@@ -588,13 +591,9 @@ sampler AutoMap { Texture = texAutoMap; };
 			float2 texcoord = (float2(tid.x, tid.y) + 0.5) / float2(FLOW_WIDTH, FLOW_HEIGHT);
 			float3 now = tex2Dlod(ReShade::BackBuffer, float4(texcoord, 0.0, 0.0)).rgb;
 			//The cursor counts frames rather than naming a slot, so the slot this frame lands in advances
-			//once every AutoMaskFlowStride frames: each slot ends up holding the last frame of its own
-			//window, and the windows are a stride apart, which is the spacing the search has to read.
-			//Until the first wrap has filled the whole ring, the slots ahead of the cursor still hold
-			//whatever they were allocated with rather than a reference, so the opening frames of a
-			//session have fewer baselines behind them than the ring can hold. That is a warm-up
-			//rather than a wrong reading: the search reports the slot it won alongside the offset, so
-			//a match against a slot the reduction has not reached is visible as one.
+			//once every AutoMaskFlowStride frames: the slot just written holds this frame, the one
+			//before it the newest frame of the previous stride-long window, and so on round, which
+			//leaves the slots a stride apart -- the spacing the search reads as its baselines.
 			uint stride = uint(max(AutoMaskFlowStride, 1.0));
 			uint frame = uint(tex2Dlod(FlowCursor, float4(0.5, 0.5, 0.0, 0.0)).r);
 			uint slot = (frame / stride) % FLOW_RING;
