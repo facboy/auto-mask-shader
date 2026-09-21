@@ -563,10 +563,12 @@ sampler AutoMap { Texture = texAutoMap; };
 			//which is what puts the reduction one frame behind -- the lag the share above carries.
 			//It wraps at the whole ring, so the count stays small enough to be exact in a float and
 			//the wrap lands the reduction back on slot 0 rather than skipping one, eight strides
-			//being a whole number of strides by construction.
-			float cursor = fmod(tex2Dfetch(FlowCursorStore, int2(0, 0)) + 1.0,
-				float(FLOW_RING) * max(AutoMaskFlowStride, 1.0));
-			tex2Dstore(FlowCursorStore, int2(0, 0), cursor);
+			//being a whole number of strides by construction. An integer modulo rather than fmod:
+			//fmod is HLSL that fxc has and ReShade's parser does not, so it compiles in the check
+			//and fails to load in the game.
+			uint cursor = (uint(tex2Dfetch(FlowCursorStore, int2(0, 0))) + 1u)
+				% (uint(FLOW_RING) * uint(max(AutoMaskFlowStride, 1.0)));
+			tex2Dstore(FlowCursorStore, int2(0, 0), float(cursor));
 		#endif
 	}
 

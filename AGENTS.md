@@ -396,13 +396,14 @@ offline compile check:
   shader. A pass is read for `ComputeShader` as well as `PixelShader`, and a compute pass declaring fewer
   than two `DispatchSize`s exits non-zero the way ReShade rejects it (its error 3012).
 - **It must fail loudly on missing data.** An earlier version of the companion tool reported a clean pass
-  while emitting no bytecode at all, because a missing hash compares equal to another missing hash. Six
+  while emitting no bytecode at all, because a missing hash compares equal to another missing hash. Seven
   cases must keep exiting non-zero, each exercised by hand before committing a change here: an empty
   `Shaders/`; a technique whose passes the parser cannot find (cross-checked against the `pass` keyword
   count, so a pattern miss cannot look like a technique with fewer passes); a technique binding a shader
   that does not exist; a shader whose syntax is broken; a compute pass missing one of its dispatch
-  sizes; and a variant list carrying two entries under one name, which would show the same combination
-  twice and leave the other uncompiled — coverage read off a report that does not have it.
+  sizes; a variant list carrying two entries under one name, which would show the same combination
+  twice and leave the other uncompiled — coverage read off a report that does not have it; and a call to
+  an intrinsic `fxc` implements but ReShade does not, below.
 - **A spelling the tool rewrites cannot be checked by compiling.** Storage declarations are translated to
   `RWTexture*` before fxc sees them, so a keyword ReShade would reject compiles in the check regardless —
   which is the one failure mode the check cannot see on its own. That already bit: a lowercase `storage2d`
@@ -421,6 +422,18 @@ offline compile check:
   dialect constraint above), alongside the spelling and arity guards. Exercise all three by hand before
   committing a change to the translation, plus a texture indexed with brackets as the negative control,
   which must stay untouched.
+- **The same caveat has a third form, and it is not a translation gap at all.** `fmod` is genuine HLSL
+  that `fxc` implements and ReShade's parser simply does not carry, so a clean compile here is guaranteed
+  and the effect still fails at load with X3004 (`undeclared identifier or no matching intrinsic
+  overload`). It was written into the ring cursor's wrap — eight UAV slots and a float were both
+  considered on the way to it — and it passed all sixteen variants before failing in the game. The names
+  `fxc` has and ReShade's own table does not are therefore refused outright, that set being read from
+  `source/effect_symbol_table_intrinsics.inl` rather than guessed: it is a deny set, so an ordinary
+  identifier is never mistaken for a missed intrinsic, and a shader that defines its own function of one
+  of those names is still allowed to call it. ReShade does provide `frac`, `floor`, `round`, `saturate`,
+  `lerp`, `smoothstep`, `step`, `mad` and the `tex2D*` family — the whole vocabulary this shader uses —
+  so a wrap around an integer is `%` rather than `fmod`. Exercise it by hand with `fmod` put back before
+  committing a change to that guard.
 - `pyproject.toml` lives in `tools/`, not at the repo root: this is a shader project, and `uv run`
   discovers the project by searching upward from the script, so the root-level command above works.
 

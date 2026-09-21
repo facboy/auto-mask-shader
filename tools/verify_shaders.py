@@ -24,7 +24,7 @@ There is no baseline to compare against: this project has no shipped behaviour
 to preserve, so the point is only "it compiles, here is the pass list, and here
 is what it costs".
 
-Five properties are deliberate and must survive any change to this file:
+Six properties are deliberate and must survive any change to this file:
 
 - Every failure is loud. A shader that compiles *and emits no bytecode* is an
   error here, not a pass, because a missing hash compares equal to another
@@ -51,6 +51,12 @@ Five properties are deliberate and must survive any change to this file:
   `ps_5_0`, and a compute pass declaring no dispatch size exits non-zero the way
   ReShade rejects it (error 3012). A pixel-only parse sees none of that and
   would call a technique with a dropped compute pass clean.
+- A name ReShade's parser does not know cannot be checked by compiling either,
+  and this one is not a translation gap: the intrinsic is real HLSL, so fxc
+  implements it and the compile below succeeds on source ReShade refuses with
+  X3004 (`undeclared identifier or no matching intrinsic overload`). `fmod` did
+  exactly that -- a clean pass here, a failed load in the game -- so the names
+  fxc has and ReShade does not are refused outright. That is `NOT_IN_RESHADE`.
 """
 
 from __future__ import annotations
@@ -185,6 +191,37 @@ STORAGE = re.compile(
 # A storage keyword with the dimension letter lowercased: not a keyword at all to
 # ReShade, so it is a failure here rather than something to rewrite.
 MISSPELLED_STORAGE = re.compile(r'\bstorage[123]d\b')
+# Names fxc implements and ReShade's parser does not, so the compile below cannot
+# see the mistake: the source is well-formed HLSL and only the effect parser
+# rejects it, with X3004 (`undeclared identifier or no matching intrinsic
+# overload`). `fmod` is the one that reached a game -- it passed every variant
+# here and failed to load -- so the set is refused rather than left to the
+# compiler. It is ReShade's own intrinsic table, read from
+# `source/effect_symbol_table_intrinsics.inl`, crossed against the HLSL names fxc
+# has: everything ReShade does provide (`frac`, `floor`, `round`, `saturate`,
+# `lerp`, `smoothstep`, `step`, `mad`, `ddx`/`ddy`, the `tex2D*` family) is
+# absent from this list on purpose, and the list is a deny set rather than an
+# allow set, so an ordinary identifier -- a local, a uniform, a user function --
+# is never mistaken for a missing intrinsic. It is not a translation gap like the
+# storage spellings above, so nothing here is rewritten; the call is simply
+# refused.
+NOT_IN_RESHADE = frozenset((
+    "fmod", "clip", "dst", "lit", "noise", "fma", "msad4", "D3DCOLORtoUBYTE4",
+    "tex1Dbias", "tex1Dproj", "tex2Dbias", "tex2Dproj", "tex3Dbias", "tex3Dproj",
+    "texCUBE", "texCUBEbias", "texCUBEgrad", "texCUBElod", "texCUBEproj",
+))
+# Matched as a call -- `name(` -- because these only matter where they are called,
+# and a bare word has to stay legal so prose and identifiers are untouched. The
+# longest names come first so `texCUBElod` is not read as `texCUBE`.
+NOT_IN_RESHADE_CALL = re.compile(
+    r'\b(%s)\s*\(' % "|".join(sorted(NOT_IN_RESHADE, key=len, reverse=True)))
+# A function the shader defines itself, read the same way the entry points are: a
+# type keyword, then the name, then a parameter list. A local definition of one of
+# the names above is legal in ReShade -- the call resolves to it before any
+# intrinsic lookup -- so the guard must not refuse a shader that supplies its own.
+FUNCTION_DEFINITION = re.compile(
+    r'\b(?:void|float[234]?|half[234]?|double[234]?|int[234]?|uint[234]?|bool[234]?'
+    r'|min16\w*|matrix\s*<[^>]+>)\s+(\w+)\s*\(')
 STORAGE_DIMENSIONS = {None: "2D", "1D": "1D", "2D": "2D", "3D": "3D"}
 # Reading and writing a storage object goes through these intrinsics: a storage
 # cannot be indexed in the dialect at all. Its element type is a storage type
@@ -400,6 +437,24 @@ def strip_for_fxc(text: str) -> str:
                  "counterparts). ReShade would report the bare identifier as "
                  "undeclared, and this check would otherwise translate it into "
                  "valid HLSL and report it clean" % misspelled_access.group(0))
+    # Loud guard, on the same reasoning as the two above but a different cause: the
+    # name is real HLSL, so fxc compiles it and the translation has nothing to do
+    # with it. Only ReShade's parser rejects it, and it does so at load time with
+    # X3004 -- which is a shader that passes this check and fails in the game.
+    # Comments are dropped first so prose about the dialect cannot trip it, and a
+    # definition of the same name is read out so a shader supplying its own is not
+    # refused for calling it.
+    code = re.sub(r"//[^\n]*", "", text)
+    defined = set(FUNCTION_DEFINITION.findall(code))
+    not_in_reshade = [name for name in NOT_IN_RESHADE_CALL.findall(code)
+                      if name not in defined]
+    if not_in_reshade:
+        sys.exit("FAIL -- %r is called but is not one of the intrinsics ReShade's "
+                 "parser knows, so the effect would fail to load with X3004 "
+                 "('undeclared identifier or no matching intrinsic overload') while "
+                 "compiling cleanly here, because fxc does implement it. Use a form "
+                 "ReShade provides (integer arithmetic, %% , frac, floor, round) "
+                 "instead" % sorted(not_in_reshade)[0])
     text = re.sub(r"(?sm)^[ \t]*technique\b.*\Z", "", text)
     # Guard before any translation below: the bracket form this rejects is what
     # the access translation produces on its way out, and the declaration names
