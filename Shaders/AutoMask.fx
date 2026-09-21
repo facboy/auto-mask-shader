@@ -316,22 +316,29 @@ sampler AutoMap { Texture = texAutoMap; };
 //having no pass that could take the reading.
 #if AutoMaskCompute == 1 && AutoMaskOpticalFlow == 1
 	//The ring of lagged reference frames, one real past frame per slot on the whole-level grid every
-	//other comparison here judges on: slot i holds the frame (i + 1) steps of AutoMaskFlowStride
-	//back. Real frames rather than a blended average, which is what the drift store is -- a blend
-	//would confound "the match degraded over the baseline" with "the reference is not a frame".
-	//Eight slots at roughly a quarter of the frame, because the search can only find a shift of one
-	//ring pixel or more: this is the scale that keeps a four-screen-pixel move findable. The compute
-	//path's coarse grid could not do it -- a whole-pixel shift is inside one of its cells -- so the
-	//probe reduces into its own ring rather than reusing that grid.
+	//other comparison here judges on: each slot holds the frame the cursor filed into it a whole
+	//AutoMaskFlowStride-long window ago, so the slots stand a stride apart -- the baselines the
+	//experiment sweeps by moving that slider. Real frames rather than a blended average, which is
+	//what the drift store is -- a blend would confound "the match degraded over the baseline"
+	//with "the reference is not a frame".
+	//Eight slots at a fixed 640x360 -- a quarter of a 1440p frame, so a four-screen-pixel move is the
+	//smallest the search can find there and a larger buffer only raises that floor -- because the
+	//search can only see a shift of one ring pixel or more. The compute path's coarse grid could not
+	//do it at all: a whole-pixel shift is inside one of its cells. A fixed size rather than a fraction
+	//of the buffer keeps the 7 MB it costs the same at every resolution, and the reduction's dispatch
+	//and bounds predicate are taken from the ring's own grid for the same reason -- a buffer-sized
+	//dispatch would cover pixels the ring has no texels for.
 	#define FLOW_RING 8
-	texture texFlowRef0 { Width = 640; Height = 360; Format = RGBA8; };
-	texture texFlowRef1 { Width = 640; Height = 360; Format = RGBA8; };
-	texture texFlowRef2 { Width = 640; Height = 360; Format = RGBA8; };
-	texture texFlowRef3 { Width = 640; Height = 360; Format = RGBA8; };
-	texture texFlowRef4 { Width = 640; Height = 360; Format = RGBA8; };
-	texture texFlowRef5 { Width = 640; Height = 360; Format = RGBA8; };
-	texture texFlowRef6 { Width = 640; Height = 360; Format = RGBA8; };
-	texture texFlowRef7 { Width = 640; Height = 360; Format = RGBA8; };
+	#define FLOW_WIDTH 640
+	#define FLOW_HEIGHT 360
+	texture texFlowRef0 { Width = FLOW_WIDTH; Height = FLOW_HEIGHT; Format = RGBA8; };
+	texture texFlowRef1 { Width = FLOW_WIDTH; Height = FLOW_HEIGHT; Format = RGBA8; };
+	texture texFlowRef2 { Width = FLOW_WIDTH; Height = FLOW_HEIGHT; Format = RGBA8; };
+	texture texFlowRef3 { Width = FLOW_WIDTH; Height = FLOW_HEIGHT; Format = RGBA8; };
+	texture texFlowRef4 { Width = FLOW_WIDTH; Height = FLOW_HEIGHT; Format = RGBA8; };
+	texture texFlowRef5 { Width = FLOW_WIDTH; Height = FLOW_HEIGHT; Format = RGBA8; };
+	texture texFlowRef6 { Width = FLOW_WIDTH; Height = FLOW_HEIGHT; Format = RGBA8; };
+	texture texFlowRef7 { Width = FLOW_WIDTH; Height = FLOW_HEIGHT; Format = RGBA8; };
 	//Point filtered like the drift samplers, and for the same reason: these are data rather than
 	//pictures, so interpolating one would blend a neighbour's history into the pixel being matched.
 	sampler FlowRef0 { Texture = texFlowRef0; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
@@ -342,16 +349,32 @@ sampler AutoMap { Texture = texAutoMap; };
 	sampler FlowRef5 { Texture = texFlowRef5; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
 	sampler FlowRef6 { Texture = texFlowRef6; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
 	sampler FlowRef7 { Texture = texFlowRef7; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
+	//The write side of those same slots: a compute pass has no render target, so the reduction files
+	//the frame through the storage form and the search reads it back through the sampler, the two
+	//kept apart by the pass each runs in -- the accumulator's ping-pong, one level down.
+	storage2D<float4> FlowRefStore0 { Texture = texFlowRef0; };
+	storage2D<float4> FlowRefStore1 { Texture = texFlowRef1; };
+	storage2D<float4> FlowRefStore2 { Texture = texFlowRef2; };
+	storage2D<float4> FlowRefStore3 { Texture = texFlowRef3; };
+	storage2D<float4> FlowRefStore4 { Texture = texFlowRef4; };
+	storage2D<float4> FlowRefStore5 { Texture = texFlowRef5; };
+	storage2D<float4> FlowRefStore6 { Texture = texFlowRef6; };
+	storage2D<float4> FlowRefStore7 { Texture = texFlowRef7; };
 	//The estimate the search settles on, one global value per frame: .x and .y are the offset, .z the
 	//confidence and .w the slot that won, which is reported because a short baseline matching and a
 	//long one breaking down is part of what the probe is looking at.
 	texture texFlowVec { Width = 1; Height = 1; Format = RGBA32F; };
 	storage2D<float4> FlowVecStore { Texture = texFlowVec; };
 	sampler FlowVec { Texture = texFlowVec; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
-	//The ring cursor: which slot this frame's picture goes into, advanced by CS_Finish so the
-	//reduction reads it one frame behind, the same lag the share and the measured step carry.
-	texture texFlowCursor { Width = 1; Height = 1; Format = r32u; };
-	storage2D<uint> FlowCursorStore { Texture = texFlowCursor; };
+	//The ring cursor: a count of frames filed, advanced by CS_Finish so the reduction reads it one
+	//frame behind, the same lag the share and the measured step carry. A whole frame count on an r32f
+	//target read through a sampler rather than an integer store, because the ring's eight slots are
+	//already every UAV slot a Direct3D 11.0 device offers: a ninth storage here would push the
+	//reduction to Direct3D 11.1 and fail to build on a plain 11.0 one. Its count is wrapped by
+	//CS_Finish so it stays small, and a whole number that small is exact in a float.
+	texture texFlowCursor { Width = 1; Height = 1; Format = r32f; };
+	storage2D<float> FlowCursorStore { Texture = texFlowCursor; };
+	sampler FlowCursor { Texture = texFlowCursor; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
 	//Where the match held up, one cell per 16 of the ring's pixels -- a coarse map of the picture's
 	//texture. The overlay tints only the cells whose estimate is trustworthy, which is what shows the
 	//featureless parts of a sky instead of painting them a direction no match supports.
@@ -530,7 +553,70 @@ sampler AutoMap { Texture = texAutoMap; };
 		//every frame and the toggle can be flipped without a frame of counts left over in them.
 		for (int i = 0; i < 256; i++)
 			tex2Dstore(AutoMotionHist, int2(i, 0), 0u);
+
+		#if AutoMaskOpticalFlow == 1
+			//The ring cursor counts frames rather than naming a slot, so the slot the reduction files
+			//into advances once every AutoMaskFlowStride frames and the slots then stand a stride
+			//apart. It is read into a local and written back rather than nested: the offline check
+			//rewrites the two access intrinsics one at a time, so a fetch inside a store's value is
+			//left untranslated rather than proved. Advanced here, after the reduction has read it,
+			//which is what puts the reduction one frame behind -- the lag the share above carries.
+			//It wraps at the whole ring, so the count stays small enough to be exact in a float and
+			//the wrap lands the reduction back on slot 0 rather than skipping one, eight strides
+			//being a whole number of strides by construction.
+			float cursor = fmod(tex2Dfetch(FlowCursorStore, int2(0, 0)) + 1.0,
+				float(FLOW_RING) * max(AutoMaskFlowStride, 1.0));
+			tex2Dstore(FlowCursorStore, int2(0, 0), cursor);
+		#endif
 	}
+
+	#if AutoMaskOpticalFlow == 1
+		//Files this frame's picture in the ring slot the cursor names, on the whole-level grid the
+		//accumulator and the drift comparison already judge on: the search then matches the same signal
+		//the mask reads rather than a fuller one it never sees. The eight slots are separate targets --
+		//the dialect has no array-of-target form -- so the slot is picked with a guarded branch.
+		[numthreads(64, 4, 1)]
+		void CS_FlowReduce(uint3 tid : SV_DispatchThreadID)
+		{
+			//The dispatch rounds up over the ring's own grid, so the last group can cover texels outside
+			//it: a predicate rather than an early return, as everywhere else in this file.
+			bool live = (tid.x < FLOW_WIDTH && tid.y < FLOW_HEIGHT);
+			//Sampled at the ring texel's position in the frame, so the grid is the picture reduced
+			//rather than a crop of its top-left corner.
+			float2 texcoord = (float2(tid.x, tid.y) + 0.5) / float2(FLOW_WIDTH, FLOW_HEIGHT);
+			float3 now = tex2Dlod(ReShade::BackBuffer, float4(texcoord, 0.0, 0.0)).rgb;
+			//The cursor counts frames rather than naming a slot, so the slot this frame lands in advances
+			//once every AutoMaskFlowStride frames: each slot ends up holding the last frame of its own
+			//window, and the windows are a stride apart, which is the spacing the search has to read.
+			//Until the first wrap has filled the whole ring, the slots ahead of the cursor still hold
+			//whatever they were allocated with rather than a reference, so the opening frames of a
+			//session have fewer baselines behind them than the ring can hold. That is a warm-up
+			//rather than a wrong reading: the search reports the slot it won alongside the offset, so
+			//a match against a slot the reduction has not reached is visible as one.
+			uint stride = uint(max(AutoMaskFlowStride, 1.0));
+			uint frame = uint(tex2Dlod(FlowCursor, float4(0.5, 0.5, 0.0, 0.0)).r);
+			uint slot = (frame / stride) % FLOW_RING;
+			float4 value = float4(round(now * 255.0) / 255.0, 1.0);
+			if (live){
+				if (slot == 0u)
+					tex2Dstore(FlowRefStore0, int2(tid.xy), value);
+				else if (slot == 1u)
+					tex2Dstore(FlowRefStore1, int2(tid.xy), value);
+				else if (slot == 2u)
+					tex2Dstore(FlowRefStore2, int2(tid.xy), value);
+				else if (slot == 3u)
+					tex2Dstore(FlowRefStore3, int2(tid.xy), value);
+				else if (slot == 4u)
+					tex2Dstore(FlowRefStore4, int2(tid.xy), value);
+				else if (slot == 5u)
+					tex2Dstore(FlowRefStore5, int2(tid.xy), value);
+				else if (slot == 6u)
+					tex2Dstore(FlowRefStore6, int2(tid.xy), value);
+				else
+					tex2Dstore(FlowRefStore7, int2(tid.xy), value);
+			}
+		}
+	#endif
 
 	//Drift ping-pong back-edge (copy B to A).
 	float4 PS_CopyDrift(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
@@ -813,6 +899,15 @@ technique AutoMask
 			PixelShader = PS_CopyDrift;
 			RenderTarget = texAutoDriftA;
 		}
+		#if AutoMaskOpticalFlow == 1
+			//Files this frame's picture in the ring the estimate matches against. Before CS_Finish, so
+			//the reduction reads the cursor the previous frame's advance left.
+			pass {
+				ComputeShader = CS_FlowReduce;
+				DispatchSizeX = (FLOW_WIDTH + 63) / 64;
+				DispatchSizeY = (FLOW_HEIGHT + 3) / 4;
+			}
+		#endif
 		//Hands the count over as the share the next frame's gate reads, and clears it.
 		pass {
 			ComputeShader = CS_Finish;

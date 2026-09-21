@@ -228,13 +228,19 @@ because 1,024 taps cannot tell a level of dithering from a level of real motion.
 
 The fourth structural switch, `AutoMaskOpticalFlow`, carries the compute condition in its own guard
 rather than sitting beside it, so it always requires the compute path. It owns one **measuring** feature
-and nothing else: a ring of eight lagged low-resolution reference frames at ~1/4 scale, a 1×1 `RGBA32F`
-readout (`dx`, `dy`, confidence, winning slot), a 1×1 `r32u` cursor and a low-res `R8` coverage map. The
-scale is a design constraint rather than a detail — the search can only find a shift of one ring pixel or
-more, so ~1/4 is what keeps a four-screen-pixel move findable, and the compute path's old 16×16 coarse
-grid could not have served it because a whole-pixel shift lives inside one of its cells. It is an
-instrument, not part of the mask: no line of `CS_Accum`'s state machine, the gate, the drift channel or
-the mask reads any of its targets, so neither position of the switch changes what is protected.
+and nothing else: a ring of eight lagged low-resolution reference frames at a fixed 640×360, a 1×1
+`RGBA32F` readout (`dx`, `dy`, confidence, winning slot), a 1×1 `r32f` cursor and a low-res `R8` coverage
+map. The scale is a design constraint rather than a detail — the search can only find a shift of one ring
+pixel or more, so a quarter of a 1440p frame is what keeps a four-screen-pixel move findable there, and
+the compute path's old 16×16 coarse grid could not have served it because a whole-pixel shift lives
+inside one of its cells. It is an instrument, not part of the mask: no line of `CS_Accum`'s state
+machine, the gate, the drift channel or the mask reads any of its targets, so neither position of the
+switch changes what is protected.
+`CS_FlowReduce` files each frame into the ring slot the cursor names, on the ring's own 640×360 grid
+rather than the frame's — the ring is *fixed* resolution, so a dispatch taken from the buffer would
+cover pixels it has no texels for — and `CS_Finish` advances the cursor one frame behind, the lag the
+share and the measured step already carry. The reduction is the ring's only writer, so it takes the
+eight slots as storage and reads the cursor through a sampler.
 `AutoMaskFlowStride` is a slider rather than a drag because it is a frame count rather than a duration,
 and it is swept live because sweeping the baseline is the experiment §3 of `docs/optical-flow.md` turns
 on; its uniforms are declared beside the horizon for the same reason the horizon's are, the pixel path
@@ -264,7 +270,10 @@ Four constraints the dialect imposes on any compute pass here, all found the har
   "corrected" into bracket form.
 
 `DispatchSizeX/Y` are group counts, taken from `BUFFER_WIDTH`/`BUFFER_HEIGHT` so they stay right at any
-resolution, and the dispatch rounds up — which is exactly why the in-shader bounds predicate exists.
+resolution, and the dispatch rounds up — which is exactly why the in-shader bounds predicate exists. The
+probe's reduction is the one exception, and for the same reason read the other way: the ring is a *fixed*
+640×360, so its dispatch and its predicate are taken from the ring's own size. A buffer-sized dispatch
+there would cover pixels the ring has no texels for.
 
 ### Pass order inside `AutoMask`
 
@@ -284,6 +293,8 @@ Load-bearing, and follows from what each pass reads:
    from `BackBuffer` exceeds `AutoMaskEdge`. Reading the frame there is safe only because it is before
    every pass that writes it. `PS_Copy` stays a pixel pass in both variants — the accumulator is
    `RGBA16F` and the copy has no statistics to do — and `PS_CopyDrift` is its twin on the compute path.
+   With the probe on, `CS_FlowReduce` rides between those two and `CS_Finish`, so it reads the frame the
+   accumulator read and files its reduction before the cursor advances.
 4. `PS_Store`, keeping the mapped pixels.
 5. `PS_StoreFrame`, copying the untouched frame into the history target for the next frame.
 6. `PS_AntiBloom` — black the masked pixels in the live frame so a bloom pass downstream has no UI to

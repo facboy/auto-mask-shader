@@ -243,14 +243,24 @@ The optical-flow path is recorded as a deliberate reversal, and `AutoMaskOptical
 - Re-exercise the tool's loud-failure cases by hand after the matrix change, since a changed variant list is exactly where a silently skipped variant could hide.
 - Verify: all flow variants pass, `--pass-list` shows the pixel path at flow-on/compute-off and no probe pass at flow-off, and the captured off-path hashes are unchanged.
 
-###   Step 3: Implement the low-resolution ring and its reduction pass
+### ✓ Step 3: Implement the low-resolution ring and its reduction pass
 With the probe on, each frame's picture is reduced onto the whole-level grid and stored into a lagged ring slot, with the cursor advanced one frame behind.
+
+**Status: done.** `CS_FlowReduce` reduces `BackBuffer` onto the whole-level grid and files it into the ring slot the cursor names, on the ring's own 640×360 grid rather than the frame's; the cursor is advanced by one guarded pair in the existing `CS_Finish`, and one guarded technique entry lands before `CS_Finish` only when both switches are on. Evidence: all sixteen variants pass `check --pass-list --opcodes --hashes`; `--pass-list` shows `CS_FlowReduce` between `PS_CopyDrift` and `CS_Finish` in exactly the four compute-and-flow variants and nowhere else, so the elision is asserted as wiring as well as by hash; the 80 pixel-path entry points still hash byte-for-byte as captured before the edit, and each `-flow` variant at compute off hashes identically to its flow-off twin; `CS_FlowReduce` is 61 instructions at the default combo, and the guard allocates 7 MB of ring targets with under 1 KB beside it. `CS_Finish` changes by design (41 → 51 instructions) and only in its flow variants, which the hash delta confirms as exactly four changed entry points. Nothing in the probe is read by `CS_Accum` or any other verdict pass.
 
 - Write `CS_FlowReduce`: `[numthreads(64,4,1)]` with ceil-div dispatch sizes from `BUFFER_WIDTH`/`BUFFER_HEIGHT`, sampling `BackBuffer` through `tex2Dlod` with an explicit level, quantizing to whole levels with `round(c*255.0)` (the grid the accumulator and the drift comparison already judge on), and writing `tex2Dstore` into the ring slot named by the cursor.
 - Add the bounds predicate (`bool live = tid.x < ... && tid.y < ...`) rather than an early `return` — the file's X4026 constraint — and gate the store on it.
 - Select the ring slot with a guarded branch on the cursor value; no texture-array indexing, and no bracket indexing of the storage anywhere.
 - Advance the cursor in the existing `CS_Finish` pass with one guarded `tex2Dfetch`/`tex2Dstore` pair, so no new 1×1 pass is added and the reduce pass reads the cursor one frame behind — the same one-frame-behind convention the share and the measured step use.
 - Add the two guarded pass entries to the compute branch of technique `AutoMask`, after `CS_Accum`, with `DispatchSizeX/Y` declared from the buffer size.
+
+**Two changes from the shape as planned, both forced:**
+
+- **The dispatch is over the ring's own grid, not the buffer's.** The plan had `DispatchSizeX/Y` declared from `BUFFER_WIDTH`/`BUFFER_HEIGHT`, which cannot be right for a pass writing 640×360: at 1440p that is 2560×1440 threads against a target with a quarter of the texels, so three quarters of every store lands outside it. The ring is *fixed* resolution, so the dispatch and the bounds predicate both read `FLOW_WIDTH`/`FLOW_HEIGHT` — new `#define`s beside `FLOW_RING` so the three stay in step — and the predicate is the same shape the file already uses, just against the grid actually being written.
+- **The cursor is `r32f`, read through a sampler, rather than the planned `r32u` storage.** `CS_FlowReduce` is the ring's only writer, and eight slots is already every UAV slot a Direct3D 11.0 device offers, so a ninth storage for the cursor pushes fxc to emit the "64 UAV slots" feature note — a Direct3D **11.1** requirement, where the switch's tooltip and the README both say 11.0. Verified against fxc rather than assumed: nine UAVs in a scratch pass carries the note, eight does not. A count of frames filed is a whole number small enough to be exact in a float, and `CS_Finish` wraps it at the whole ring so it stays that small; `CS_FlowReduce` clamps to `AutoMaskFlowStride = 1` before dividing, so the cursor can never name a slot it did not write.
+
+**One loose end in the plan's wording:** it asks for "the two guarded pass entries" here, but `CS_FlowSearch` does not exist until step 4, so only the reduction's entry is added at this step; the search's entry belongs with that pass in step 4.
+
 - Verify: all variants compile, `--pass-list` shows the reduction pass in the right slot only when both switches are on, the reduce pass's instructions are recorded, and the off-path entry-point hashes are still identical.
 
 ###   Step 4: Implement the ring search and the vector readout
