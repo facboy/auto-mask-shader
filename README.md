@@ -107,6 +107,14 @@ two frames, so a horizon of a handful of frames would still be level with the sc
 through unread. If you have watched a slow backdrop creep into the mask, this is the setting that
 stops it, and raising it further is what catches slower movement still.
 
+It is also the most memory-hungry part of the shader, and deliberately so: the average it keeps has to
+creep toward the picture by a fraction of a level a frame, which is finer than half precision can
+resolve over the brighter half of the range, so it is the one buffer here kept in full precision
+instead of half. The pair of them come to about 120 MB at 1440p. What that buys is the channel
+working across the whole brightness range instead of only in the dark: the same slow drift used to be
+caught over a dark sky and missed over a bright one, and a still element could be kept out of the mask
+for as long as it sat a level away from its own average.
+
 It carries **Auto-detect RGB step** and its **Noise floor** as well, the other settings that come and
 go with this switch. On the pixel path the step has to be a number you chose; here the shader can count
 up exactly how many pixels changed by each amount — one tally per size of change, over every pixel on

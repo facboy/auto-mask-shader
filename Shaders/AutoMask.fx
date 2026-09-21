@@ -257,11 +257,17 @@ sampler AutoMap { Texture = texAutoMap; };
 	storage2D<float4> AutoAccumStore { Texture = texAutoAccumB; };
 	//The drift ping-pong: a long-baseline average of the colour, so a shift too small to
 	//cross a level between two frames still accumulates somewhere. Its own pair, because the
-	//accumulator has one spare channel and the average needs three.
-	texture texAutoDriftA { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA16F; };
-	texture texAutoDriftB { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA16F; };
-	sampler AutoDriftA { Texture = texAutoDriftA; };
-	sampler AutoDriftB { Texture = texAutoDriftB; };
+	//accumulator has one spare channel and the average needs three. It is the one store that
+	//cannot be half precision: the creep toward a one-level gap is a fraction of a level a frame,
+	//under an RGBA16F ulp above level 31, so the average would sit frozen rather than follow the
+	//pixel -- and a frozen average cannot close on a static pixel either.
+	texture texAutoDriftA { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA32F; };
+	texture texAutoDriftB { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA32F; };
+	//Point filtered, and the one sampler here that has to be: the average is data rather than a
+	//picture, so interpolating it would blend one pixel's history into its neighbour's, and a linear
+	//filter on a 32-bit float target is the combination a driver is free not to support.
+	sampler AutoDriftA { Texture = texAutoDriftA; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
+	sampler AutoDriftB { Texture = texAutoDriftB; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
 	storage2D<float4> AutoDriftStore { Texture = texAutoDriftB; };
 #else
 	//Motion reduction targets: coarse downscale and 1x1 global coverage statistic.
@@ -295,14 +301,19 @@ sampler AutoMap { Texture = texAutoMap; };
 		float3 now = tex2Dlod(ReShade::BackBuffer, float4(texcoord, 0.0, 0.0)).rgb;
 		float3 before = tex2Dlod(AutoHistory, float4(texcoord, 0.0, 0.0)).rgb;
 		float3 drift = tex2Dlod(AutoDriftA, float4(texcoord, 0.0, 0.0)).rgb;
-		now = round(now * 255.0) / 255.0;
+		//The comparison speaks in whole levels, so it is the level counts that are subtracted: the
+		//quantized colours differ by a float residue -- 0.9999999 for most of the 255 adjacent
+		//pairs -- which the deadband would then forgive at its most sensitive setting.
+		float3 nowLevels = round(now * 255.0);
+		float3 beforeLevels = round(before * 255.0);
+		now = nowLevels / 255.0;
 		//A pinned colour voids stillness on either side of the pair, on the same reasoning: what
 		//sits against a rail may be saturated rather than motionless, and the average of a pinned
 		//colour sits against the same rail.
 		float3 clipped = all(now == 0.0.xxx) + all(now == 1.0.xxx)
 		               + all(before == 0.0.xxx) + all(before == 1.0.xxx)
 		               + all(drift == 0.0.xxx) + all(drift == 1.0.xxx);
-		float3 diff = abs(now - before) * 255.0;
+		float3 diff = abs(nowLevels - beforeLevels);
 		//The long-baseline reading, against the same deadband: how far the frame has got from
 		//where its colour has been, which is where a shift too small to cross a level between
 		//two frames still shows up. Either comparison calling it motion is motion.
@@ -454,13 +465,15 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	//higher-precision back buffer the live sample is quantized onto it first: a change smaller than
 	//half a level reads as exactly zero instead of as a fraction the deadband forgives while the
 	//overlay's gain paints it red.
-	now = round(now * 255.0) / 255.0;
+	float3 nowLevels = round(now * 255.0);
+	float3 beforeLevels = round(before * 255.0);
+	now = nowLevels / 255.0;
 	//A pixel pinned at all 0 or all 255 shows no difference while it stays there, but that is
 	//saturation, not stillness: a wholly clipped frame on either side voids the still verdict,
 	//while the moves onto and off a rail are read by the difference as usual.
 	float3 clipped = all(now == 0.0.xxx) + all(now == 1.0.xxx)
 	               + all(before == 0.0.xxx) + all(before == 1.0.xxx);
-	float3 diff = abs(now - before) * 255.0;
+	float3 diff = abs(nowLevels - beforeLevels);
 	float maxDiff = max(diff.r, max(diff.g, diff.b));
 	//The deadband is a level count, so it is read as whole levels: a change of that many levels or
 	//more is motion, anything less is still. The ramp spans a fixed three levels, footed one under
