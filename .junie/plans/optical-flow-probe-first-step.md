@@ -218,8 +218,10 @@ Per `AGENTS.md`, verification is the offline compile check plus a review pass; r
 
 # Delivery Steps
 
-###   Step 1: Record the reversal and add the guarded switch skeleton
+### ✓ Step 1: Record the reversal and add the guarded switch skeleton
 The optical-flow path is recorded as a deliberate reversal, and `AutoMaskOpticalFlow` exists as a fourth structural switch that owns its own targets and passes.
+
+**Status: done, committed as `record the optical-flow reversal and add its guarded switch`.** The reversal is recorded in `.junie/plans/automask-compute-gate-and-drift-channel.md`, the adoption note is in `docs/optical-flow.md`, and `Shaders/AutoMask.fx` carries the `#ifndef`-guarded `AutoMaskOpticalFlow` switch, `AutoMaskFlowStride`, and the probe's targets inside `#if AutoMaskCompute == 1 && AutoMaskOpticalFlow == 1`. The check's baseline was captured before the shader edit (`tools/.work/baseline_hashes.txt`) and the eight original variants still hash byte-for-byte as captured.
 
 - Reword the "Block matching / optical flow" entry under *Out of scope* in `.junie/plans/automask-compute-gate-and-drift-channel.md` so the reversal is visible rather than silent.
 - Add a short adoption note to `docs/optical-flow.md` recording the decision and stating that step one is the instrument of §6.1, not the feature.
@@ -230,8 +232,10 @@ The optical-flow path is recorded as a deliberate reversal, and `AutoMaskOptical
 - Update the `AGENTS.md` structural-switch inventory to four and record the check's baseline: capture `--hashes` output for all eight current variants before any shader edit.
 - Verify: `uv run tools/verify_shaders.py check --pass-list --opcodes` passes with the switch off, and the four `AutoMaskCompute=0` variants still hash byte-for-byte as captured.
 
-###   Step 2: Teach the verifier the fourth switch
+### ✓ Step 2: Teach the verifier the fourth switch
 `tools/verify_shaders.py` compiles the probe variants, so the guard's elision is proven rather than assumed.
+
+**Status: done.** `VARIANTS` is now the full crossing of the four `BASE_VARIANTS` with `AutoMaskCompute` and `AutoMaskOpticalFlow` — sixteen variants, the original eight keeping their names and hashes. The matrix is a comprehension over a `flow` axis added beside `compute`, so `-flow` at compute off compiles as the plain pixel path (the nested guard's negative control, asserted as wiring as well as by hash). A duplicate variant name — the shape a changed matrix can take, since the names are concatenated suffixes — now exits at import rather than showing one combination twice. Evidence: all sixteen pass `check --pass-list --opcodes --hashes`; the 80 off-path entry points hash byte-for-byte as captured before the shader edit, and the four `-flow` variants with compute off hash identically to their flow-off twins, so the nested guard is proven to elide to the plain pixel path rather than merely documented as doing so; the loud-failure set is fourteen cases, all holding, with the duplicate-name guard exercised by hand alongside the five that predate it. Nothing in the probe introduces a new dialect spelling, so the translation and its pinned-spelling guards are untouched.
 
 - Extend the variant matrix so `AutoMaskOpticalFlow` is crossed in with `AutoMaskCompute=1` for all four `BASE_VARIANTS`, keeping the existing eight unchanged — the flow variants are additions, not a replacement of the existing coverage.
 - Include the `AutoMaskOpticalFlow=1` with compute off combination, so the nested guard's behaviour there is compiled rather than assumed.

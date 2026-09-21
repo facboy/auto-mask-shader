@@ -24,7 +24,7 @@ There is no baseline to compare against: this project has no shipped behaviour
 to preserve, so the point is only "it compiles, here is the pass list, and here
 is what it costs".
 
-Four properties are deliberate and must survive any change to this file:
+Five properties are deliberate and must survive any change to this file:
 
 - Every failure is loud. A shader that compiles *and emits no bytecode* is an
   error here, not a pass, because a missing hash compares equal to another
@@ -33,6 +33,11 @@ Four properties are deliberate and must survive any change to this file:
 - An entry point that is missed is a failure. The guard is not line-anchored:
   a macro-generated entry point can sit mid-line once macros expand, and a
   silently skipped entry point is indistinguishable from a passing one.
+- Every variant in the matrix is compiled. A variant list is a crossing of
+  switches, and a name built by concatenating suffixes can collide with another,
+  which would show the same combination twice and leave the other uncompiled --
+  coverage read off a report that does not have it. A duplicate name is therefore
+  refused at import, so a silently skipped variant cannot hide in a changed list.
 - A dialect spelling this tool rewrites cannot be checked by compiling. Storage
   declarations are translated to `RWTexture*` before fxc sees them, so a keyword
   ReShade would reject compiles here regardless -- a shader that loads in this
@@ -94,11 +99,34 @@ BASE_VARIANTS = (
 # The compute switch is crossed with all four rather than added to them: it swaps
 # a pass for one of another type instead of removing it, so a guard that drops or
 # misbinds a pass has to show at both settings and neither may hide the other.
+#
+# The optical-flow switch is crossed the same way. It is nested inside the compute
+# guard, so at compute on the crossing is what shows its passes and its targets
+# reaching every base combo rather than only the one they were tried on; at compute
+# off it can add nothing at all, and that half is the negative control -- the entry
+# points there must hash identically to the same combo with the switch off, so a
+# nested guard that leaked a declaration into the pixel path shows up as a hash
+# difference rather than as a combination nobody compiled.
 VARIANTS = tuple(
-    (("%s-compute" % name) if compute else name, dict(definitions, AutoMaskCompute=str(compute)))
+    (name + ("-compute" if compute else "") + ("-flow" if flow else ""),
+     dict(definitions, AutoMaskCompute=str(compute), AutoMaskOpticalFlow=str(flow)))
+    for flow in (0, 1)
     for compute in (0, 1)
     for name, definitions in BASE_VARIANTS
 )
+# A changed variant list is exactly where a silently skipped variant could hide, and
+# the names are built by concatenating suffixes, so a base name that already ends in
+# one of them collides rather than erroring. Two variants under one name means the
+# report shows the same combination twice and the other is never compiled, so it is
+# refused here instead of being read as coverage that is not there.
+_names = [name for name, _ in VARIANTS]
+_duplicates = sorted({name for name in _names if _names.count(name) > 1})
+if _duplicates:
+    sys.exit("FAIL -- duplicate variant name(s) %s; the list must be a crossing of "
+             "distinct combinations, or one variant silently stands in for another"
+             % ", ".join(_duplicates))
+# Sized to the longest variant name so the report stays aligned as switches are added.
+VARIANT_WIDTH = max(len(name) for name in _names)
 
 # An annotation block is `< ... >` containing `key = value;` pairs and possibly a
 # bare macro such as `__UNIFORM_SLIDER_FLOAT1`. It is NOT matched by walking to
@@ -668,7 +696,7 @@ def cmd_check(args) -> int:
                  % SHADERS.relative_to(REPO))
 
     failed: list[str] = []
-    print("%-26s %-30s %6s  %s" % ("variant", "entry point", "instr", "status"))
+    print("%-*s %-30s %6s  %s" % (VARIANT_WIDTH, "variant", "entry point", "instr", "status"))
     for name, definitions in VARIANTS:
         for source in sources:
             preprocessed = build_workspace(source, definitions)
@@ -690,8 +718,8 @@ def cmd_check(args) -> int:
                     wire = bound.shader or "?"
                     if bound.dispatch:
                         wire += " [%s]" % ", ".join(bound.dispatch)
-                    print("  %-24s %-22s %-9s %s -> %s"
-                          % (name, bound.technique, bound.kind, wire, bound.target))
+                    print("  %-*s %-22s %-9s %s -> %s"
+                          % (VARIANT_WIDTH, name, bound.technique, bound.kind, wire, bound.target))
             # Every binding is checked twice: against the entry points that exist,
             # and against the kind its shape declares. A pass whose shader is a
             # compute entry point but whose function the patterns read as a pixel
@@ -715,8 +743,9 @@ def cmd_check(args) -> int:
                     failed.append("%s %s %s (%s): %s"
                                   % (name, source.name, entry_name, kind,
                                      outcome.get("error")))
-                print("%-26s %-30s %6s  %s"
-                      % (name, entry_name, outcome.get("instructions", "-"), outcome["status"]))
+                print("%-*s %-30s %6s  %s"
+                      % (VARIANT_WIDTH, name, entry_name,
+                         outcome.get("instructions", "-"), outcome["status"]))
                 if args.hashes and outcome["status"] == "ok":
                     print("  %s %s sha256=%s" % (name, entry_name, outcome["bytecode_sha256"]))
                 if args.opcodes and outcome["status"] == "ok":

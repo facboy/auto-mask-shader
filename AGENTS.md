@@ -369,25 +369,29 @@ offline compile check:
 - `uv run tools/verify_shaders.py init` fetches the pinned ReShade headers, then
   `uv run tools/verify_shaders.py check` preprocesses and compiles every shader with `fxc` and reports
   instruction counts and opcode histograms. Keep the `tools/.work/` output out of commits.
-- The check compiles eight variants — `AutoMaskAntiBloom` and `AutoMaskDiagnostics` each at 0 and 1,
-  crossed with `AutoMaskCompute` at 0 and 1, set from the prelude exactly as a ReShade-level definition
-  would be — because a `#if` guard can drop a pass from a technique body, and only compiling every
-  combination shows that it did. The compute switch is crossed with the other two rather than added
-  beside them because it swaps a pass for one of another type instead of removing it, so a guard that
-  drops or misbinds a pass has to show at both settings. `--pass-list` prints the wiring, `--opcodes` the
-  histogram per shader, `--hashes` the bytecode sha256 of each entry point — which is how the
-  `AutoMaskCompute=0` variants are shown to compile byte-for-byte as before a change.
+- The check compiles sixteen variants — `AutoMaskAntiBloom` and `AutoMaskDiagnostics` each at 0 and 1,
+  crossed with `AutoMaskCompute` at 0 and 1, crossed again with `AutoMaskOpticalFlow` at 0 and 1, set
+  from the prelude exactly as a ReShade-level definition would be — because a `#if` guard can drop a
+  pass from a technique body, and only compiling every combination shows that it did. Each switch is
+  crossed rather than added beside the others because it swaps a pass for one of another type instead
+  of removing it, so a guard that drops or misbinds a pass has to show at both settings. The fourth is
+  crossed the same way for a second reason: it is nested inside the compute guard, so `-flow` at
+  compute off is the negative control — the plain pixel path, which has to compile as the same path
+  the switch leaves alone rather than as a combination nobody ever compiled. `--pass-list` prints the
+  wiring, `--opcodes` the histogram per shader, `--hashes` the bytecode sha256 of each entry point —
+  which is how the variants with a switch off are shown to compile byte-for-byte as before a change.
 - An entry point is compiled at the profile its shape calls for: `ps_5_0` for a `SV_Target` function,
   `cs_5_0` for a compute one, so a compute pass cannot slip through unread or be compiled as a pixel
   shader. A pass is read for `ComputeShader` as well as `PixelShader`, and a compute pass declaring fewer
   than two `DispatchSize`s exits non-zero the way ReShade rejects it (its error 3012).
 - **It must fail loudly on missing data.** An earlier version of the companion tool reported a clean pass
-  while emitting no bytecode at all, because a missing hash compares equal to another missing hash. Five
+  while emitting no bytecode at all, because a missing hash compares equal to another missing hash. Six
   cases must keep exiting non-zero, each exercised by hand before committing a change here: an empty
   `Shaders/`; a technique whose passes the parser cannot find (cross-checked against the `pass` keyword
   count, so a pattern miss cannot look like a technique with fewer passes); a technique binding a shader
-  that does not exist; a shader whose syntax is broken; and a compute pass missing one of its dispatch
-  sizes.
+  that does not exist; a shader whose syntax is broken; a compute pass missing one of its dispatch
+  sizes; and a variant list carrying two entries under one name, which would show the same combination
+  twice and leave the other uncompiled — coverage read off a report that does not have it.
 - **A spelling the tool rewrites cannot be checked by compiling.** Storage declarations are translated to
   `RWTexture*` before fxc sees them, so a keyword ReShade would reject compiles in the check regardless —
   which is the one failure mode the check cannot see on its own. That already bit: a lowercase `storage2d`
