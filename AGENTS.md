@@ -240,7 +240,12 @@ or the mask reads any of its targets, so neither position of the switch changes 
 rather than the frame's — the ring is *fixed* resolution, so a dispatch taken from the buffer would
 cover pixels it has no texels for — and `CS_Finish` advances the cursor one frame behind, the lag the
 share and the measured step already carry. The reduction is the ring's only writer, so it takes the
-eight slots as storage and reads the cursor through a sampler.
+eight slots as storage and reads the cursor through a sampler. Each ring texel is the **average of a
+2×2 screen block** at half-texel spacing (`FLOW_REDUCE_STRIDE`, beside the cover geometry), not a
+point sample: a point read of a dithered or noisy frame puts that noise straight into the SAD, and
+the block average is what the cell's region actually looks like. This is smoothing, not precision —
+the ring stays 8-bit whole levels, and the sub-level case is scoped in `docs/optical-flow.md` §9 as
+the drift channel's territory.
 
 The search is **three passes, not the one the plan drew**, and the reason is latency rather than
 tidiness. The template is the live frame — the same picture the slot just written holds, which is why
@@ -269,6 +274,31 @@ The coverage map is 40×24 against 40×23 so one cell is exactly 16×15 ring pix
 and it is swept live because sweeping the baseline is the experiment §3 of `docs/optical-flow.md` turns
 on; its uniforms are declared beside the horizon for the same reason the horizon's are, the pixel path
 having no pass that would read them.
+
+The pick reports the offset **refined onto the score surface's own curvature**: a parabola through the
+winning score and its two neighbours reads where the true minimum sat between the integer taps
+(`Δ = 0.5 (S₋ − S₊) / (S₋ − 2S₀ + S₊)`, clamped to ±0.5). The fit is reported only where it is a real
+interior valley — the centre strictly below both neighbours and both axes inside the window; at the
+window edge a neighbour is missing, and where the surface is flat the ratio test has already rejected
+the match — so those cases keep the integer offset. The averaged reduction above is what gives the fit
+something to bend over: point-sampled 8-bit stores make neighbouring scores step in whole levels and
+the parabola read noise.
+
+The estimate reaches the screen through the diagnostics overlay's third view, and the view is the one
+place a *guarded read line* is genuinely needed: `PS_DebugMap` packs the flow view's own convention into
+`texAutoDebug` (`.r` the screen state, `.g`/`.b` the quantized `dx`/`dy` on a code centred at 0.5,
+`.a` the coverage), and `PS_Restore` derives the tint colour from the packed direction and blends it by
+the packed fit above `UIDebugCoverageFloor`. The guard those lines sit behind is the **compound**
+`AutoMaskCompute == 1 && AutoMaskOpticalFlow == 1`, not the flow switch alone: the flow samplers are
+declared under the compound guard, so at flow-on with compute off a switch-only guard would open and
+reference a sampler that does not exist. Written as an inner `#if` beside code rather than a nested
+guard over a whole block, because the diagnostics guard around it is still open and a nested compound
+`#if` reads as that guard's complement. `UIDebugMotion` became `UIDebugView`, a three-position selector
+(0 motion, 1 verdict, 2 flow) — 0 and 1 keep the meanings the bool had, and with the flow switch off
+position 2 shows the verdict, so the estimate-less builds keep two views under a selector whose third
+position cannot do anything. The corner marker's state read is the read the flow view guards: it
+follows the channel the drawn view packs the screen state into, which is the one line the third view
+costs the restore pass.
 
 Four constraints the dialect imposes on any compute pass here, all found the hard way:
 
@@ -329,24 +359,28 @@ Load-bearing, and follows from what each pass reads:
 7. The diagnostics overlay, last, and only when `AutoMaskDiagnostics` is defined to 1 — a compile-time
    guard on the pass and the shader both, so with it off neither is compiled. It reads the accumulator
    directly rather than recomputing the difference, so it cannot report on itself instead of on the
-   shader. It draws one of two views, picked by the live toggle `UIDebugMotion`: red where the graded
-   motion reads, or green where the accumulator's own confidence crosses the protection threshold. The
-   published mask is deliberately *not* used, so the verdict view shows an element's own area without the
-   closing radius grown around it. Both views tint over the stored history frame and only where the
-   chosen signal covers — the blend is scaled by the signal, so a pixel it does not name is passed
-   through untouched. The map packs both signals into one target: red the graded motion, green and blue
-   the same verdict (two channels of one value, because the view reads one or the other), and alpha the
-   screen state in two steps. The state is read from the same statistic the gate itself reads, one frame
-   behind the frame it describes, so it shows the state that will shortly govern the mask rather than a
-   value recomputed a second way, and its strictness must match the gate's: `> AutoMaskMotion`, not
-   `step`, which is true at the threshold itself and would disagree on exactly the boundary frame. The
-   deadzone ring is drawn over either view.
+   shader. It draws one of three views, picked by the live selector `UIDebugView`: red where the graded
+   motion reads, green where the accumulator's own confidence crosses the protection threshold, or —
+   when the probe is on — the estimate's own packing (see below). The published mask is deliberately
+   *not* used, so the verdict view shows an element's own area without the closing radius grown around
+   it. Each view tints over the stored history frame and only where its signal covers — the blend is
+   scaled by the signal, so a pixel it does not name is passed through untouched. The map packs one
+   signal per view into one target, per view: the motion and verdict views pack red the graded motion,
+   green and blue the same verdict (two channels of one value, because the view reads one or the other),
+   and alpha the screen state; the flow view repacks as red the screen state, green and blue the
+   quantized `dx`/`dy` offsets, and alpha the coverage, so the tint's direction and its fit ride the
+   channels the view actually reads. The state is read from the same statistic the gate itself reads,
+   one frame behind the frame it describes, so it shows the state that will shortly govern the mask
+   rather than a value recomputed a second way, and its strictness must match the gate's:
+   `> AutoMaskMotion`, not `step`, which is true at the threshold itself and would disagree on exactly
+   the boundary frame. The deadzone ring is drawn over any view.
    The corner marker is **not** drawn here: it is the one thing `AutoMask_Restore` adds, reading that
-   alpha channel, because a block drawn inside `AutoMask` is repainted by the restore pass over any pixel
-   the mask covers and treated as picture by every effect in between. Two states, two flat colours and no
-   blending — magenta while the world is being drawn, yellow while it is not and the mask is being held —
-   so the marker is a reading rather than part of the picture and cannot be tinted by anything else on
-   screen.
+   state channel — `.a` in the motion and verdict packings, `.r` in the flow one, a guarded read because
+   the two views pack the state differently — because a block drawn inside `AutoMask` is repainted by
+   the restore pass over any pixel the mask covers and treated as picture by every effect in between.
+   Two states, two flat colours and no blending — magenta while the world is being drawn, yellow while
+   it is not and the mask is being held — so the marker is a reading rather than part of the picture and
+   cannot be tinted by anything else on screen.
 
 ## Editing conventions
 
@@ -576,6 +610,17 @@ The compile check needs `fxc.exe`, which is a Windows binary run under WSL:
     did. The reverse case is the one to watch with the verdict view: a static element sitting a level away
     from where its own average had settled used to be locked out indefinitely, so put the overlay in its
     verdict view on a still HUD element and confirm the green is there and stays there over the horizon.
+  - The motion estimate's view, compute path with the flow switch on: pan slowly across a sky or backdrop
+    and the flow view should read as one flat tinted colour over the sky while a HUD in the same frame
+    stays untinted, and the tint must hold its direction rather than flicker between frames — §6.2's two
+    questions of `docs/optical-flow.md`, which is what the probe exists to answer. Sweep
+    `AutoMaskFlowStride` and watch which baseline wins and whether the confidence holds: on a *looping*
+    sky a long baseline reading a confident `(0,0)` is the known failure made visible, not a bug. A
+    featureless stretch must stay untinted at any fit floor, and sweeping `UIDebugCoverageFloor` should
+    move the boundary. With the estimate on, the mask must behave exactly as it does with it off — the
+    probe is wired into no verdict, so any mask difference is a defect — and the marker must keep its
+    magenta/yellow meaning in all three views, reading the state from whichever channel the drawn view
+    packs it into.
 
 ## What this shader cannot do
 

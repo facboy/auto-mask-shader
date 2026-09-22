@@ -39,6 +39,39 @@ them.
 written; it is kept that way on purpose, so the reasoning that led to the experiment can be read
 against its result.
 
+**§6.2 answered, in a real game — the negative result the experiment existed to produce.** With
+`AutoMaskCompute=1` and `AutoMaskOpticalFlow=1`, standing still while a sky pans slowly, watched on
+the flow view:
+
+1. **The sky's motion is below the probe's floor.** One ring pixel is ~4 screen pixels at the fixed
+   640×360 ring; a sky drifting a fraction of a screen pixel per frame sits under one ring pixel
+   over every stored baseline, so the search reads `(0,0)` — grey, over the whole frame. The drift
+   straddled the floor occasionally (colour appeared, then grey again): the shift crossing a whole
+   ring pixel once per stride and falling back under it the next. That is §3's arithmetic seen live,
+   not a tuning failure: the movement has to be whole ring pixels per gap before any matcher sees it.
+2. **The grey conflates still HUD with barely-moving sky.** A still HUD matches `(0,0)` as perfectly
+   as still scenery — one global vector plus a per-cell fit cannot separate them at `(0,0)`, which is
+   §5.1's accepted conflation read on real content. Where the sky moved fast enough to cross the
+   floor, sky tinted in the pan's direction while the HUD stayed grey — the expected signature of a
+   *fast enough* pan, and the only case the probe distinguishes.
+3. **Anything animating on its own read untinted** — the per-cell fit rejecting what the global
+   vector does not explain, which is the second half of §4 working as designed (a per-cell contrast
+   would have shown only the featureless case; the fit shows both).
+4. **The verdict never changed.** The probe is wired into nothing, and every mask scenario behaved
+   with the estimate on exactly as with it off.
+
+**Conclusion drawn:** for this mask's verdict, matching adds nothing the existing signals don't
+already own. The slow-creep case the mask needs solved is per-pixel time accumulation — the drift
+channel's mechanism, already in the shader, with no whole-pixel threshold to cross and no loop
+failure to answer for. The matcher refinements that *would* see sub-floor creep (area-averaged
+storage, sub-pixel readout, sub-level precision) converge on the drift channel's design at block
+granularity; the first two landed in the probe as instrument work (`CS_FlowReduce` averages a 2×2
+block per ring texel; `CS_FlowPick` refines the winning offset with a parabolic fit, guarded to real
+interior minima), the third is scoped below, and none of it is wired into the verdict. §6.3 stays
+closed: the experiment its decision was gated on returned "no at this scale" for the sky it was
+asked about, and the burden of proof is now on a proposal that answers the loop failure §3 names
+before anything is built on a vector.
+
 ---
 
 ## 2. Why a flat plane is the good case
@@ -232,3 +265,29 @@ integer SAD. Two configurations produced the tables, which is worth stating beca
 5. **The repo already scoped this out** and a reversal should be recorded as such. The cheapest
    decisive test is one global low-resolution translation estimate on the overlay before building
    anything else (§6).
+
+---
+
+## 9. Scoped follow-up: sub-level precision in the ring
+
+The two refinements that landed (area-averaged reduction, sub-pixel readout) sharpen the instrument
+without changing what it can see. The third piece — the one that would let the probe's overlay
+*demonstrate* sub-level drift on a slow sky — is precision in the ring store, and it is scoped here
+rather than built:
+
+- **Where the information is destroyed.** `CS_FlowReduce` stores `round(c * 255)` in `RGBA8`. A sky
+  drifting 1/16 level per frame moves a stored texel's *true* value by a quarter level per stride at
+  stride 4 — and each stored frame rounds to the same level, so consecutive slots are bit-identical
+  and the SAD is identical at every offset. Nothing downstream can recover what was never stored.
+- **What it would take.** The ring becomes `RGBA16F` (the minimum: the drift channel's own analysis
+  puts the per-frame creep at ~0.0083 levels at a 2 s horizon, under a half-ulp in the upper half of
+  the range) or `RGBA32F` (the safe choice). The 7 MB ring becomes 14 or 28 MB, and `FlowTexel`
+  stops rounding. The SAD then compares fractional levels, so `FLOW_RESIDUAL` and the ratio
+  denominator need re-deriving against a fractional unit; the ratio test itself survives — a flat
+  patch still ties, a real match still wins by margin, and `(0,0)` stops being a perfect tie, which
+  is what makes the parabolic fit meaningful on a slowly creeping sky.
+- **Why it is still not the mask-side fix.** All of this answers one question per block, while the
+  drift channel answers it per pixel at full resolution with no search at all. The creep the mask
+  needs caught is per-pixel; the drift channel is the tool. Sub-level precision is worth building
+  only if the probe is wanted as a *demonstration* instrument for sub-level drift — an overlay
+  reading, not a verdict input.

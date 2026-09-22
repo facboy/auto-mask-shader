@@ -348,6 +348,11 @@ sampler AutoMap { Texture = texAutoMap; };
 	#define FLOW_COVER_WIDTH 40
 	#define FLOW_COVER_HEIGHT 24
 	#define FLOW_COVER_SAMPLES 4
+	//Quarter of one ring texel's extent in the frame: the reduction's four taps sit a half-texel
+	//either side of the texel's centre in both axes, so the average reads the block the texel
+	//stands for rather than one point in it. BUFFER_RCP_* is the frame's own reciprocal size, so
+	//the spacing stays right at any resolution.
+	#define FLOW_REDUCE_STRIDE (BUFFER_WIDTH / FLOW_WIDTH)
 	//The mean whole-level difference a match is allowed to leave per channel and still count as one:
 	//past this the two frames do not say the same thing at any offset and the ratio below is reading
 	//noise. It is not the flat-patch guard -- a featureless patch has the same score at every offset,
@@ -616,9 +621,18 @@ sampler AutoMap { Texture = texAutoMap; };
 			//it: a predicate rather than an early return, as everywhere else in this file.
 			bool live = (tid.x < FLOW_WIDTH && tid.y < FLOW_HEIGHT);
 			//Sampled at the ring texel's position in the frame, so the grid is the picture reduced
-			//rather than a crop of its top-left corner.
+			//rather than a crop of its top-left corner. Averaged over the texel's own screen block rather
+			//than point-sampled: a point read of a dithered or noisy frame puts that noise straight into
+			//the SAD, where a block average is what the cell's region actually looks like. The sub-grid
+			//offsets spread the taps over the block; the ring stays 8-bit whole levels, so this is
+			//smoothing, not precision -- the sub-level case is the drift channel's.
 			float2 texcoord = (float2(tid.x, tid.y) + 0.5) / float2(FLOW_WIDTH, FLOW_HEIGHT);
-			float3 now = tex2Dlod(ReShade::BackBuffer, float4(texcoord, 0.0, 0.0)).rgb;
+			float2 step2 = 0.5 * float(FLOW_REDUCE_STRIDE) * float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT);
+			float3 now = tex2Dlod(ReShade::BackBuffer, float4(texcoord - step2, 0.0, 0.0)).rgb
+				+ tex2Dlod(ReShade::BackBuffer, float4(texcoord + float2(-step2.x, step2.y), 0.0, 0.0)).rgb
+				+ tex2Dlod(ReShade::BackBuffer, float4(texcoord + float2(step2.x, -step2.y), 0.0, 0.0)).rgb
+				+ tex2Dlod(ReShade::BackBuffer, float4(texcoord + step2, 0.0, 0.0)).rgb;
+			now *= 0.25;
 			//The cursor counts frames rather than naming a slot, so the slot this frame lands in advances
 			//once every AutoMaskFlowStride frames: the slot just written holds this frame, the one
 			//before it the newest frame of the previous stride-long window, and so on round, which
@@ -795,13 +809,43 @@ sampler AutoMap { Texture = texAutoMap; };
 			float residual = best / float(FLOW_PATCH_POINTS * 3);
 			float confidence = ratio * saturate(1.0 - residual / FLOW_RESIDUAL);
 
+			//The offset is refined onto the surface's own curvature: a parabola through the winning
+			//score and its two neighbours reads where the true minimum sat between the taps, which the
+			//integer search only sampled. The fit is exact for a parabola and an honest interpolation
+			//for anything else, but it means nothing where the surface is not a valley -- at the window
+			//edge a neighbour is missing, and where the surface is flat the ratio above has already
+			//rejected the match -- so both cases keep the integer offset rather than a fit off it.
+			//The sub-pixel part is why the average reduction above matters: an 8-bit point store makes
+			//neighbouring scores step in whole levels and the parabola read noise, an averaged one gives
+			//the fit something to bend over.
 			uint stride = uint(max(AutoMaskFlowStride, 1.0));
 			uint frame = uint(tex2Dfetch(FlowCursorStore, int2(0, 0)));
 			uint slot = (frame / stride % FLOW_RING + FLOW_RING - 1u - bestRow) % FLOW_RING;
 			int2 offset = int2(int(bestColumn % uint(FLOW_WINDOW)), int(bestColumn / uint(FLOW_WINDOW)))
 				- int2(FLOW_SEARCH, FLOW_SEARCH);
+			int bestX = int(bestColumn % uint(FLOW_WINDOW));
+			//The surface is one row per baseline, so the neighbours along the search's x sit on the
+			//winning row and the ones along y are re-read from the winning column at other rows -- the
+			//same surface, read by column rather than by row. Rows run 1..7 (the template is not a
+			//candidate), so a fit needs the winning row's own neighbours at x and y separately.
+			float sLeft = tex2Dlod(FlowScores, float4((float(max(bestX - 1, 0)) + 0.5) / float(FLOW_OFFSETS),
+				(float(bestRow) + 0.5) / float(FLOW_RING - 1), 0.0, 0.0)).r;
+			float sRight = tex2Dlod(FlowScores, float4((float(min(bestX + 1, FLOW_WINDOW - 1)) + 0.5) / float(FLOW_OFFSETS),
+				(float(bestRow) + 0.5) / float(FLOW_RING - 1), 0.0, 0.0)).r;
+			float sUp = tex2Dlod(FlowScores, float4((float(bestX) + 0.5) / float(FLOW_OFFSETS),
+				(float(max(bestRow - 1, 0)) + 0.5) / float(FLOW_RING - 1), 0.0, 0.0)).r;
+			float sDown = tex2Dlod(FlowScores, float4((float(bestX) + 0.5) / float(FLOW_OFFSETS),
+				(float(min(bestRow + 1, FLOW_RING - 2)) + 0.5) / float(FLOW_RING - 1), 0.0, 0.0)).r;
+			float dx = 0.5 * (sLeft - sRight) / max(sLeft - 2.0 * best + sRight, 1.0e-4);
+			float dy = 0.5 * (sUp - sDown) / max(sUp - 2.0 * best + sDown, 1.0e-4);
+			//A fit is only a reading where the taps bracket the minimum: the centre strictly below both
+			//neighbours and both axes inside the window. Anything else keeps the integer offset.
+			bool interiorX = bestX > 0 && bestX < FLOW_WINDOW - 1 && sLeft > best && sRight > best;
+			bool interiorY = bestRow > 0 && bestRow < uint(FLOW_RING - 1) - 1 && sUp > best && sDown > best;
 			tex2Dstore(FlowVecStore, int2(0, 0),
-				float4(float(offset.x), float(offset.y), confidence, float(slot)));
+				float4(float(offset.x) + (interiorX ? clamp(dx, -0.5, 0.5) : 0.0),
+					float(offset.y) + (interiorY ? clamp(dy, -0.5, 0.5) : 0.0),
+					confidence, float(slot)));
 		}
 
 		//Where the estimate holds, one cell per sixteen ring pixels: a cell's own texture matched at
@@ -1020,13 +1064,36 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 #endif
 
 #if AutoMaskDiagnostics == 1
-	//Diagnostics view toggle. Both readings tint only the pixels they name.
-	uniform bool UIDebugMotion <
-		__UNIFORM_SLIDER_BOOL1
-		ui_label = "Diagnostics: motion view";
-		ui_tooltip = "On, the overlay shows red where the frame sees a change.\nOff, it shows green where a pixel has earned protection, without the closing radius.\nThe deadzone ring and the corner marker show in both";
+	//Diagnostics view selector: 0 motion, 1 verdict, 2 the motion estimate. A bool held the first
+	//two; the third view needs a third position and a bool has none, so the toggle became this
+	//selector with 0 and 1 keeping the meanings it had -- a preset set on it reads the same view.
+	//Without the motion estimate switch there is no view 2 to draw, so the restore pass reads
+	//position 2 as the verdict; with it on, the estimate is the one view packed its own way below.
+	uniform float UIDebugView <
+		__UNIFORM_SLIDER_FLOAT1
+		ui_label = "Diagnostics: view";
+		ui_tooltip = "Which reading the overlay draws: 0 red where the frame sees a change, 1 green where a pixel has earned protection, 2 where the motion estimate's match held up, tinted in the direction it estimated.\n2 needs the motion estimate switch; with that off the overlay shows the verdict view here.\nThe deadzone ring and the corner marker show in all three";
 		ui_category = "AutoMask";
-	> = true;
+		ui_min = 0.0; ui_max = 2.0;
+		ui_step = 1.0;
+	> = 0.0;
+
+	//The fit bar the flow view's tint honours, and the one thing to sweep while reading it: a cell
+	//whose match clears it is tinted in the estimated direction and one that does not is passed
+	//through, so the boundary between the explained and the featureless moves with the slider.
+	//Declared inside the flow guard because without the estimate there is no view to set it for.
+	//The guard is the compound one, not the switch alone: the estimate's targets only exist on the
+	//compute path, so flow-on with compute off has no view 2 and no floor to set.
+	#if AutoMaskCompute == 1 && AutoMaskOpticalFlow == 1
+		uniform float UIDebugCoverageFloor <
+			__UNIFORM_SLIDER_FLOAT1
+			ui_label = "Diagnostics: estimate fit floor (percent)";
+			ui_tooltip = "How good a cell's match must be before the flow view tints it.\nRaise it to tint only where the estimate is trustworthy, lower it to see every cell the estimate explains";
+			ui_category = "AutoMask";
+			ui_min = 0.0; ui_max = 100.0;
+			ui_step = 1.0;
+		> = 20.0;
+	#endif
 
 	//Motion visualization gain for diagnostics overlay.
 	uniform float UIDebugGain <
@@ -1038,14 +1105,33 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 		ui_step = 1.0;
 	> = 8.0;
 
-	//Packs diagnostic channels: .r=motion, .g=static-UI verdict, .b=static-UI verdict, .a=screen state.
+	//Packs the channels the restore pass reads, one packing per view because the flow view needs
+	//all four channels for its own reading: motion and verdict keep .r=motion, .g/.b=verdict,
+	//.a=screen state, and the flow view repacks as .r=screen state, .g/.b=dx/dy on a code centred
+	//at 0.5, .a=coverage. The marker reads the state from whichever channel the drawn view carries
+	//it in, which is the one guarded read the third view costs. The compound guard is the flow
+	//pack's own condition, exactly as the targets declare it: not nested, because the diagnostics
+	//guard above it is still open and an inner compound guard must not be read as its complement.
 	float4 PS_DebugMap(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	{
+		float drawn = tex2D(MotionStat, float2(0.5, 0.5)).r * 100.0 > AutoMaskMotion;
+		float screen = drawn ? 1.0 : 0.0;
+		//The compound guard, not the switch alone: the flow samplers are declared on the compute path
+		//only, so flow-on with compute off has no view 2 to pack and falls through to the verdict one.
+		#if AutoMaskCompute == 1 && AutoMaskOpticalFlow == 1
+			if (UIDebugView > 1.5){
+				//The offset is one value for the whole frame, sampled at the centre, and it is coded
+				//across the search window so one ring pixel of movement is a visible step of the code.
+				float4 vec = tex2D(FlowVec, float2(0.5, 0.5));
+				return float4(screen,
+					saturate(0.5 + vec.x / (2.0 * FLOW_SEARCH)),
+					saturate(0.5 + vec.y / (2.0 * FLOW_SEARCH)),
+					tex2D(FlowCoverage, texcoord).r);
+			}
+		#endif
 		float4 accum = tex2D(AutoAccumA, texcoord);
 		float verdict = step(0.5, accum.r);
 		float changed = saturate(accum.b * UIDebugGain);
-		float drawn = tex2D(MotionStat, float2(0.5, 0.5)).r * 100.0 > AutoMaskMotion;
-		float screen = drawn ? 1.0 : 0.0;
 		return float4(changed, verdict, verdict, screen);
 	}
 #endif
@@ -1061,11 +1147,31 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	#if AutoMaskDiagnostics == 1
 		//Tint over the restore, drawn after it so it sits on top of the stored UI rather than being
 		//repainted by it: red where the motion view sees a change, green where the verdict view
-		//sees protection, nothing at all where it does not.
+		//sees protection, and in the flow view the estimated direction wherever the cell's fit
+		//clears the floor -- nothing at all where the drawn view names no pixel.
 		float4 debug = tex2D(AutoDebug, texcoord);
-		float tint = UIDebugMotion ? debug.r : debug.g;
-		float3 mark = UIDebugMotion ? float3(1.0, 0.0, 0.0) : float3(0.0, 1.0, 0.0);
-		color = lerp(color, mark, tint * 0.7);
+		//The compound guard, as in PS_DebugMap: the packed flow channels exist on the compute path
+		//only, so flow-on with compute off has no view 2 to tint and falls through to the verdict.
+		#if AutoMaskCompute == 1 && AutoMaskOpticalFlow == 1
+			if (UIDebugView > 1.5){
+				//The mark colour is the direction the estimate reports, read back off the packing: a
+				//hue per direction, and a neutral grey at (0,0) because a still picture is the
+				//reading "nothing moved over this baseline" rather than a missing one. The blend is
+				//the cell's own fit above the floor, so a cell the estimate does not explain passes
+				//through untouched instead of being painted a direction no match supports.
+				float2 move = (debug.gb - 0.5) * (2.0 * FLOW_SEARCH);
+				float3 mark = length(move) < 0.5 ? float3(0.5, 0.5, 0.5)
+					: saturate(abs(frac(atan2(move.y, move.x) * 0.15915494
+						+ float3(0.0, 0.66666667, 0.33333333)) * 6.0 - 3.0) - 1.0);
+				float tint = debug.a * step(0.01 * UIDebugCoverageFloor, debug.a);
+				color = lerp(color, mark, tint * 0.7);
+			} else
+		#endif
+		{
+			float tint = UIDebugView > 0.5 ? debug.g : debug.r;
+			float3 mark = UIDebugView > 0.5 ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
+			color = lerp(color, mark, tint * 0.7);
+		}
 
 		if (AutoMaskDeadzoneWidth > 0.0 && AutoMaskDeadzoneHeight > 0.0){
 			float rx = AutoMaskDeadzoneWidth * 0.005;
@@ -1078,7 +1184,16 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 
 		//Bottom-left diagnostic state marker: magenta=live, yellow=stopped.
 		if (texcoord.x < 0.02 && texcoord.y > 0.98){
-			float state = tex2D(AutoDebug, float2(0.5, 0.5)).a;
+			//The state rides .a in the motion and verdict packings and .r in the flow one, so the
+			//read follows the channel the drawn view carries it in; the meaning, magenta or yellow,
+			//is the same in all three. With the estimate off, view 2 shows the verdict, whose state
+			//rides .a like the other two -- which is what the #else keeps readable.
+			float4 state_sample = tex2D(AutoDebug, float2(0.5, 0.5));
+#if AutoMaskCompute == 1 && AutoMaskOpticalFlow == 1
+			float state = UIDebugView > 1.5 ? state_sample.r : state_sample.a;
+#else
+			float state = state_sample.a;
+#endif
 			if (state > 0.75){
 				return float4(1.0, 0.0, 1.0, 1.0);
 			}
