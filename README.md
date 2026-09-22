@@ -74,32 +74,13 @@ lives.
 | **Center deadzone height (percent)** | Height of the elliptical center deadzone. `0` turns it off. |
 | **Center deadzone vertical position (percent)** | Vertical center of the deadzone (`50` is screen center; raise it to move down toward the character's feet). |
 | **Only suppress deadzone while world moves** | When checked, the deadzone only suppresses accumulation while the world is being drawn. When the scene is still, full-screen menus can accumulate even inside the deadzone. When unchecked, the deadzone is suppressed at all times. |
-| **Diagnostics: view** | Which of the three readings the overlay draws: the motion view (red where the frame sees a change, nothing where it does not), the verdict view (green where a pixel has earned its place in the mask — the shader's own verdict, without the closing radius — nothing where it has not), or the motion estimate view, described in its own section below. Each tint only the pixels it names and leave the rest of the picture exactly as the game drew it; the deadzone ring and the bottom-left corner marker show in all three. |
-| **Estimate fit floor (percent)** *(motion estimate only)* | How good a cell's match must be before the motion-estimate view tints it. Raise it to tint only where the estimate is trustworthy, lower it to see every cell the estimate explains. It does nothing while the motion-estimate view is not the one drawn. |
+| **Diagnostics: motion view** | Which reading the overlay draws when it is switched on. On, it is the motion view: red where the frame sees a change, nothing where it does not. Off, it is the verdict view: green where a pixel has earned its place in the mask — the shader's own verdict, without the closing radius — nothing where it has not. Both tint only the pixels they name and leave the rest of the picture exactly as the game drew it; the deadzone ring and the bottom-left corner marker show in both. |
 
-There are four more switches that are not sliders — **anti-bloom** (on by default), the
-**diagnostics overlay** (off), the **compute path** (off), and the **motion estimate** (off). All four
-are compile-time switches rather than sliders, which is why turning one on or off causes a short
-recompile rather than taking effect instantly. The trade is worth it: with a switch off, the work it
-would have done is not just skipped, it isn't in the shader at all.
-
-**The motion estimate** is the one that measures rather than protects: it works out, from the picture
-alone, roughly how far the whole image moved since a moment ago. **It changes nothing about which pixels
-are protected**, with the switch on or off — it exists on its own because whether a panning sky reads as
-one steady movement is worth knowing before anything is built on top of it. It needs the compute path
-below, and so a Direct3D 11 or newer device, or Vulkan: with the compute path off there is nothing for it
-to run on and it is simply the pixel path. It allocates about 7 MB of buffers while it is on, and none
-while it is off.
-
-It adds one frame-count setting, **Frames between motion-estimate references**: how far apart the stored
-moments it compares are. The estimate works by storing a handful of older pictures — a quarter of the
-frame in size, several steps apart — and asking each older one where the current picture came from. A
-short gap is close enough to match well but may contain no measurable movement yet; a long gap has the
-movement but the picture has had time to change in other ways. Sweep the slider and watch the view:
-the direction the tint points is the estimate, and how far along the stored moments the match was found
-is which of them won. On a sky whose animation loops, a long gap can match the same picture at zero —
-reading as no movement precisely because the loop came back round. That is a finding, not a bug: it is
-the known weakness of measuring this way, and the slider is how you see whether your sky does it.
+There are three more switches that are not sliders — **anti-bloom** (on by default), the
+**diagnostics overlay** (off), and the **compute path** (off). All three are compile-time switches
+rather than sliders, which is why turning one on or off causes a short recompile rather than taking
+effect instantly. The trade is worth it: with a switch off, the work it would have done is not just
+skipped, it isn't in the shader at all.
 
 **The compute path** changes *how* the mask is worked out, not what it means, and everything in the
 table above still applies. On the pixel path the screen-wide reading the mask depends on is an
@@ -143,11 +124,10 @@ you can turn it on and off to compare the two without either interfering with th
 
 ## Seeing what it decided
 
-Turn the diagnostics overlay on and it draws one of three readings over the picture, whichever
-**Diagnostics: view** picks. Each tint *only* the pixels it names and leave every other pixel exactly
-the game drew it, with no global wash — it is red where the frame sees a change, green where the shader
-has decided a pixel is interface, or, with the motion estimate on, a tint in the direction the estimate
-found — and nothing at all where none applies:
+Turn the diagnostics overlay on and it draws one of two readings over the picture, whichever
+**Diagnostics: motion view** picks. Both tint *only* the pixels they name and leave every other pixel
+exactly the game drew it, with no global wash — it is either red where the frame sees a change or green
+where the shader has decided a pixel is interface, and nothing at all where neither applies:
 
 - **Red** — the motion view: how much this pixel changed this frame, with nothing the frame forgave
   drawn at all. From there it is graded over a fixed three-level span: a change one step under the
@@ -167,22 +147,6 @@ found — and nothing at all where none applies:
   (the marker below is yellow) the green you see is the last state that was decided, and may only
   shrink, never grow.
 
-With the motion estimate switch on (below), a third reading is available at position 2 of the same
-selector, and it behaves like a compass laid over the picture rather than like either of the two above:
-
-- **Tinted by direction** — the motion-estimate view: wherever the estimate's match held up, the picture
-  is washed in the direction the whole image was estimated to have moved, one colour per direction
-  (a steady pan of the sky reads as one flat colour over the whole of it); a cell whose match is too
-  poor to trust is left exactly as the game drew it. Where nothing moved at all over the chosen gap,
-  the tint is a neutral grey — that is a reading too, not a failure. The **estimate fit floor** setting
-  sets how good a match has to be before a cell is tinted, and sweeping it moves the boundary between
-  tinted and untouched, which is how you see where the estimate stops being trustworthy. Two things
-  untint a region, and both are the point: a stretch with no texture for the match to grip (a smooth
-  gradient), and something moving on its own, differently from the picture as a whole.
-
-With the estimate switch off, position 2 of the selector shows the verdict view instead, and the
-**estimate fit floor** setting is not there to be set.
-
 If you have configured a center deadzone (`Center deadzone width` and `height` above zero), a thin yellow ring is drawn around the boundary of the ellipse so you can see exactly where it frames your character while adjusting the sliders.
 
 The small block in the bottom-left corner is always drawn, and its colour tells you what the whole
@@ -195,9 +159,6 @@ current judgement or a held one:
   the state it was in, and anything the frame shows moving is still falling out. So in a yellow frame
   the green view is the last state that was decided and will not change on a still pixel, while red
   and the falling of a moving pixel are still live.
-
-The marker reads the same screen state in all three views, so it keeps its meaning whichever of the
-three the selector has picked.
 
 The block is drawn flat, with no blending, by the very last thing in the chain, so nothing can paint
 over it — it stays its own colour whatever the game or your other effects are doing underneath,

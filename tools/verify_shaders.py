@@ -118,18 +118,9 @@ BASE_VARIANTS = (
 # The compute switch is crossed with all four rather than added to them: it swaps
 # a pass for one of another type instead of removing it, so a guard that drops or
 # misbinds a pass has to show at both settings and neither may hide the other.
-#
-# The optical-flow switch is crossed the same way. It is nested inside the compute
-# guard, so at compute on the crossing is what shows its passes and its targets
-# reaching every base combo rather than only the one they were tried on; at compute
-# off it can add nothing at all, and that half is the negative control -- the entry
-# points there must hash identically to the same combo with the switch off, so a
-# nested guard that leaked a declaration into the pixel path shows up as a hash
-# difference rather than as a combination nobody compiled.
 VARIANTS = tuple(
-    (name + ("-compute" if compute else "") + ("-flow" if flow else ""),
-     dict(definitions, AutoMaskCompute=str(compute), AutoMaskOpticalFlow=str(flow)))
-    for flow in (0, 1)
+    (name + ("-compute" if compute else ""),
+     dict(definitions, AutoMaskCompute=str(compute)))
     for compute in (0, 1)
     for name, definitions in BASE_VARIANTS
 )

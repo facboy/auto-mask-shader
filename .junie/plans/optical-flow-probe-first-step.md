@@ -4,6 +4,12 @@ sessionId: session-260921-182330-1js9
 
 # Requirements
 
+> **Superseded: the probe was removed.** Every step below was delivered as written, the instrument was
+> watched in a real game, and the answer was negative — `docs/optical-flow.md` §6.2 carries the finding
+> and the decision. `AutoMaskOpticalFlow`, its ring, its four compute passes, its settings and its third
+> diagnostics view are all gone from the shader; the switch inventory is back at three. This file is kept
+> as the record of what was built and why, not as work that is still in the tree.
+
 ### Overview & Goals
 
 Implement **the first step of `docs/optical-flow.md`** — §6.1's cheap decisive experiment, not the feature. The review concluded that a region motion estimate is applicable in principle but is a *fourth signal* that supports the verdict rather than replacing it, and that the two questions its synthetic model cannot answer are:

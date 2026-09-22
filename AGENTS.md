@@ -29,9 +29,8 @@ anti-bloom suppression belongs to Kaiser (UIDetectMulti) and Brussels1 (the orig
 There is **no `.fxh` companion header and there deliberately never will be**. A header holds authored
 data — pixel tables, coordinates, stored colours — and this shader has none: every tuning value is a
 live slider, and the only preprocessor definitions are the structural switches (`AutoMaskAntiBloom`,
-`AutoMaskDiagnostics`, `AutoMaskCompute`, `AutoMaskOpticalFlow`), which elide a pass rather than hold
-data. Configuration in a file the user edits and restarts would be a usability regression, so do not
-introduce one.
+`AutoMaskDiagnostics`, `AutoMaskCompute`), which elide a pass rather than hold data. Configuration in a
+file the user edits and restarts would be a usability regression, so do not introduce one.
 
 There is no build system and no CI beyond the offline check, by design. Never vendor ReShade's headers.
 
@@ -226,80 +225,6 @@ because 1,024 taps cannot tell a level of dithering from a level of real motion.
   the drift channel is the long baseline for the case the short one is blind to, a shift too small to
   cross a level.
 
-The fourth structural switch, `AutoMaskOpticalFlow`, carries the compute condition in its own guard
-rather than sitting beside it, so it always requires the compute path. It owns one **measuring** feature
-and nothing else: a ring of eight lagged low-resolution reference frames at a fixed 640×360, a 1×1
-`RGBA32F` readout (`dx`, `dy`, confidence, winning slot), a 1×1 `r32f` cursor, a low-res `R8` coverage
-map and the `r32f` score surface the search is laid out in. The scale is a design constraint rather
-than a detail — the search can only find a shift of one ring pixel or more, so a quarter of a 1440p
-frame is what keeps a four-screen-pixel move findable there, and the compute path's old 16×16 coarse
-grid could not have served it because a whole-pixel shift lives inside one of its cells. It is an
-instrument, not part of the mask: no line of `CS_Accum`'s state machine, the gate, the drift channel
-or the mask reads any of its targets, so neither position of the switch changes what is protected.
-`CS_FlowReduce` files each frame into the ring slot the cursor names, on the ring's own 640×360 grid
-rather than the frame's — the ring is *fixed* resolution, so a dispatch taken from the buffer would
-cover pixels it has no texels for — and `CS_Finish` advances the cursor one frame behind, the lag the
-share and the measured step already carry. The reduction is the ring's only writer, so it takes the
-eight slots as storage and reads the cursor through a sampler. Each ring texel is the **average of a
-2×2 screen block** at half-texel spacing (`FLOW_REDUCE_STRIDE`, beside the cover geometry), not a
-point sample: a point read of a dithered or noisy frame puts that noise straight into the SAD, and
-the block average is what the cell's region actually looks like. This is smoothing, not precision —
-the ring stays 8-bit whole levels, and the sub-level case is scoped in `docs/optical-flow.md` §9 as
-the drift channel's territory.
-
-The search is **three passes, not the one the plan drew**, and the reason is latency rather than
-tidiness. The template is the live frame — the same picture the slot just written holds, which is why
-that slot is the *newest reference and not a candidate*: matching a frame against itself wins at
-`(0,0)` every time, so the slot holding it is read as the template and the seven older slots are the
-baselines, one to seven strides back. `CS_FlowMatch` is one thread per (baseline, offset) pair, writing
-a score surface — one row per baseline, one column per offset — that `CS_FlowPick` reads to choose; a
-single 1×1 pass doing the whole thing would be ~5×10⁴ *dependent* texture fetches in one lane, which no
-latency hiding can cover, where the existing 1×1 `CS_Finish` is cheap only because its 256-iteration
-loop is stores with at most eight fetches in it. The pick is two passes over the surface, so the two
-loops stay separate and the compiler cannot re-read stale values.
-The reading is the **ratio of the winner to the runner-up at a different offset**, never the minimum:
-over a pure gradient every horizontal offset ties at zero while the offset found there is wrong, so
-`best` alone says nothing and the tie is exactly what has to come out as no confidence. Excluding only
-the winning *offset* — not the winning cell — is what keeps that true across baselines; a residual floor
-behind it rejects the case the ratio cannot see, no offset matching at all, which is what a baseline
-drifted past recognition looks like. Both are *rejections, not scores*, and the confidence multiplies
-them so either can veto.
-`CS_FlowCover` is the estimate's **fit** and deliberately not the cell's brightness: it matches each
-cell at the offset and against the baseline the pick settled on, so a featureless stretch of sky and
-something moving on its own both read as unexplained — one reading for both of §4's failures, where a
-per-cell *contrast* would have shown only the first and a per-cell error at the winning offset would
-have called a featureless cell trustworthy, since a uniform patch matches equally badly everywhere.
-The coverage map is 40×24 against 40×23 so one cell is exactly 16×15 ring pixels.
-`AutoMaskFlowStride` is a slider rather than a drag because it is a frame count rather than a duration,
-and it is swept live because sweeping the baseline is the experiment §3 of `docs/optical-flow.md` turns
-on; its uniforms are declared beside the horizon for the same reason the horizon's are, the pixel path
-having no pass that would read them.
-
-The pick reports the offset **refined onto the score surface's own curvature**: a parabola through the
-winning score and its two neighbours reads where the true minimum sat between the integer taps
-(`Δ = 0.5 (S₋ − S₊) / (S₋ − 2S₀ + S₊)`, clamped to ±0.5). The fit is reported only where it is a real
-interior valley — the centre strictly below both neighbours and both axes inside the window; at the
-window edge a neighbour is missing, and where the surface is flat the ratio test has already rejected
-the match — so those cases keep the integer offset. The averaged reduction above is what gives the fit
-something to bend over: point-sampled 8-bit stores make neighbouring scores step in whole levels and
-the parabola read noise.
-
-The estimate reaches the screen through the diagnostics overlay's third view, and the view is the one
-place a *guarded read line* is genuinely needed: `PS_DebugMap` packs the flow view's own convention into
-`texAutoDebug` (`.r` the screen state, `.g`/`.b` the quantized `dx`/`dy` on a code centred at 0.5,
-`.a` the coverage), and `PS_Restore` derives the tint colour from the packed direction and blends it by
-the packed fit above `UIDebugCoverageFloor`. The guard those lines sit behind is the **compound**
-`AutoMaskCompute == 1 && AutoMaskOpticalFlow == 1`, not the flow switch alone: the flow samplers are
-declared under the compound guard, so at flow-on with compute off a switch-only guard would open and
-reference a sampler that does not exist. Written as an inner `#if` beside code rather than a nested
-guard over a whole block, because the diagnostics guard around it is still open and a nested compound
-`#if` reads as that guard's complement. `UIDebugMotion` became `UIDebugView`, a three-position selector
-(0 motion, 1 verdict, 2 flow) — 0 and 1 keep the meanings the bool had, and with the flow switch off
-position 2 shows the verdict, so the estimate-less builds keep two views under a selector whose third
-position cannot do anything. The corner marker's state read is the read the flow view guards: it
-follows the channel the drawn view packs the screen state into, which is the one line the third view
-costs the restore pass.
-
 Four constraints the dialect imposes on any compute pass here, all found the hard way:
 
 - **Sampling has no implicit derivatives.** `tex2D` is rejected outright at `cs_5_0` (X4532); a compute
@@ -324,10 +249,7 @@ Four constraints the dialect imposes on any compute pass here, all found the har
   "corrected" into bracket form.
 
 `DispatchSizeX/Y` are group counts, taken from `BUFFER_WIDTH`/`BUFFER_HEIGHT` so they stay right at any
-resolution, and the dispatch rounds up — which is exactly why the in-shader bounds predicate exists. The
-probe's reduction is the one exception, and for the same reason read the other way: the ring is a *fixed*
-640×360, so its dispatch and its predicate are taken from the ring's own size. A buffer-sized dispatch
-there would cover pixels the ring has no texels for.
+resolution, and the dispatch rounds up — which is exactly why the in-shader bounds predicate exists.
 
 ### Pass order inside `AutoMask`
 
@@ -347,10 +269,6 @@ Load-bearing, and follows from what each pass reads:
    from `BackBuffer` exceeds `AutoMaskEdge`. Reading the frame there is safe only because it is before
    every pass that writes it. `PS_Copy` stays a pixel pass in both variants — the accumulator is
    `RGBA16F` and the copy has no statistics to do — and `PS_CopyDrift` is its twin on the compute path.
-   With the probe on, `CS_FlowReduce` rides between those two and `CS_Finish`, so it reads the frame the
-   accumulator read and files its reduction before the cursor advances, with `CS_FlowMatch`,
-   `CS_FlowPick` and `CS_FlowCover` behind it — the frame just filed is the template, so the match has
-   to follow the reduction, and the pick has to follow the surface the match laid out.
 4. `PS_Store`, keeping the mapped pixels.
 5. `PS_StoreFrame`, copying the untouched frame into the history target for the next frame.
 6. `PS_AntiBloom` — black the masked pixels in the live frame so a bloom pass downstream has no UI to
@@ -359,28 +277,24 @@ Load-bearing, and follows from what each pass reads:
 7. The diagnostics overlay, last, and only when `AutoMaskDiagnostics` is defined to 1 — a compile-time
    guard on the pass and the shader both, so with it off neither is compiled. It reads the accumulator
    directly rather than recomputing the difference, so it cannot report on itself instead of on the
-   shader. It draws one of three views, picked by the live selector `UIDebugView`: red where the graded
-   motion reads, green where the accumulator's own confidence crosses the protection threshold, or —
-   when the probe is on — the estimate's own packing (see below). The published mask is deliberately
-   *not* used, so the verdict view shows an element's own area without the closing radius grown around
-   it. Each view tints over the stored history frame and only where its signal covers — the blend is
-   scaled by the signal, so a pixel it does not name is passed through untouched. The map packs one
-   signal per view into one target, per view: the motion and verdict views pack red the graded motion,
-   green and blue the same verdict (two channels of one value, because the view reads one or the other),
-   and alpha the screen state; the flow view repacks as red the screen state, green and blue the
-   quantized `dx`/`dy` offsets, and alpha the coverage, so the tint's direction and its fit ride the
-   channels the view actually reads. The state is read from the same statistic the gate itself reads,
-   one frame behind the frame it describes, so it shows the state that will shortly govern the mask
-   rather than a value recomputed a second way, and its strictness must match the gate's:
-   `> AutoMaskMotion`, not `step`, which is true at the threshold itself and would disagree on exactly
-   the boundary frame. The deadzone ring is drawn over any view.
+   shader. It draws one of two views, picked by the live toggle `UIDebugMotion`: red where the graded
+   motion reads, or green where the accumulator's own confidence crosses the protection threshold. The
+   published mask is deliberately *not* used, so the verdict view shows an element's own area without the
+   closing radius grown around it. Both views tint over the stored history frame and only where the
+   chosen signal covers — the blend is scaled by the signal, so a pixel it does not name is passed
+   through untouched. The map packs both signals into one target: red the graded motion, green and blue
+   the same verdict (two channels of one value, because the view reads one or the other), and alpha the
+   screen state in two steps. The state is read from the same statistic the gate itself reads, one frame
+   behind the frame it describes, so it shows the state that will shortly govern the mask rather than a
+   value recomputed a second way, and its strictness must match the gate's: `> AutoMaskMotion`, not
+   `step`, which is true at the threshold itself and would disagree on exactly the boundary frame. The
+   deadzone ring is drawn over either view.
    The corner marker is **not** drawn here: it is the one thing `AutoMask_Restore` adds, reading that
-   state channel — `.a` in the motion and verdict packings, `.r` in the flow one, a guarded read because
-   the two views pack the state differently — because a block drawn inside `AutoMask` is repainted by
-   the restore pass over any pixel the mask covers and treated as picture by every effect in between.
-   Two states, two flat colours and no blending — magenta while the world is being drawn, yellow while
-   it is not and the mask is being held — so the marker is a reading rather than part of the picture and
-   cannot be tinted by anything else on screen.
+   alpha channel, because a block drawn inside `AutoMask` is repainted by the restore pass over any pixel
+   the mask covers and treated as picture by every effect in between. Two states, two flat colours and no
+   blending — magenta while the world is being drawn, yellow while it is not and the mask is being held —
+   so the marker is a reading rather than part of the picture and cannot be tinted by anything else on
+   screen.
 
 ## Editing conventions
 
@@ -406,15 +320,13 @@ Load-bearing, and follows from what each pass reads:
   the draw still runs with the input undefined, so every pass samples one texel and the mask fills
   uniformly. `PS_MotionAvg` is the trap: its body has no `dcl_input_ps` at all and the parameter is still
   required, because linkage follows the *declared* signature.
-- Four structural switches are preprocessor definitions, not sliders: `AutoMaskAntiBloom`,
-  `AutoMaskDiagnostics`, `AutoMaskCompute` and `AutoMaskOpticalFlow`. Each is `#ifndef`-guarded with
-  `// [0 or 1]` annotation comments, as the pack does it, and each guards everything that feature owns —
-  its **pass and technique entry, its shader, and any `texture`/`sampler` only it uses** — because
-  ReShade allocates every declared target, so a target left outside its guard is memory paid for a
-  feature that is compiled out. The fourth also carries the compute switch as a condition, rather than
-  sitting beside it: it requires `AutoMaskCompute=1`, so with compute off it is simply the pixel path — a
-  combination that is compiled rather than assumed. Values tuned by watching stay live sliders; a
-  definition is only for work that can be elided.
+- Three structural switches are preprocessor definitions, not sliders: `AutoMaskAntiBloom`,
+  `AutoMaskDiagnostics` and `AutoMaskCompute`. Each is `#ifndef`-guarded with `// [0 or 1]` annotation
+  comments, as the pack does it, and each guards everything that feature owns — its **pass and technique
+  entry, its shader, and any `texture`/`sampler` only it uses** — because ReShade allocates every
+  declared target, so a target left outside its guard is memory paid for a feature that is compiled out.
+  Values tuned by watching stay live sliders; adding a fourth definition for one of those would cost a
+  recompile per adjustment for no elision worth having.
 - `AutoMaskTargetFPS` is the one further definition, a setup number rather than a tuning one. The
   frame-count settings are durations, so their `ui_max` caps are seconds × `AutoMaskTargetFPS` (rise
   10 s, fall 1 s, grace 5 s, move memory 10 s) and grow with the frame rate a user plays at, which
@@ -440,17 +352,14 @@ offline compile check:
 - `uv run tools/verify_shaders.py init` fetches the pinned ReShade headers, then
   `uv run tools/verify_shaders.py check` preprocesses and compiles every shader with `fxc` and reports
   instruction counts and opcode histograms. Keep the `tools/.work/` output out of commits.
-- The check compiles sixteen variants — `AutoMaskAntiBloom` and `AutoMaskDiagnostics` each at 0 and 1,
-  crossed with `AutoMaskCompute` at 0 and 1, crossed again with `AutoMaskOpticalFlow` at 0 and 1, set
-  from the prelude exactly as a ReShade-level definition would be — because a `#if` guard can drop a
-  pass from a technique body, and only compiling every combination shows that it did. Each switch is
-  crossed rather than added beside the others because it swaps a pass for one of another type instead
-  of removing it, so a guard that drops or misbinds a pass has to show at both settings. The fourth is
-  crossed the same way for a second reason: it is nested inside the compute guard, so `-flow` at
-  compute off is the negative control — the plain pixel path, which has to compile as the same path
-  the switch leaves alone rather than as a combination nobody ever compiled. `--pass-list` prints the
-  wiring, `--opcodes` the histogram per shader, `--hashes` the bytecode sha256 of each entry point —
-  which is how the variants with a switch off are shown to compile byte-for-byte as before a change.
+- The check compiles eight variants — `AutoMaskAntiBloom` and `AutoMaskDiagnostics` each at 0 and 1,
+  crossed with `AutoMaskCompute` at 0 and 1, set from the prelude exactly as a ReShade-level definition
+  would be — because a `#if` guard can drop a pass from a technique body, and only compiling every
+  combination shows that it did. The compute switch is crossed with the other two rather than added
+  beside them because it swaps a pass for one of another type instead of removing it, so a guard that
+  drops or misbinds a pass has to show at both settings. `--pass-list` prints the wiring, `--opcodes` the
+  histogram per shader, `--hashes` the bytecode sha256 of each entry point — which is how the
+  `AutoMaskCompute=0` variants are shown to compile byte-for-byte as before a change.
 - An entry point is compiled at the profile its shape calls for: `ps_5_0` for a `SV_Target` function,
   `cs_5_0` for a compute one, so a compute pass cannot slip through unread or be compiled as a pixel
   shader. A pass is read for `ComputeShader` as well as `PixelShader`, and a compute pass declaring fewer
@@ -464,21 +373,11 @@ offline compile check:
   ReShade — emitting one pass's shader from that pass's reachable code — does not. The game's log carrying
   no such warning is what says the cause is the harness, so it is filtered on the reported code (this
   `fxc` rejects `/wd`: `Unknown or invalid option`) and nothing else is. Exercise the gate by hand before
-  committing a change to it: put any of the constructs below back and it must exit non-zero naming the
-  code.
-- The shader is written so that `check` is silent, and each rewrite is the *only* thing that silences its
-  code — do not "tidy" one back into the warning shape. Two of the four were seen in a real ReShade log,
-  which is why they are the ones to leave alone: `X3556` eight times and `X4000` twice. The other two the
-  check reports and a per-pass emit happens not to — a difference in what gets compiled, not a reason to
-  put them back. A `clipped` accumulator declared `float3` makes `clipped == 0.0` a three-wide test whose
-  `&&` truncation is X3206, so it is a `float` (the `all()` answer is one value, not one per channel); a
-  slot-picking row of bare `if (...) return X;` statements with the last return unconditional reads to fxc
-  as a function that may return nothing (X4000), so both such helpers are an `if`/`else if`/`else` chain;
-  a flat counter unpacked with `int i % W` and `int i / W` is X3556 (integer modulus/division), so those
-  counters are `uint` and the divisions take `uint` operands — the numbers are identical either way, and
-  unsigned is the form fxc accepts without complaint; and two loops declaring the same counter name in one
-  scope is X3078, so each walk names its own. The first two are outright bugs in the log and the last two
-  are pure cost, so none is a cosmetic preference.
+  committing a change to it: put the construct below back and it must exit non-zero naming the code.
+- The shader is written so that `check` is silent, and the rewrite below is the *only* thing that silences
+  its code — do not "tidy" it back into the warning shape. A `clipped` accumulator declared `float3` makes
+  `clipped == 0.0` a three-wide test whose `&&` truncation is X3206, so it is a `float` (the `all()` answer
+  is one value, not one per channel). It is an outright bug in the log rather than a cosmetic preference.
 - **It must fail loudly on missing data.** An earlier version of the companion tool reported a clean pass
   while emitting no bytecode at all, because a missing hash compares equal to another missing hash. Seven
   cases must keep exiting non-zero, each exercised by hand before committing a change here: an empty
@@ -509,15 +408,14 @@ offline compile check:
 - **The same caveat has a third form, and it is not a translation gap at all.** `fmod` is genuine HLSL
   that `fxc` implements and ReShade's parser simply does not carry, so a clean compile here is guaranteed
   and the effect still fails at load with X3004 (`undeclared identifier or no matching intrinsic
-  overload`). It was written into the ring cursor's wrap — eight UAV slots and a float were both
-  considered on the way to it — and it passed all sixteen variants before failing in the game. The names
-  `fxc` has and ReShade's own table does not are therefore refused outright, that set being read from
-  `source/effect_symbol_table_intrinsics.inl` rather than guessed: it is a deny set, so an ordinary
-  identifier is never mistaken for a missed intrinsic, and a shader that defines its own function of one
-  of those names is still allowed to call it. ReShade does provide `frac`, `floor`, `round`, `saturate`,
-  `lerp`, `smoothstep`, `step`, `mad` and the `tex2D*` family — the whole vocabulary this shader uses —
-  so a wrap around an integer is `%` rather than `fmod`. Exercise it by hand with `fmod` put back before
-  committing a change to that guard.
+  overload`). It reached a game once — written into a wrap around an integer, it passed every variant
+  here and then failed to load — so the names `fxc` has and ReShade's own table does not are refused
+  outright, that set being read from `source/effect_symbol_table_intrinsics.inl` rather than guessed: it
+  is a deny set, so an ordinary identifier is never mistaken for a missed intrinsic, and a shader that
+  defines its own function of one of those names is still allowed to call it. ReShade does provide
+  `frac`, `floor`, `round`, `saturate`, `lerp`, `smoothstep`, `step`, `mad` and the `tex2D*` family — the
+  whole vocabulary this shader uses — so a wrap around an integer is `%` rather than `fmod`. Exercise it
+  by hand with `fmod` put back before committing a change to that guard.
 - `pyproject.toml` lives in `tools/`, not at the repo root: this is a shader project, and `uv run`
   discovers the project by searching upward from the script, so the root-level command above works.
 
@@ -610,17 +508,6 @@ The compile check needs `fxc.exe`, which is a Windows binary run under WSL:
     did. The reverse case is the one to watch with the verdict view: a static element sitting a level away
     from where its own average had settled used to be locked out indefinitely, so put the overlay in its
     verdict view on a still HUD element and confirm the green is there and stays there over the horizon.
-  - The motion estimate's view, compute path with the flow switch on: pan slowly across a sky or backdrop
-    and the flow view should read as one flat tinted colour over the sky while a HUD in the same frame
-    stays untinted, and the tint must hold its direction rather than flicker between frames — §6.2's two
-    questions of `docs/optical-flow.md`, which is what the probe exists to answer. Sweep
-    `AutoMaskFlowStride` and watch which baseline wins and whether the confidence holds: on a *looping*
-    sky a long baseline reading a confident `(0,0)` is the known failure made visible, not a bug. A
-    featureless stretch must stay untinted at any fit floor, and sweeping `UIDebugCoverageFloor` should
-    move the boundary. With the estimate on, the mask must behave exactly as it does with it off — the
-    probe is wired into no verdict, so any mask difference is a defect — and the marker must keep its
-    magenta/yellow meaning in all three views, reading the state from whichever channel the drawn view
-    packs it into.
 
 ## What this shader cannot do
 

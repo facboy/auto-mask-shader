@@ -27,15 +27,6 @@
 	#define AutoMaskCompute		0		// [0 or 1] 1 runs the accumulator and the motion gate as compute passes
 #endif
 
-//Draws one low-resolution motion estimate -- where the picture as a whole moved from, worked out from
-//the image alone -- on the diagnostics overlay. It is an instrument rather than part of the mask:
-//nothing the verdict reads ever samples it, so neither position changes what is protected.
-//Needs AutoMaskCompute=1 and a D3D11 or newer device, or Vulkan, for the same reason the compute path
-//does; with compute off this switch is the plain pixel path.
-#ifndef AutoMaskOpticalFlow
-	#define AutoMaskOpticalFlow	0	// [0 or 1] 1 draws a low-resolution motion estimate from the
-#endif								// image alone (needs AutoMaskCompute=1; D3D11+/Vulkan)
-
 //The frame rate the frame-count bounds are sized for: each cap is a duration in seconds written as
 //seconds times this, so the caps grow with the frame rate and mean the same time everywhere.
 #ifndef AutoMaskTargetFPS
@@ -150,29 +141,6 @@ uniform float AutoMaskMoveMemory <
 		ui_min = 0.0; ui_max = 5.0;
 		ui_step = 0.05;
 	> = 0.5;
-#endif
-
-#if AutoMaskCompute == 1 && AutoMaskOpticalFlow == 1
-	//Frames between the lagged reference frames the probe matches against. Real past frames a whole
-	//step apart -- not the blended average the drift store is, which would confound "the match
-	//degraded over the baseline" with "the reference is not a frame" -- and at a quarter of the frame
-	//rather than on the accumulator's coarse grid, because a one-pixel shift is unfindable inside a
-	//coarse cell. This is the baseline the whole experiment turns on: sub-pixel per-frame motion is not
-	//in the image at all -- an integer search reads (0,0) at every speed until the shift adds up to
-	//whole pixels -- so the match has to compare frames far enough apart to contain one, and it is
-	//swept live because sweeping it is the experiment: too short and there is nothing to find, too
-	//long and a skybox whose animation loops matches itself at (0,0).
-	//A frame count rather than a duration, so it is a slider: it names how many frames apart the
-	//references are rather than how long a memory lasts. Declared with the rest of the guard because
-	//the pixel path has no pass that would read it.
-	uniform float AutoMaskFlowStride <
-		__UNIFORM_SLIDER_FLOAT1
-		ui_label = "Frames between motion-estimate references";
-		ui_tooltip = "How many frames apart the pictures the motion estimate matches are.\nShort is coherent but may show no whole pixel of movement; long finds slower movement but a looping sky matches itself at zero.";
-		ui_category = "AutoMask";
-		ui_min = 4.0; ui_max = 64.0;
-		ui_step = 1.0;
-	> = 16.0;
 #endif
 
 #define AUTOMASK_DILATE_MAX 3
@@ -307,114 +275,6 @@ sampler AutoMap { Texture = texAutoMap; };
 	sampler MotionCoarse { Texture = texMotionCoarse; };
 	texture texMotionStat { Width = 1; Height = 1; Format = RGBA8; };
 	sampler MotionStat { Texture = texMotionStat; };
-#endif
-
-//One low-resolution motion estimate per frame: where the picture as a whole moved from, worked out
-//from the image alone. It is an instrument rather than part of the mask -- nothing the verdict reads
-//samples any target below -- so all of it sits inside its own switch, gated on the compute path as
-//well, and costs nothing when either is off. This is the compute path's own machinery, the pixel path
-//having no pass that could take the reading.
-#if AutoMaskCompute == 1 && AutoMaskOpticalFlow == 1
-	//The ring of lagged reference frames, one real past frame per slot on the whole-level grid every
-	//other comparison here judges on. The slots stand one AutoMaskFlowStride apart, which is the
-	//baseline the experiment sweeps by moving that slider, and the slot just written holds the frame
-	//being reduced now -- the current frame, the shortest baseline there is and the one the search
-	//reads first. Real frames rather than a blended average, which is what the drift store is -- a
-	//blend would confound "the match degraded over the baseline" with "the reference is not a frame".
-	//A full ring needs the cursor to have wrapped once before every slot holds a real frame; the
-	//search reports which slot won, so a slot still holding whatever it was allocated with is
-	//visible as one rather than mistaken for a match at the longest baseline.
-	//Eight slots at a fixed 640x360 -- a quarter of a 1440p frame, so a four-screen-pixel move is the
-	//smallest the search can find there and a larger buffer only raises that floor -- because the
-	//search can only see a shift of one ring pixel or more. The compute path's coarse grid could not
-	//do it at all: a whole-pixel shift is inside one of its cells. A fixed size rather than a fraction
-	//of the buffer keeps the 7 MB it costs the same at every resolution, and the reduction's dispatch
-	//and bounds predicate are taken from the ring's own grid for the same reason -- a buffer-sized
-	//dispatch would cover pixels the ring has no texels for.
-	#define FLOW_RING 8
-	#define FLOW_WIDTH 640
-	#define FLOW_HEIGHT 360
-	//The search's own geometry. The window is in ring pixels, so at a quarter of a 1440p frame it
-	//reaches about twelve screen pixels either way while the floor is set by the scale: a shift
-	//smaller than one ring pixel is not in the reduced picture to find. The patch is a fixed scatter
-	//across the whole ring rather than a window somewhere in it, because the estimate is global --
-	//one vector for the picture, not one per region, which is what this step is measuring.
-	#define FLOW_SEARCH 3
-	#define FLOW_WINDOW (2 * FLOW_SEARCH + 1)
-	#define FLOW_OFFSETS (FLOW_WINDOW * FLOW_WINDOW)
-	#define FLOW_PATCH_X 10
-	#define FLOW_PATCH_Y 6
-	#define FLOW_PATCH_POINTS (FLOW_PATCH_X * FLOW_PATCH_Y)
-	#define FLOW_COVER_WIDTH 40
-	#define FLOW_COVER_HEIGHT 24
-	#define FLOW_COVER_SAMPLES 4
-	//Quarter of one ring texel's extent in the frame: the reduction's four taps sit a half-texel
-	//either side of the texel's centre in both axes, so the average reads the block the texel
-	//stands for rather than one point in it. BUFFER_RCP_* is the frame's own reciprocal size, so
-	//the spacing stays right at any resolution.
-	#define FLOW_REDUCE_STRIDE (BUFFER_WIDTH / FLOW_WIDTH)
-	//The mean whole-level difference a match is allowed to leave per channel and still count as one:
-	//past this the two frames do not say the same thing at any offset and the ratio below is reading
-	//noise. It is not the flat-patch guard -- a featureless patch has the same score at every offset,
-	//so the ratio alone rejects it -- but the guard against a match that is simply bad.
-	#define FLOW_RESIDUAL 4.0
-	texture texFlowRef0 { Width = FLOW_WIDTH; Height = FLOW_HEIGHT; Format = RGBA8; };
-	texture texFlowRef1 { Width = FLOW_WIDTH; Height = FLOW_HEIGHT; Format = RGBA8; };
-	texture texFlowRef2 { Width = FLOW_WIDTH; Height = FLOW_HEIGHT; Format = RGBA8; };
-	texture texFlowRef3 { Width = FLOW_WIDTH; Height = FLOW_HEIGHT; Format = RGBA8; };
-	texture texFlowRef4 { Width = FLOW_WIDTH; Height = FLOW_HEIGHT; Format = RGBA8; };
-	texture texFlowRef5 { Width = FLOW_WIDTH; Height = FLOW_HEIGHT; Format = RGBA8; };
-	texture texFlowRef6 { Width = FLOW_WIDTH; Height = FLOW_HEIGHT; Format = RGBA8; };
-	texture texFlowRef7 { Width = FLOW_WIDTH; Height = FLOW_HEIGHT; Format = RGBA8; };
-	//Point filtered like the drift samplers, and for the same reason: these are data rather than
-	//pictures, so interpolating one would blend a neighbour's history into the pixel being matched.
-	sampler FlowRef0 { Texture = texFlowRef0; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
-	sampler FlowRef1 { Texture = texFlowRef1; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
-	sampler FlowRef2 { Texture = texFlowRef2; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
-	sampler FlowRef3 { Texture = texFlowRef3; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
-	sampler FlowRef4 { Texture = texFlowRef4; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
-	sampler FlowRef5 { Texture = texFlowRef5; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
-	sampler FlowRef6 { Texture = texFlowRef6; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
-	sampler FlowRef7 { Texture = texFlowRef7; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
-	//The write side of those same slots: a compute pass has no render target, so the reduction files
-	//the frame through the storage form and the search reads it back through the sampler, the two
-	//kept apart by the pass each runs in -- the accumulator's ping-pong, one level down.
-	storage2D<float4> FlowRefStore0 { Texture = texFlowRef0; };
-	storage2D<float4> FlowRefStore1 { Texture = texFlowRef1; };
-	storage2D<float4> FlowRefStore2 { Texture = texFlowRef2; };
-	storage2D<float4> FlowRefStore3 { Texture = texFlowRef3; };
-	storage2D<float4> FlowRefStore4 { Texture = texFlowRef4; };
-	storage2D<float4> FlowRefStore5 { Texture = texFlowRef5; };
-	storage2D<float4> FlowRefStore6 { Texture = texFlowRef6; };
-	storage2D<float4> FlowRefStore7 { Texture = texFlowRef7; };
-	//The estimate the search settles on, one global value per frame: .x and .y are the offset, .z the
-	//confidence and .w the slot that won, which is reported because a short baseline matching and a
-	//long one breaking down is part of what the probe is looking at.
-	texture texFlowVec { Width = 1; Height = 1; Format = RGBA32F; };
-	storage2D<float4> FlowVecStore { Texture = texFlowVec; };
-	sampler FlowVec { Texture = texFlowVec; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
-	//The ring cursor: a count of frames filed, advanced by CS_Finish so the reduction reads it one
-	//frame behind, the same lag the share and the measured step carry. A whole frame count on an r32f
-	//target read through a sampler rather than an integer store, because the ring's eight slots are
-	//already every UAV slot a Direct3D 11.0 device offers: a ninth storage here would push the
-	//reduction to Direct3D 11.1 and fail to build on a plain 11.0 one. Its count is wrapped by
-	//CS_Finish so it stays small, and a whole number that small is exact in a float.
-	texture texFlowCursor { Width = 1; Height = 1; Format = r32f; };
-	storage2D<float> FlowCursorStore { Texture = texFlowCursor; };
-	sampler FlowCursor { Texture = texFlowCursor; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
-	//Where the match held up, one cell per 16 of the ring's pixels -- a coarse map of the picture's
-	//texture. The overlay tints only the cells whose estimate is trustworthy, which is what shows the
-	//featureless parts of a sky instead of painting them a direction no match supports.
-	texture texFlowCoverage { Width = FLOW_COVER_WIDTH; Height = FLOW_COVER_HEIGHT; Format = R8; };
-	sampler FlowCoverage { Texture = texFlowCoverage; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
-	storage2D<float> FlowCoverageStore { Texture = texFlowCoverage; };
-	//Every candidate baseline's score at every offset, laid out one row per baseline and one column
-	//per offset, so the pick can read the surface back without re-running the whole matching -- and
-	//so the search itself is a wide pass rather than one thread doing a hundred thousand dependent
-	//fetches on its own. Writing it is what makes the pick possible; only the pick reads it.
-	texture texFlowScores { Width = FLOW_OFFSETS; Height = (FLOW_RING - 1); Format = R32F; };
-	storage2D<float> FlowScoreStore { Texture = texFlowScores; };
-	sampler FlowScores { Texture = texFlowScores; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
 #endif
 
 #if AutoMaskDiagnostics == 1
@@ -590,293 +450,7 @@ sampler AutoMap { Texture = texAutoMap; };
 		//every frame and the toggle can be flipped without a frame of counts left over in them.
 		for (int i = 0; i < 256; i++)
 			tex2Dstore(AutoMotionHist, int2(i, 0), 0u);
-
-		#if AutoMaskOpticalFlow == 1
-			//The ring cursor counts frames rather than naming a slot, so the slot the reduction files
-			//into advances once every AutoMaskFlowStride frames and the slots then stand a stride
-			//apart. It is read into a local and written back rather than nested: the offline check
-			//rewrites the two access intrinsics one at a time, so a fetch inside a store's value is
-			//left untranslated rather than proved. Advanced here, after the reduction has read it,
-			//which is what puts the reduction one frame behind -- the lag the share above carries.
-			//It wraps at the whole ring, so the count stays small enough to be exact in a float and
-			//the wrap lands the reduction back on slot 0 rather than skipping one, eight strides
-			//being a whole number of strides by construction. An integer modulo rather than fmod:
-			//fmod is HLSL that fxc has and ReShade's parser does not, so it compiles in the check
-			//and fails to load in the game.
-			uint cursor = (uint(tex2Dfetch(FlowCursorStore, int2(0, 0))) + 1u)
-				% (uint(FLOW_RING) * uint(max(AutoMaskFlowStride, 1.0)));
-			tex2Dstore(FlowCursorStore, int2(0, 0), float(cursor));
-		#endif
 	}
-
-	#if AutoMaskOpticalFlow == 1
-		//Files this frame's picture in the ring slot the cursor names, on the whole-level grid the
-		//accumulator and the drift comparison already judge on: the search then matches the same signal
-		//the mask reads rather than a fuller one it never sees. The eight slots are separate targets --
-		//the dialect has no array-of-target form -- so the slot is picked with a guarded branch.
-		[numthreads(64, 4, 1)]
-		void CS_FlowReduce(uint3 tid : SV_DispatchThreadID)
-		{
-			//The dispatch rounds up over the ring's own grid, so the last group can cover texels outside
-			//it: a predicate rather than an early return, as everywhere else in this file.
-			bool live = (tid.x < FLOW_WIDTH && tid.y < FLOW_HEIGHT);
-			//Sampled at the ring texel's position in the frame, so the grid is the picture reduced
-			//rather than a crop of its top-left corner. Averaged over the texel's own screen block rather
-			//than point-sampled: a point read of a dithered or noisy frame puts that noise straight into
-			//the SAD, where a block average is what the cell's region actually looks like. The sub-grid
-			//offsets spread the taps over the block; the ring stays 8-bit whole levels, so this is
-			//smoothing, not precision -- the sub-level case is the drift channel's.
-			float2 texcoord = (float2(tid.x, tid.y) + 0.5) / float2(FLOW_WIDTH, FLOW_HEIGHT);
-			float2 step2 = 0.5 * float(FLOW_REDUCE_STRIDE) * float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT);
-			float3 now = tex2Dlod(ReShade::BackBuffer, float4(texcoord - step2, 0.0, 0.0)).rgb
-				+ tex2Dlod(ReShade::BackBuffer, float4(texcoord + float2(-step2.x, step2.y), 0.0, 0.0)).rgb
-				+ tex2Dlod(ReShade::BackBuffer, float4(texcoord + float2(step2.x, -step2.y), 0.0, 0.0)).rgb
-				+ tex2Dlod(ReShade::BackBuffer, float4(texcoord + step2, 0.0, 0.0)).rgb;
-			now *= 0.25;
-			//The cursor counts frames rather than naming a slot, so the slot this frame lands in advances
-			//once every AutoMaskFlowStride frames: the slot just written holds this frame, the one
-			//before it the newest frame of the previous stride-long window, and so on round, which
-			//leaves the slots a stride apart -- the spacing the search reads as its baselines.
-			uint stride = uint(max(AutoMaskFlowStride, 1.0));
-			uint frame = uint(tex2Dlod(FlowCursor, float4(0.5, 0.5, 0.0, 0.0)).r);
-			uint slot = (frame / stride) % FLOW_RING;
-			float4 value = float4(round(now * 255.0) / 255.0, 1.0);
-			if (live){
-				if (slot == 0u)
-					tex2Dstore(FlowRefStore0, int2(tid.xy), value);
-				else if (slot == 1u)
-					tex2Dstore(FlowRefStore1, int2(tid.xy), value);
-				else if (slot == 2u)
-					tex2Dstore(FlowRefStore2, int2(tid.xy), value);
-				else if (slot == 3u)
-					tex2Dstore(FlowRefStore3, int2(tid.xy), value);
-				else if (slot == 4u)
-					tex2Dstore(FlowRefStore4, int2(tid.xy), value);
-				else if (slot == 5u)
-					tex2Dstore(FlowRefStore5, int2(tid.xy), value);
-				else if (slot == 6u)
-					tex2Dstore(FlowRefStore6, int2(tid.xy), value);
-				else
-					tex2Dstore(FlowRefStore7, int2(tid.xy), value);
-			}
-		}
-	#endif
-
-	#if AutoMaskOpticalFlow == 1
-		//The estimate is one global translation for the picture, so the patch that is matched is a fixed
-		//scatter across the whole ring rather than one block somewhere in it: the same sixty places in
-		//the current frame against those places slid by each candidate offset in an older one. Sixty
-		//single-pixel comparisons is the cheapest sample that still averages, and the spacing is what
-		//makes them independent readings of the sky rather than sixty readings of one patch of it.
-		float FlowPatchX(int i)
-		{
-			return (float(i) * FLOW_WIDTH + FLOW_WIDTH / (2 * FLOW_PATCH_X)) / FLOW_PATCH_X;
-		}
-
-		float FlowPatchY(int j)
-		{
-			return (float(j) * FLOW_HEIGHT + FLOW_HEIGHT / (2 * FLOW_PATCH_Y)) / FLOW_PATCH_Y;
-		}
-
-		//One texel of the reduced picture as the whole level it holds, clamped at the border: the ring
-		//is matched on the same grid the accumulator and the drift comparison judge on, and a sample
-		//the offset pushes outside the ring is taken at its edge rather than wrapping to the far side,
-		//which would put content from the wrong end of the frame into the sum.
-		float3 FlowTexel(sampler source, int2 texel)
-		{
-			int2 p = clamp(texel, int2(0, 0), int2(FLOW_WIDTH - 1, FLOW_HEIGHT - 1));
-			float2 uv = (float2(p) + 0.5) / float2(FLOW_WIDTH, FLOW_HEIGHT);
-			return round(tex2Dlod(source, float4(uv, 0.0, 0.0)).rgb * 255.0);
-		}
-
-		//The sum of absolute differences over the patch, the current frame against one candidate
-		//baseline slid by `offset`. The template is the live frame rather than the ring slot just
-		//written: they are the same picture, and reading the frame directly keeps the pairing a fixed
-		//sampler against a chosen one instead of two chosen ones, which is what keeps this shader from
-		//being an eight-by-eight nest of the same loop.
-		float FlowSad(sampler candidate, int2 offset)
-		{
-			float sum = 0.0;
-			[loop] for (int j = 0; j < FLOW_PATCH_Y; j++){
-				[loop] for (int i = 0; i < FLOW_PATCH_X; i++){
-					int2 p = int2(FlowPatchX(i), FlowPatchY(j));
-					sum += dot(abs(FlowTexel(candidate, p + offset) - FlowTexel(ReShade::BackBuffer, p)), 1.0.xxx);
-				}
-			}
-			return sum;
-		}
-
-		//The eight slots are separate targets -- the dialect has no array-of-target form -- so a slot is
-		//picked with a guarded branch, the same shape the reduction writes with. Used twice: for the
-		//whole-patch score the match pass lays out, and for the one-texel difference the coverage map
-		//takes at the offset the pick settled on. Written as an if/else chain rather than a row of
-		//bare ifs because fxc cannot see that the last one is unconditional through the branch above
-		//it, and reports the function as possibly returning nothing (X4000) -- a warning ReShade
-		//prints at load. The chain makes the fall-through explicit and compiles clean.
-		float FlowMatchSlot(uint slot, int2 offset)
-		{
-			if (slot == 0u) return FlowSad(FlowRef0, offset);
-			else if (slot == 1u) return FlowSad(FlowRef1, offset);
-			else if (slot == 2u) return FlowSad(FlowRef2, offset);
-			else if (slot == 3u) return FlowSad(FlowRef3, offset);
-			else if (slot == 4u) return FlowSad(FlowRef4, offset);
-			else if (slot == 5u) return FlowSad(FlowRef5, offset);
-			else if (slot == 6u) return FlowSad(FlowRef6, offset);
-			else return FlowSad(FlowRef7, offset);
-		}
-
-		float FlowCoverTexel(uint slot, int2 texel, int2 offset)
-		{
-			//As above: the chain is what tells fxc the last return is the fall-through (X4000).
-			if (slot == 0u) return dot(abs(FlowTexel(FlowRef0, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
-			else if (slot == 1u) return dot(abs(FlowTexel(FlowRef1, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
-			else if (slot == 2u) return dot(abs(FlowTexel(FlowRef2, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
-			else if (slot == 3u) return dot(abs(FlowTexel(FlowRef3, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
-			else if (slot == 4u) return dot(abs(FlowTexel(FlowRef4, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
-			else if (slot == 5u) return dot(abs(FlowTexel(FlowRef5, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
-			else if (slot == 6u) return dot(abs(FlowTexel(FlowRef6, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
-			else return dot(abs(FlowTexel(FlowRef7, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
-		}
-
-		//Every candidate baseline's score at every offset, one thread per pair: the surface is what the
-		//pick below reads, and laying it out is what keeps the whole search parallel. One thread doing
-		//sixty taps for a hundred and twenty-one offsets and seven baselines on its own would be fifty
-		//thousand dependent fetches in a single lane, which no latency hiding can cover -- which is why
-		//the search is spread over passes rather than done in one.
-		[numthreads(64, 4, 1)]
-		void CS_FlowMatch(uint3 tid : SV_DispatchThreadID)
-		{
-			//The dispatch rounds up over both dimensions, so a predicate rather than an early return.
-			bool live = (tid.x < uint(FLOW_OFFSETS) && tid.y < uint(FLOW_RING - 1));
-			uint stride = uint(max(AutoMaskFlowStride, 1.0));
-			uint frame = uint(tex2Dlod(FlowCursor, float4(0.5, 0.5, 0.0, 0.0)).r);
-			//The slot the reduction just filed holds this frame, so it is the template and not a
-			//baseline; the seven older slots are the candidates, one stride to seven strides back.
-			uint slot = (frame / stride % FLOW_RING + FLOW_RING - 1u - tid.y) % FLOW_RING;
-			int2 offset = int2(int(tid.x % uint(FLOW_WINDOW)), int(tid.x / uint(FLOW_WINDOW)))
-				- int2(FLOW_SEARCH, FLOW_SEARCH);
-			float sum = 0.0;
-			if (live)
-				sum = FlowMatchSlot(slot, offset);
-			if (live)
-				tex2Dstore(FlowScoreStore, int2(tid.xy), sum);
-		}
-
-		//The reading is the ratio of the best offset to the best at a *different* offset, never the
-		//minimum alone: over a pure gradient every horizontal offset ties at zero while the offset
-		//found there is wrong, so `best` says nothing on its own and the tie is exactly what has to
-		//come out as no confidence. A residual floor behind it rejects the case the ratio cannot see --
-		//no offset matching at all, which is what a baseline that has drifted past recognition looks
-		//like. The winning slate is reported alongside, because which baseline matched is half of what
-		//the probe is asking.
-		//
-		//The surface is one flat run of cells, and it is walked as unsigned arithmetic because that
-		//is the form fxc does not flag as slow integer division (X3556) -- the two axes are still
-		//recovered from the counter by `%` and `/`, so the surface is laid out exactly as before.
-		//The two walks also use differently named counters: declaring `i` twice in one scope is
-		//reported by fxc as a loop-variable conflict (X3078). Both are warnings ReShade prints at
-		//load, so neither is worth producing.
-		[numthreads(1, 1, 1)]
-		void CS_FlowPick(uint3 tid : SV_DispatchThreadID)
-		{
-			float best = 1.0e9;
-			uint bestColumn = 0u, bestRow = 0u;
-			[loop] for (uint i = 0u; i < uint(FLOW_OFFSETS * (FLOW_RING - 1)); i++){
-				uint column = i % uint(FLOW_OFFSETS);
-				uint row = i / uint(FLOW_OFFSETS);
-				float score = tex2Dlod(FlowScores, float4((float(column) + 0.5) / float(FLOW_OFFSETS),
-					(float(row) + 0.5) / float(FLOW_RING - 1), 0.0, 0.0)).r;
-				if (score < best){
-					best = score;
-					bestColumn = column;
-					bestRow = row;
-				}
-			}
-			//A ratio against the nearest competitor is all the flat case needs: over a pure gradient
-			//every horizontal offset ties, so the runner-up is level with the winner and the ratio
-			//collapses to nothing whatever the search found. Excluding only the winning *offset* is what
-			//keeps that true -- the same offset seen at a second baseline is the same offset, and were it
-			//allowed to be the runner-up a tie would read as a confident match.
-			float second = 1.0e9;
-			[loop] for (uint j = 0u; j < uint(FLOW_OFFSETS * (FLOW_RING - 1)); j++){
-				uint otherColumn = j % uint(FLOW_OFFSETS);
-				uint otherRow = j / uint(FLOW_OFFSETS);
-				if (otherColumn != bestColumn)
-					second = min(second, tex2Dlod(FlowScores, float4((float(otherColumn) + 0.5) / float(FLOW_OFFSETS),
-						(float(otherRow) + 0.5) / float(FLOW_RING - 1), 0.0, 0.0)).r);
-			}
-			float ratio = saturate((second - best) / max(second, 1.0));
-			float residual = best / float(FLOW_PATCH_POINTS * 3);
-			float confidence = ratio * saturate(1.0 - residual / FLOW_RESIDUAL);
-
-			//The offset is refined onto the surface's own curvature: a parabola through the winning
-			//score and its two neighbours reads where the true minimum sat between the taps, which the
-			//integer search only sampled. The fit is exact for a parabola and an honest interpolation
-			//for anything else, but it means nothing where the surface is not a valley -- at the window
-			//edge a neighbour is missing, and where the surface is flat the ratio above has already
-			//rejected the match -- so both cases keep the integer offset rather than a fit off it.
-			//The sub-pixel part is why the average reduction above matters: an 8-bit point store makes
-			//neighbouring scores step in whole levels and the parabola read noise, an averaged one gives
-			//the fit something to bend over.
-			uint stride = uint(max(AutoMaskFlowStride, 1.0));
-			uint frame = uint(tex2Dfetch(FlowCursorStore, int2(0, 0)));
-			uint slot = (frame / stride % FLOW_RING + FLOW_RING - 1u - bestRow) % FLOW_RING;
-			int2 offset = int2(int(bestColumn % uint(FLOW_WINDOW)), int(bestColumn / uint(FLOW_WINDOW)))
-				- int2(FLOW_SEARCH, FLOW_SEARCH);
-			int bestX = int(bestColumn % uint(FLOW_WINDOW));
-			//The surface is one row per baseline, so the neighbours along the search's x sit on the
-			//winning row and the ones along y are re-read from the winning column at other rows -- the
-			//same surface, read by column rather than by row. Rows run 1..7 (the template is not a
-			//candidate), so a fit needs the winning row's own neighbours at x and y separately.
-			float sLeft = tex2Dlod(FlowScores, float4((float(max(bestX - 1, 0)) + 0.5) / float(FLOW_OFFSETS),
-				(float(bestRow) + 0.5) / float(FLOW_RING - 1), 0.0, 0.0)).r;
-			float sRight = tex2Dlod(FlowScores, float4((float(min(bestX + 1, FLOW_WINDOW - 1)) + 0.5) / float(FLOW_OFFSETS),
-				(float(bestRow) + 0.5) / float(FLOW_RING - 1), 0.0, 0.0)).r;
-			float sUp = tex2Dlod(FlowScores, float4((float(bestX) + 0.5) / float(FLOW_OFFSETS),
-				(float(max(bestRow - 1, 0)) + 0.5) / float(FLOW_RING - 1), 0.0, 0.0)).r;
-			float sDown = tex2Dlod(FlowScores, float4((float(bestX) + 0.5) / float(FLOW_OFFSETS),
-				(float(min(bestRow + 1, FLOW_RING - 2)) + 0.5) / float(FLOW_RING - 1), 0.0, 0.0)).r;
-			float dx = 0.5 * (sLeft - sRight) / max(sLeft - 2.0 * best + sRight, 1.0e-4);
-			float dy = 0.5 * (sUp - sDown) / max(sUp - 2.0 * best + sDown, 1.0e-4);
-			//A fit is only a reading where the taps bracket the minimum: the centre strictly below both
-			//neighbours and both axes inside the window. Anything else keeps the integer offset.
-			bool interiorX = bestX > 0 && bestX < FLOW_WINDOW - 1 && sLeft > best && sRight > best;
-			bool interiorY = bestRow > 0 && bestRow < uint(FLOW_RING - 1) - 1 && sUp > best && sDown > best;
-			tex2Dstore(FlowVecStore, int2(0, 0),
-				float4(float(offset.x) + (interiorX ? clamp(dx, -0.5, 0.5) : 0.0),
-					float(offset.y) + (interiorY ? clamp(dy, -0.5, 0.5) : 0.0),
-					confidence, float(slot)));
-		}
-
-		//Where the estimate holds, one cell per sixteen ring pixels: a cell's own texture matched at
-		//the offset and against the baseline the pick settled on, so the map is the estimate's *fit*
-		//rather than how busy the cell is. That is the reading that separates the two failures the
-		//overlay is meant to show -- a featureless stretch of sky, where the patch has no texture to
-		//match and the ratio above rejects it, and something moving on its own, where the cell has
-		//plenty of texture and the global vector still does not explain it. The sample strides are
-		//taken in unsigned arithmetic because that is the form fxc does not warn about (X3556); the
-		//cell size and the sample offsets are the same numbers either way.
-		[numthreads(64, 4, 1)]
-		void CS_FlowCover(uint3 tid : SV_DispatchThreadID)
-		{
-			bool live = (tid.x < FLOW_COVER_WIDTH && tid.y < FLOW_COVER_HEIGHT);
-			float4 vec = tex2Dlod(FlowVec, float4(0.5, 0.5, 0.0, 0.0));
-			if (live){
-				int2 offset = int2(int(round(vec.x)), int(round(vec.y)));
-				int2 base = int2(tid.xy) * int2(uint(FLOW_WIDTH / FLOW_COVER_WIDTH), uint(FLOW_HEIGHT / FLOW_COVER_HEIGHT));
-				float sum = 0.0;
-				[loop] for (int j = 0; j < FLOW_COVER_SAMPLES; j++){
-					[loop] for (int i = 0; i < FLOW_COVER_SAMPLES; i++){
-						int2 p = base + int2(uint(i) * uint(FLOW_WIDTH / FLOW_COVER_WIDTH) / uint(FLOW_COVER_SAMPLES),
-							uint(j) * uint(FLOW_HEIGHT / FLOW_COVER_HEIGHT) / uint(FLOW_COVER_SAMPLES));
-						sum += FlowCoverTexel(uint(max(round(vec.w), 0.0)), p, offset);
-					}
-				}
-				float residual = sum / float(FLOW_COVER_SAMPLES * FLOW_COVER_SAMPLES * 3);
-				tex2Dstore(FlowCoverageStore, int2(tid.xy), saturate(1.0 - residual / FLOW_RESIDUAL));
-			}
-		}
-	#endif
 
 	//Drift ping-pong back-edge (copy B to A).
 	float4 PS_CopyDrift(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
@@ -1064,36 +638,13 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 #endif
 
 #if AutoMaskDiagnostics == 1
-	//Diagnostics view selector: 0 motion, 1 verdict, 2 the motion estimate. A bool held the first
-	//two; the third view needs a third position and a bool has none, so the toggle became this
-	//selector with 0 and 1 keeping the meanings it had -- a preset set on it reads the same view.
-	//Without the motion estimate switch there is no view 2 to draw, so the restore pass reads
-	//position 2 as the verdict; with it on, the estimate is the one view packed its own way below.
-	uniform float UIDebugView <
-		__UNIFORM_SLIDER_FLOAT1
-		ui_label = "Diagnostics: view";
-		ui_tooltip = "Which reading the overlay draws: 0 red where the frame sees a change, 1 green where a pixel has earned protection, 2 where the motion estimate's match held up, tinted in the direction it estimated.\n2 needs the motion estimate switch; with that off the overlay shows the verdict view here.\nThe deadzone ring and the corner marker show in all three";
+	//Diagnostics view toggle. Both readings tint only the pixels they name.
+	uniform bool UIDebugMotion <
+		__UNIFORM_SLIDER_BOOL1
+		ui_label = "Diagnostics: motion view";
+		ui_tooltip = "On, the overlay shows red where the frame sees a change.\nOff, it shows green where a pixel has earned protection, without the closing radius.\nThe deadzone ring and the corner marker show in both";
 		ui_category = "AutoMask";
-		ui_min = 0.0; ui_max = 2.0;
-		ui_step = 1.0;
-	> = 0.0;
-
-	//The fit bar the flow view's tint honours, and the one thing to sweep while reading it: a cell
-	//whose match clears it is tinted in the estimated direction and one that does not is passed
-	//through, so the boundary between the explained and the featureless moves with the slider.
-	//Declared inside the flow guard because without the estimate there is no view to set it for.
-	//The guard is the compound one, not the switch alone: the estimate's targets only exist on the
-	//compute path, so flow-on with compute off has no view 2 and no floor to set.
-	#if AutoMaskCompute == 1 && AutoMaskOpticalFlow == 1
-		uniform float UIDebugCoverageFloor <
-			__UNIFORM_SLIDER_FLOAT1
-			ui_label = "Diagnostics: estimate fit floor (percent)";
-			ui_tooltip = "How good a cell's match must be before the flow view tints it.\nRaise it to tint only where the estimate is trustworthy, lower it to see every cell the estimate explains";
-			ui_category = "AutoMask";
-			ui_min = 0.0; ui_max = 100.0;
-			ui_step = 1.0;
-		> = 20.0;
-	#endif
+	> = true;
 
 	//Motion visualization gain for diagnostics overlay.
 	uniform float UIDebugGain <
@@ -1105,33 +656,14 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 		ui_step = 1.0;
 	> = 8.0;
 
-	//Packs the channels the restore pass reads, one packing per view because the flow view needs
-	//all four channels for its own reading: motion and verdict keep .r=motion, .g/.b=verdict,
-	//.a=screen state, and the flow view repacks as .r=screen state, .g/.b=dx/dy on a code centred
-	//at 0.5, .a=coverage. The marker reads the state from whichever channel the drawn view carries
-	//it in, which is the one guarded read the third view costs. The compound guard is the flow
-	//pack's own condition, exactly as the targets declare it: not nested, because the diagnostics
-	//guard above it is still open and an inner compound guard must not be read as its complement.
+	//Packs diagnostic channels: .r=motion, .g=static-UI verdict, .b=static-UI verdict, .a=screen state.
 	float4 PS_DebugMap(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	{
-		float drawn = tex2D(MotionStat, float2(0.5, 0.5)).r * 100.0 > AutoMaskMotion;
-		float screen = drawn ? 1.0 : 0.0;
-		//The compound guard, not the switch alone: the flow samplers are declared on the compute path
-		//only, so flow-on with compute off has no view 2 to pack and falls through to the verdict one.
-		#if AutoMaskCompute == 1 && AutoMaskOpticalFlow == 1
-			if (UIDebugView > 1.5){
-				//The offset is one value for the whole frame, sampled at the centre, and it is coded
-				//across the search window so one ring pixel of movement is a visible step of the code.
-				float4 vec = tex2D(FlowVec, float2(0.5, 0.5));
-				return float4(screen,
-					saturate(0.5 + vec.x / (2.0 * FLOW_SEARCH)),
-					saturate(0.5 + vec.y / (2.0 * FLOW_SEARCH)),
-					tex2D(FlowCoverage, texcoord).r);
-			}
-		#endif
 		float4 accum = tex2D(AutoAccumA, texcoord);
 		float verdict = step(0.5, accum.r);
 		float changed = saturate(accum.b * UIDebugGain);
+		float drawn = tex2D(MotionStat, float2(0.5, 0.5)).r * 100.0 > AutoMaskMotion;
+		float screen = drawn ? 1.0 : 0.0;
 		return float4(changed, verdict, verdict, screen);
 	}
 #endif
@@ -1147,31 +679,11 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	#if AutoMaskDiagnostics == 1
 		//Tint over the restore, drawn after it so it sits on top of the stored UI rather than being
 		//repainted by it: red where the motion view sees a change, green where the verdict view
-		//sees protection, and in the flow view the estimated direction wherever the cell's fit
-		//clears the floor -- nothing at all where the drawn view names no pixel.
+		//sees protection, nothing at all where it does not.
 		float4 debug = tex2D(AutoDebug, texcoord);
-		//The compound guard, as in PS_DebugMap: the packed flow channels exist on the compute path
-		//only, so flow-on with compute off has no view 2 to tint and falls through to the verdict.
-		#if AutoMaskCompute == 1 && AutoMaskOpticalFlow == 1
-			if (UIDebugView > 1.5){
-				//The mark colour is the direction the estimate reports, read back off the packing: a
-				//hue per direction, and a neutral grey at (0,0) because a still picture is the
-				//reading "nothing moved over this baseline" rather than a missing one. The blend is
-				//the cell's own fit above the floor, so a cell the estimate does not explain passes
-				//through untouched instead of being painted a direction no match supports.
-				float2 move = (debug.gb - 0.5) * (2.0 * FLOW_SEARCH);
-				float3 mark = length(move) < 0.5 ? float3(0.5, 0.5, 0.5)
-					: saturate(abs(frac(atan2(move.y, move.x) * 0.15915494
-						+ float3(0.0, 0.66666667, 0.33333333)) * 6.0 - 3.0) - 1.0);
-				float tint = debug.a * step(0.01 * UIDebugCoverageFloor, debug.a);
-				color = lerp(color, mark, tint * 0.7);
-			} else
-		#endif
-		{
-			float tint = UIDebugView > 0.5 ? debug.g : debug.r;
-			float3 mark = UIDebugView > 0.5 ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
-			color = lerp(color, mark, tint * 0.7);
-		}
+		float tint = UIDebugMotion ? debug.r : debug.g;
+		float3 mark = UIDebugMotion ? float3(1.0, 0.0, 0.0) : float3(0.0, 1.0, 0.0);
+		color = lerp(color, mark, tint * 0.7);
 
 		if (AutoMaskDeadzoneWidth > 0.0 && AutoMaskDeadzoneHeight > 0.0){
 			float rx = AutoMaskDeadzoneWidth * 0.005;
@@ -1184,16 +696,7 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 
 		//Bottom-left diagnostic state marker: magenta=live, yellow=stopped.
 		if (texcoord.x < 0.02 && texcoord.y > 0.98){
-			//The state rides .a in the motion and verdict packings and .r in the flow one, so the
-			//read follows the channel the drawn view carries it in; the meaning, magenta or yellow,
-			//is the same in all three. With the estimate off, view 2 shows the verdict, whose state
-			//rides .a like the other two -- which is what the #else keeps readable.
-			float4 state_sample = tex2D(AutoDebug, float2(0.5, 0.5));
-#if AutoMaskCompute == 1 && AutoMaskOpticalFlow == 1
-			float state = UIDebugView > 1.5 ? state_sample.r : state_sample.a;
-#else
-			float state = state_sample.a;
-#endif
+			float state = tex2D(AutoDebug, float2(0.5, 0.5)).a;
 			if (state > 0.75){
 				return float4(1.0, 0.0, 1.0, 1.0);
 			}
@@ -1233,34 +736,6 @@ technique AutoMask
 			PixelShader = PS_CopyDrift;
 			RenderTarget = texAutoDriftA;
 		}
-		#if AutoMaskOpticalFlow == 1
-			//Files this frame's picture in the ring the estimate matches against. Before CS_Finish, so
-			//the reduction reads the cursor the previous frame's advance left.
-			pass {
-				ComputeShader = CS_FlowReduce;
-				DispatchSizeX = (FLOW_WIDTH + 63) / 64;
-				DispatchSizeY = (FLOW_HEIGHT + 3) / 4;
-			}
-			//Every baseline at every offset, against the frame just filed, then the pick that turns the
-			//surface into one vector and the coverage map that says where it holds. Wide dispatches
-			//rather than one thread walking the whole search: the taps are dependent fetches, and a
-			//single lane cannot hide their latency -- see the match pass.
-			pass {
-				ComputeShader = CS_FlowMatch;
-				DispatchSizeX = (FLOW_OFFSETS + 63) / 64;
-				DispatchSizeY = (FLOW_RING - 1 + 3) / 4;
-			}
-			pass {
-				ComputeShader = CS_FlowPick;
-				DispatchSizeX = 1;
-				DispatchSizeY = 1;
-			}
-			pass {
-				ComputeShader = CS_FlowCover;
-				DispatchSizeX = (FLOW_COVER_WIDTH + 63) / 64;
-				DispatchSizeY = (FLOW_COVER_HEIGHT + 3) / 4;
-			}
-		#endif
 		//Hands the count over as the share the next frame's gate reads, and clears it.
 		pass {
 			ComputeShader = CS_Finish;

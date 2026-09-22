@@ -21,27 +21,31 @@ Constraints taken as given:
   `.junie/plans/automask-compute-gate-and-drift-channel.md`). Anything added here is a further
   addition, not a replacement.
 
-**Adopted, in the smallest form.** The reversal §6 asks for has been recorded in
-`.junie/plans/automask-compute-gate-and-drift-channel.md`, whose *Out of scope* entry for block
-matching now says it is reopened rather than silently dropped. What is built is **§6.1's experiment
-and nothing else**: one global low-resolution translation estimate per frame, drawn on the
-diagnostics overlay behind a fourth structural switch (`AutoMaskOpticalFlow`, compute path required)
-and wired into no verdict — no vector feeds the accumulator, the gate, the drift channel or the mask.
-It exists to answer §6.2's two questions against a real skybox, and if either answer is no then §6.3
-is not worth starting. The rest of this review stands as written: §3's baseline tension is why the
-probe sweeps its baseline live and reports which one matched, §4's patchiness is what its coverage
-map is there to show, and §5's "a vector is not the same question as 'is this HUD'" is why it is an
-instrument rather than a fix. The repeat detector of `docs/drift-snap-review.md` §5.1 is still not
-implemented — the two are alternatives, and §6's "Against the alternative" is the comparison between
-them.
+**Adopted, in the smallest form, and then removed — the decision recorded here.** The reversal §6 asks
+for was recorded in `.junie/plans/automask-compute-gate-and-drift-channel.md`, whose *Out of scope* entry
+for block matching said it was reopened rather than silently dropped; what was built was **§6.1's
+experiment and nothing else**, behind the fourth structural switch `AutoMaskOpticalFlow` and wired into no
+verdict. The experiment has since been answered (§6.2 below, in a real game) and the probe has been
+**removed from the shader entirely** — the switch, its targets, its four compute passes and its third
+diagnostics view are all gone. §6's own terms are what decide it: the estimate was to be adopted only if
+it tracked a real sky, and it did not. What the experiment cost to keep was not nothing — ~7 MB of ring
+and score targets, four passes per frame, and a third overlay view — and it bought a reading the mask
+never used and the drift channel already provides better, per pixel and at full resolution.
 
-**Nothing below this line has been revised to match the probe.** This is a feasibility review as
-written; it is kept that way on purpose, so the reasoning that led to the experiment can be read
-against its result.
+**The rest of this review stands as written and as it was written.** It is a feasibility review kept in
+its original voice on purpose, so the reasoning that led to the experiment can be read against its
+result: §3's baseline tension is why the probe swept its baseline live and reported which one matched,
+§4's patchiness is what its coverage map was there to show, and §5's "a vector is not the same question
+as 'is this HUD'" is why it was an instrument rather than a fix. The repeat detector of
+`docs/drift-snap-review.md` §5.1 is still not implemented — the two are alternatives, and §6's "Against
+the alternative" is the comparison between them. Nothing between §2 and §8 is revised to match the probe
+either: those passages describe what was built and why, in the terms the review used, not what is in the
+shader now. §9 is the one exception — it was an open follow-up and is now closed, so it carries the
+strike rather than the invitation.
 
 **§6.2 answered, in a real game — the negative result the experiment existed to produce.** With
-`AutoMaskCompute=1` and `AutoMaskOpticalFlow=1`, standing still while a sky pans slowly, watched on
-the flow view:
+`AutoMaskCompute=1` and `AutoMaskOpticalFlow=1` (the switch as it stood before removal), standing still
+while a sky pans slowly, watched on the flow view:
 
 1. **The sky's motion is below the probe's floor.** One ring pixel is ~4 screen pixels at the fixed
    640×360 ring; a sky drifting a fraction of a screen pixel per frame sits under one ring pixel
@@ -71,6 +75,13 @@ interior minima), the third is scoped below, and none of it is wired into the ve
 closed: the experiment its decision was gated on returned "no at this scale" for the sky it was
 asked about, and the burden of proof is now on a proposal that answers the loop failure §3 names
 before anything is built on a vector.
+
+**Decision taken: the probe is removed.** §6.3 was gated on a positive answer and got a negative one,
+so the experiment's own terms are what close it — the shader carries no switch, no ring, no search
+passes and no third overlay view, and `AGENTS.md` records the switch inventory back at three. §9's
+scoped follow-up is closed with it: the sub-level ring precision was to be built only if the probe was
+wanted as a *demonstration* instrument, and an instrument the mask does not read is not worth 14–28 MB
+and a search to demonstrate anything with. What remains of the idea is this document.
 
 ---
 
@@ -198,7 +209,8 @@ Before any of it, the cheapest decisive experiment:
    is no, the rest is not worth building.
 3. Only if it tracks: decide the baseline policy (§3 — the loop failure needs the estimate
    anchored to recent content, which is a design decision, not a constant), then how many regions
-   are worth estimating (§5.3).
+   are worth estimating (§5.3). **It did not track, so this step was never taken** — §6.2 is the
+   answer, and it is what closed §6.3.
 
 ### Against the alternative
 
@@ -237,7 +249,8 @@ integer SAD. Two configurations produced the tables, which is worth stating beca
   the accumulation arithmetic of §3, which does not depend on the image at all.
 - It is **not** a measurement of any real game's sky, and it says nothing about doing this at full
   resolution on a GPU, the cost of the search, or how a real skybox's texture and loop behaviour
-  would behave. §6.1 is the experiment that would answer those.
+  would behave. §6.1 is the experiment that would answer those — and it has since been run and
+  answered them (§6.2), negatively.
 - The "SAD min / median" column is a crude confidence measure; a real implementation would need a
   proper ratio test or a variance floor to detect the degenerate (flat) case of §4. Note that for
   the pure-gradient row it is `0.00 / 1.18` yet the offset found is wrong: the min is zero at
@@ -266,28 +279,33 @@ integer SAD. Two configurations produced the tables, which is worth stating beca
    decisive test is one global low-resolution translation estimate on the overlay before building
    anything else (§6).
 
+**All five items were acted on, and the outcome closes the line.** The reversal was recorded and the
+§6.1 experiment was built; it then returned "no at this scale" against the real sky it was asked about
+(§6.2), so items 1–4 describe a path whose decisive test failed rather than a plan still to be taken,
+and item 5's reversal has been reversed back. Nothing here should be read as work outstanding.
+
 ---
 
-## 9. Scoped follow-up: sub-level precision in the ring
+## 9. Scoped follow-up: sub-level precision in the ring — closed, not built
 
-The two refinements that landed (area-averaged reduction, sub-pixel readout) sharpen the instrument
-without changing what it can see. The third piece — the one that would let the probe's overlay
-*demonstrate* sub-level drift on a slow sky — is precision in the ring store, and it is scoped here
-rather than built:
+The two refinements that landed (area-averaged reduction, sub-pixel readout) sharpened the instrument
+without changing what it could see. The third piece — the one that would have let the probe's overlay
+*demonstrate* sub-level drift on a slow sky — was precision in the ring store, and it is kept here as
+the record of what it would have cost, with the probe itself now removed:
 
-- **Where the information is destroyed.** `CS_FlowReduce` stores `round(c * 255)` in `RGBA8`. A sky
+- **Where the information is destroyed.** `CS_FlowReduce` stored `round(c * 255)` in `RGBA8`. A sky
   drifting 1/16 level per frame moves a stored texel's *true* value by a quarter level per stride at
   stride 4 — and each stored frame rounds to the same level, so consecutive slots are bit-identical
   and the SAD is identical at every offset. Nothing downstream can recover what was never stored.
-- **What it would take.** The ring becomes `RGBA16F` (the minimum: the drift channel's own analysis
-  puts the per-frame creep at ~0.0083 levels at a 2 s horizon, under a half-ulp in the upper half of
-  the range) or `RGBA32F` (the safe choice). The 7 MB ring becomes 14 or 28 MB, and `FlowTexel`
+- **What it would have taken.** The ring becomes `RGBA16F` (the minimum: the drift channel's own
+  analysis puts the per-frame creep at ~0.0083 levels at a 2 s horizon, under a half-ulp in the upper
+  half of the range) or `RGBA32F` (the safe choice). The 7 MB ring becomes 14 or 28 MB, and `FlowTexel`
   stops rounding. The SAD then compares fractional levels, so `FLOW_RESIDUAL` and the ratio
   denominator need re-deriving against a fractional unit; the ratio test itself survives — a flat
   patch still ties, a real match still wins by margin, and `(0,0)` stops being a perfect tie, which
   is what makes the parabolic fit meaningful on a slowly creeping sky.
-- **Why it is still not the mask-side fix.** All of this answers one question per block, while the
-  drift channel answers it per pixel at full resolution with no search at all. The creep the mask
-  needs caught is per-pixel; the drift channel is the tool. Sub-level precision is worth building
-  only if the probe is wanted as a *demonstration* instrument for sub-level drift — an overlay
-  reading, not a verdict input.
+- **Why it was never the mask-side fix, and is now not built at all.** All of this answers one question
+  per block, while the drift channel answers it per pixel at full resolution with no search at all. The
+  creep the mask needs caught is per-pixel; the drift channel is the tool. Sub-level precision was worth
+  building only if the probe was wanted as a *demonstration* instrument for sub-level drift — an overlay
+  reading, not a verdict input — and §6.2's negative result is what says nobody wants that.
