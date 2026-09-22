@@ -333,15 +333,21 @@ sampler AutoMap { Texture = texAutoMap; };
 		                   smoothstep(deadband - 1.0, deadband + 2.0, maxDrift));
 		float stable = (maxDiff < deadband && maxDrift < deadband && clipped == 0.0) ? 1.0 : 0.0;
 
-		//The average follows the frame at one horizon's worth a frame, and at once wherever the
-		//frame-to-frame comparison already sees a change: a cut, a load, a fast pan, the first
-		//frame of all. There the average has nothing to add -- the shader has already read that
-		//move -- and lagging it would only turn the move into drift for a horizon on end. What is
-		//left to accumulate is the case that comparison is blind to: a shift too small to cross a
-		//level, building until the pixel sits visibly away from where its colour has been. At 0
-		//the horizon is one frame, so the average is the frame and the channel is off.
+		//The average follows the frame at one horizon's worth a frame, and at once where the frame
+		//is a new picture rather than more of the same: a cut, a load, a fast pan, the first frame
+		//of all. There the average has nothing to add -- the shader has already read that move --
+		//and lagging it would only turn the move into drift for a horizon on end. What is left to
+		//accumulate is the case the short comparison is blind to: a shift too small to cross a
+		//level, building until the pixel sits visibly away from where its colour has been. At 0 the
+		//horizon is one frame, so the average is the frame and the channel is off.
+		//The reset is keyed to a change wide enough to be a new picture and *not* to the deadband,
+		//which is a different question: the deadband is the smallest change called motion, so at
+		//the most sensitive setting it is one level, and keyed to it the average was reset by any
+		//change at all -- making the drift reading equal to the frame-to-frame one on every frame,
+		//horizon and all. 8 is the top of the step's own range and the max keeps the two from ever
+		//collapsing back into one.
 		float horizon = max(AutoMaskDrift * AutoMaskTargetFPS, 1.0);
-		float3 next = (maxDiff < deadband) ? lerp(now, drift, 1.0 - 1.0 / horizon) : now;
+		float3 next = (maxDiff < max(deadband, 8.0)) ? lerp(now, drift, 1.0 - 1.0 / horizon) : now;
 
 		float gain = 0.504 / max(AutoMaskRise, 1.0);
 		float cost = 0.504 / max(AutoMaskFall, 1.0);

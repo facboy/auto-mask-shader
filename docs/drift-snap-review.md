@@ -26,6 +26,26 @@ primary answer to the reported symptom, is **not** implemented — the two defec
 in their own right (the second keeping static elements out of the mask on 112 of 252 levels), and with
 them fixed the drift channel is left behaving as §2.1's floor table describes.
 
+**A third defect has since been found, and it is the one that explains the symptom this review was
+written about.** §5.2 dismisses the horizon because raising it moved the swaying bank only "for the
+accidental reason in §5.4"; the actual reason is stronger than the review's, and it is not in §5.4 at
+all. The average's **reset** was keyed to the same `deadband` as the per-pixel verdict (`next =
+maxDiff < deadband ? creep : now`). The deadband is the smallest change called motion, so at the
+default `AutoMaskEps = 1` it is one level — and the reset therefore fired on *every* single-level
+change, which is exactly the sky the channel exists for. Once reset onto the frame, the next frame's
+drift reading *is* the frame-to-frame reading: measured over a creeping sky, the two agreed on **100%
+of frames at every horizon setting**, 0.5 s to 10 s. The channel was not floored; it was disabled, and
+the slider had nothing to move. §2.1's floor table and §2.2's doubling describe a channel that resets
+only on a cut, which is what it became when the reset was decoupled — the rule is now
+`maxDiff < max(deadband, 8.0)`, so only a change wide enough to be a new picture snaps the average.
+Two consequences worth recording against the review's own conclusions: §5.2's "raising the horizon"
+now does catch slower drift, at `deadband / K` as §2.1 always said; and §7.4's "every repair to the
+existing channel either makes the returning sky worse or leaves it unchanged" held only while the reset
+kept the channel inert, since a working average is what the repairs were measured against. §5.1's
+repeat detector remains unimplemented and its case — a pixel that *sways* within the horizon rather
+than creeping one way — is still the one the channel does not answer, which is the limitation that
+survives this fix rather than being closed by it.
+
 ---
 
 ## 2. Both channels measure displacement, and a skybox returns
@@ -311,6 +331,11 @@ Limits worth stating plainly:
    last frame and against a running average — and a skybox returns, so it is never displaced far
    from either reference. The channel's own stated premise ("building until the pixel sits
    visibly away from where its colour has been") simply does not hold for a drifting gradient.
+   *(Correction: this is the second cause, not the first. The first is the reset in the header note
+   above — the average was snapped by every one-level change, so it never held a baseline for the
+   displacement to be measured against. The returning-sway case §1 describes survives the fix
+   intact; what does not survive is the claim that a steadily creeping sky is out of the channel's
+   reach, which was an artefact of the reset and not of the signal.)*
 2. **The shipped channel's floor is not the horizon's floor.** §2.1's `deadband / K` table is the
    full-precision behaviour. In the shipped `RGBA16F` store the creep step for a one-level gap
    (0.0083 levels at 2 s) is under the store's half-ulp above level 31, so the average is frozen
@@ -324,6 +349,12 @@ Limits worth stating plainly:
    it held before?" — and it is a new store and comparison rather than a retune (§5.1). It is the
    primary answer: every repair to the existing channel either makes the returning sky worse or
    leaves it unchanged (§5.3, §5.4).
+   *(Correction: the last sentence no longer holds, and the reason is the decoupled reset. A working
+   average does answer the steadily drifting case — measured, it takes a creeping sky out at every
+   rate the reset leaves it able to accumulate — so the channel's repairs are not neutral after all.
+   The repeat detector keeps the case it was always uniquely able to answer, a pixel that sways
+   inside the horizon, and that case is unchanged by the fix: it is now the whole of the detector's
+   remaining justification rather than a preference between equals.)*
 5. **There are two correctness-shaped defects, and they are coupled (§5.3, §5.4).** Making the
    one-level comparison exact is a defect fix on the slider's own contract, and it is *not*
    neutral: it removes the accidental protection and banks all 253 swaying levels instead of 141.

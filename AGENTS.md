@@ -217,13 +217,26 @@ because 1,024 taps cannot tell a level of dithering from a level of real motion.
   its cost is that the two drift targets double, ~59 MB to ~118 MB at 1440p.
 - **An abrupt change follows at once, and only drift waits.** The average takes a horizon's worth of the
   frame a frame while the short comparison reads still — that is what lets a sub-level shift accumulate —
-  but wherever the short comparison already reads a change it *becomes* the frame instead: the shader has
-  already taken that frame for motion, and lagging a whole colour distance behind would hold a mask out
-  of a scene cut or a load for a horizon on end. So a cut drags the average straight to the new scene and
-  only the genuinely sub-deadband movement is left to accumulate. The cost is that a move the short
-  comparison reads — a camera pan, a fast object — resets the average rather than being remembered by it;
-  the drift channel is the long baseline for the case the short one is blind to, a shift too small to
-  cross a level.
+  but where the frame changes by a *wide* step it *becomes* the frame instead: a scene cut or a load is
+  far wider than that step, and lagging a whole colour distance behind would hold a mask out of a cut for
+  a horizon on end. So a cut drags the average straight to the new scene and only the genuinely
+  sub-deadband movement is left to accumulate.
+- **The reset is keyed to a fixed wide step and not to the deadband**, and the distinction is
+  load-bearing rather than cosmetic. The deadband is the smallest change called motion, so at the most
+  sensitive setting it is one level — and a reset keyed to it fires on *every* single-level change, which
+  is precisely the sky the channel exists for. Its first frame then reset the average onto the frame, and
+  the next frame's drift reading was the frame-to-frame reading by construction: measured over a creeping
+  sky at `AutoMaskEps = 1`, the two agreed on **100%** of frames at every horizon setting, so neither the
+  channel nor its slider did anything. The two thresholds answer different questions — "did this pixel
+  move?" against "is this a new picture?" — and only the second belongs on the reset, which is why the
+  rule is `maxDiff < max(deadband, 8.0)` rather than `maxDiff < deadband`. The floor the reset sets is
+  deliberately low against a cut (8 levels is a fast pan at 60 fps), so `AutoMaskDrift` stays the only
+  lever on how slow a drift the channel reaches and raising it now catches slower movement instead of
+  changing nothing. The cost is that a move the short comparison reads at a few levels — a camera pan —
+  no longer resets the average, so it stays in the drift reading for the horizon rather than being wiped
+  by it; that is the memory working as intended, and it is why pan-then-stop recovery rests on
+  `AutoMaskMoveMemory` rather than on the average snapping (a pan is still rejected either way, by the
+  accumulating lag it builds once it no longer resets).
 
 Four constraints the dialect imposes on any compute pass here, all found the hard way:
 
@@ -341,6 +354,13 @@ Load-bearing, and follows from what each pass reads:
   uniforms, because the pixel path has no pass that would read it and a setting that does nothing is
   worse than an absent one. `AutoMaskAutoStep` and `AutoMaskNoiseFloor` sit there with it for the same
   reason.
+- The reset's step is expressed as `max(deadband, 8.0)` rather than a bare literal, which at the shipped
+  caps is a flat 8 levels at every position — the `AutoMaskEps` slider ends at 8 and the auto-step walk
+  clamps to the same 8 — but which cannot cross the verdict deadband if either cap is ever raised. That
+  is the whole point of the `max`: the reset must stay at or above the deadband so the two thresholds
+  never collapse back into one, and 8 is the number the shader already treats as its top-of-range level,
+  so there is no second constant to keep in step. It is deliberately *not* a slider — nobody watches the
+  reset's threshold, and `AutoMaskDrift` has to remain the setting being read.
 - Update `README.md` in the same conversational, non-programmer voice whenever a user-facing behaviour
   changes.
 
@@ -486,9 +506,13 @@ The compile check needs `fxc.exe`, which is a Windows binary run under WSL:
     sky, a distant backdrop — and the backdrop must stay out of the mask while a HUD in the same frame
     stays in, which the overlay's motion view is where to watch, since the short comparison alone shows
     the sky as clean; then cut between two scenes, or load one, and the mask must reform within a handful
-    of frames rather than staying blank for the horizon. The third is a HUD that does not move but does
+    of frames rather than staying blank for the horizon. The same pan at `AutoMaskEps = 1` is the direct
+    check on the decoupled reset: before the fix the motion view showed the sky clean at *every* horizon
+    position, so a horizon that now changes what the motion view shows is the channel working and one
+    that changes nothing is it having stopped again. The third is a HUD that does not move but does
     flicker — a static element with temporal anti-aliasing on it — which must not be evicted by the
-    channel at the default horizon; if it is, the horizon is what to shorten.
+    channel at the default horizon; if it is, the horizon is what to shorten, and a step of a couple of
+    levels is the shape of flicker that needs the horizon shortened rather than the RGB step raised.
   - The auto-deadband's pair, both on the compute path: the same scene with the toggle on and off, and
     the step the measurement settles on should sit above the dithering the overlay shows as red without
     losing movement you can see — with the toggle off it must match the manual slider exactly, slider
@@ -539,6 +563,17 @@ discovered:
   over unfiltered samplers and masks that were hard-edged in practice. The softness either comes from the
   mask (there) or from the map (here, via `AutoMaskDilate` and the luma stop); nothing is added by the
   anti-bloom pass itself.
+- **A HUD that flickers without moving is given up by the drift channel.** Dithering and temporal
+  anti-aliasing make a static pixel wander a level or two frame to frame, and a working average is what
+  reads that as drift: measured on the compute path, an element that oscillates by two levels at 60 fps
+  loses its mask at the 2 s default where the pre-fix channel kept it only because it was frozen. This is
+  the deliberate price of the channel doing its job, and there is no setting that escapes it: a shorter
+  horizon trades away the *slowest* drift it was catching, and a higher RGB step forgives the flicker but
+  raises the drift comparison's own deadband by the same amount, since the drift reading is compared
+  against that same number — so it gives up the same slow end rather than buying the element back. A
+  one-level flicker is safe at every horizon because the short comparison forgives it first; a two-level
+  flicker and drift at 0.05 levels a frame cannot both be had, and the motion view is where to see how
+  much drift each slider position still catches.
 - **HUD that animates more than briefly** needs the hold to bridge it, which makes `AutoMaskForget` the
   most important slider rather than a nicety — and it is a hard boundary rather than a matter of degree:
   animation that fits inside the hold is bridged and never banked, while animation that outlasts it is
