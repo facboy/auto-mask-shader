@@ -20,25 +20,20 @@
 	#define AutoMaskAntiBloom		1		// [0 or 1] 1 blacks the masked pixels in the frame the other effects see
 #endif
 
-//Runs the accumulator and the screen-motion gate as compute passes, so the gate counts every
-//pixel instead of sampling a 16x16 grid with four taps. Needs D3D11 or newer, or Vulkan: below
-//that the atomics compile to nothing and the effect belongs on the pixel path.
+//Runs the accumulator and gate as compute, so the gate counts every pixel rather than sampling a
+//16x16 grid with four taps. Needs D3D11 or newer, or Vulkan.
 #ifndef AutoMaskCompute
 	#define AutoMaskCompute		0		// [0 or 1] 1 runs the accumulator and the motion gate as compute passes
 #endif
 
-//The frame rate the frame-count bounds are sized for: each cap is a duration in seconds written as
-//seconds times this, so the caps grow with the frame rate and mean the same time everywhere.
+//Frame rate the frame-count caps are sized for: each cap is a duration in seconds times this.
 #ifndef AutoMaskTargetFPS
 	#define AutoMaskTargetFPS		60	// [30 to 240] frame rate the frame-count caps are sized for
 #endif
 
 //Uniforms
-//RGB change deadband in whole levels out of 255: the smallest change counted as motion, so the
-//smallest setting catches every change there is and is the most sensitive the detection goes.
-//Raise it if the overlay shows red over genuinely still pixels -- capture noise or dithering -- at
-//the price of the smallest movements; lower it to 1 if anything visibly moving reads without red.
-//Decides only whether a pixel moved -- what moving then costs is set by the two sliders below
+//RGB change deadband in whole levels out of 255, the smallest change counted as motion. It decides
+//only whether a pixel moved; what moving then costs is set by the two sliders below.
 uniform float AutoMaskEps <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "RGB step counted as a change";
@@ -48,10 +43,8 @@ uniform float AutoMaskEps <
 	ui_step = 1.0;
 > = 1.0;
 
-//Still frames a pixel needs before it is taken for interface. Raised when a backdrop that stops
-//when you do keeps getting caught; lowered when a HUD that only briefly holds still fails to appear.
-//A pixel seen moving repays its move memory first, one frame per still frame, so that countdown has to pass before
-//this one starts
+//Still frames a pixel needs before it is taken for interface. A pixel seen moving repays its move
+//memory first, so that countdown passes before this one starts.
 uniform float AutoMaskRise <
 	__UNIFORM_DRAG_FLOAT1
 	ui_label = "Frames still before marked as interface";
@@ -61,9 +54,8 @@ uniform float AutoMaskRise <
 	ui_step = 1.0;
 > = 0.5 * AutoMaskTargetFPS;
 
-//Changing frames a pixel needs before it is dropped from the interface. Keep it short enough that
-//the world takes the mask back promptly, long enough that one stray changing frame cannot punch
-//holes in a protected element. Frames the RGB step calls still cost nothing.
+//Changing frames a pixel needs before it is dropped from the interface. Keep it at or under the
+//rise, or the mask lingers over moving scenery; frames the RGB step calls still cost nothing.
 uniform float AutoMaskFall <
 	__UNIFORM_DRAG_FLOAT1
 	ui_label = "Frames moving before unmarked as interface";
@@ -73,10 +65,8 @@ uniform float AutoMaskFall <
 	ui_step = 1.0;
 > = 2.0;
 
-//Bridges brief animation as a running balance: a frame the deadband calls changing adds one and a
-//still frame pays half of one back, so the bridge banks while the animation outweighs its pauses
-//rather than only when it runs unbroken. Also covers the one full-screen change after a load or a
-//resize, when the previous frame is still blank.
+//Frames of change absorbed as a running balance before decay starts: a changing frame adds one, a
+//still frame pays half of one back. Also absorbs the one full-screen change after a load.
 uniform float AutoMaskForget <
 	__UNIFORM_DRAG_FLOAT1
 	ui_label = "Frames of absence before decay starts";
@@ -86,10 +76,8 @@ uniform float AutoMaskForget <
 	ui_step = 1.0;
 > = 0.25 * AutoMaskTargetFPS;
 
-//Frames a moving pixel remains penalized before earning protection again. A frame the RGB step
-//calls moving costs one frame of the unmarking countdown, however small the change was, and a
-//still frame pays one back -- at 60fps, 90 frames is a second and a half.
-//The repayment runs even while the world is stopped, so this is also how long a screen-wide move takes to clear.
+//Frames a moving pixel stays penalized before it can earn protection again: one frame of countdown
+//per changing frame, one paid back per still frame, repaid even while the world is stopped.
 uniform float AutoMaskMoveMemory <
 	__UNIFORM_DRAG_FLOAT1
 	ui_label = "Frames a move is remembered";
@@ -100,19 +88,8 @@ uniform float AutoMaskMoveMemory <
 > = 2.0 * AutoMaskTargetFPS;
 
 #if AutoMaskCompute == 1
-	//The drift comparison's memory: how long a colour lingers in the average it reads. A backdrop
-	//shifting by a fraction of a level a frame -- a skybox panning slowly -- never crosses a level
-	//between two frames, so the frame-to-frame comparison reads it as exactly still and would bank
-	//it as interface; the average accumulates the shift until the pixel sits visibly away from
-	//where it has been, which is what marks it moving. Longer catches slower drift; 0 turns the
-	//comparison off. Declared with its pass so the pixel path, which has nothing to read it, does
-	//not show a setting that would do nothing.
-	//The default is the shortest horizon that does the job, and it is a longer duration than the
-	//frame sliders' kind: this one has to build a lag that clears the deadband out of a shift
-	//below one level a frame, and that lag is the shift times the horizon in frames, so a horizon
-	//of a few frames rounds away to nothing. At 2 seconds a backdrop drifting 0.05 of a level a
-	//frame -- 3 levels a second -- reads as moving, where half a second sat under the deadband and
-	//caught none of it.
+	//How long a colour lingers in the average the drift comparison reads, catching a shift too small
+	//to cross a level between two frames. 0 turns it off.
 	uniform float AutoMaskDrift <
 		__UNIFORM_DRAG_FLOAT1
 		ui_label = "Drift horizon (seconds)";
@@ -122,10 +99,9 @@ uniform float AutoMaskMoveMemory <
 		ui_step = 0.25;
 	> = 2.0;
 
-	//The step measured rather than tuned: on, each frame's deadband is the level last frame's
-	//histogram put it at, so the smallest change that counts as motion is read off the scene's own
-	//noise floor. Off, AutoMaskEps rules exactly as on the pixel path. The floor is the share of
-	//the screen the derived step may leave changing above it, so lowering it forgives more.
+	//The step measured rather than tuned: on, it is the level the last frame's histogram found the
+	//scene's noise floor at. Off, AutoMaskEps applies as on the pixel path. The floor is the share of
+	//the screen the derived step may leave changing above it; lowering it forgives more.
 	uniform bool AutoMaskAutoStep <
 		__UNIFORM_SLIDER_BOOL1
 		ui_label = "Auto-detect RGB step";
@@ -162,10 +138,8 @@ uniform float AutoMaskEdge <
 	ui_step = 1.0;
 > = 40.0;
 
-//Minimum screen motion coverage required to credit stillness as interface. The premise rather
-//than a refinement: below it there is no verdict to make, so nothing changes except what moves.
-//Above it the mask advances, below it the mask is held: nothing is added and nothing is lost except what moves.
-//Raise it if scenery is getting caught, lower it if a HUD fails to appear
+//Minimum screen motion coverage to credit stillness as interface. Below it the mask is held --
+//nothing added and only what moves lost; above it the mask advances.
 uniform float AutoMaskMotion <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Motion needed to trust stillness (percent)";
@@ -175,7 +149,7 @@ uniform float AutoMaskMotion <
 	ui_step = 1.0;
 > = 50.0;
 
-//Elliptical center deadzone suppressing accumulation on camera-tethered characters. Applies only
+//Elliptical center deadzone suppressing accumulation on camera-tethered characters, active only
 //while the world is drawn when AutoMaskDeadzoneMotionOnly is set.
 uniform float AutoMaskDeadzoneWidth <
 	__UNIFORM_SLIDER_FLOAT1
@@ -234,17 +208,14 @@ sampler AutoDilate { Texture = texAutoDilate; };
 texture texAutoMap { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
 sampler AutoMap { Texture = texAutoMap; };
 
-//The exact screen-motion gate, as compute: a 1x1 integer counter every moved pixel adds to, and
-//a 1x1 float share the pixel passes can sample. The counter is an integer because atomics need
-//one, and the handoff is a second pass because the statistic has to stay readable as a float.
-//The accumulator's new value is written as storage: a compute pass has no render target. A storage
-//cannot be indexed -- its element type is a storage type, not a vector -- so every read and write goes
-//through tex2Dfetch/tex2Dstore; a bracket would fail in ReShade with X3121.
+//The screen-motion gate as compute: a 1x1 integer counter every moved pixel adds to, handed to the
+//1x1 float share the pixel passes sample. The accumulator writes as storage, read and written only
+//through tex2Dfetch/tex2Dstore -- a bracket fails in ReShade with X3121.
 #if AutoMaskCompute == 1
 	texture texAutoMotionCount { Width = 1; Height = 1; Format = r32u; };
 	storage2D<uint> AutoMotionCount { Texture = texAutoMotionCount; };
-	//The change-size histogram: one bin per level of difference, so the scene itself says where
-	//its noise floor is. The bins are integers because the atomics counting them need one.
+	//The change-size histogram: one bin per level of difference, so the scene itself says where its
+	//noise floor is.
 	texture texAutoMotionHist { Width = 256; Height = 1; Format = r32u; };
 	storage2D<uint> AutoMotionHist { Texture = texAutoMotionHist; };
 	texture texAutoStat { Width = 1; Height = 1; Format = r32f; };
@@ -255,17 +226,13 @@ sampler AutoMap { Texture = texAutoMap; };
 	storage2D<float> AutoStepStore { Texture = texAutoStep; };
 	sampler AutoStep { Texture = texAutoStep; };
 	storage2D<float4> AutoAccumStore { Texture = texAutoAccumB; };
-	//The drift ping-pong: a long-baseline average of the colour, so a shift too small to
-	//cross a level between two frames still accumulates somewhere. Its own pair, because the
-	//accumulator has one spare channel and the average needs three. It is the one store that
-	//cannot be half precision: the creep toward a one-level gap is a fraction of a level a frame,
-	//under an RGBA16F ulp above level 31, so the average would sit frozen rather than follow the
-	//pixel -- and a frozen average cannot close on a static pixel either.
+	//The drift ping-pong: the long-baseline average needs its own pair -- the accumulator has one
+	//spare channel, the average three -- and cannot be half precision, or the creep toward a
+	//one-level gap would sit frozen under an RGBA16F ulp.
 	texture texAutoDriftA { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA32F; };
 	texture texAutoDriftB { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA32F; };
-	//Point filtered, and the one sampler here that has to be: the average is data rather than a
-	//picture, so interpolating it would blend one pixel's history into its neighbour's, and a linear
-	//filter on a 32-bit float target is the combination a driver is free not to support.
+	//Point filtered: the average is data rather than a picture, so interpolating it would blend one
+	//pixel's history into its neighbour's.
 	sampler AutoDriftA { Texture = texAutoDriftA; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
 	sampler AutoDriftB { Texture = texAutoDriftB; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
 	storage2D<float4> AutoDriftStore { Texture = texAutoDriftB; };
@@ -284,13 +251,13 @@ sampler AutoMap { Texture = texAutoMap; };
 
 //Pixel shaders
 #if AutoMaskCompute == 1
-	//Per-group tally of moved pixels, so the one global counter takes one add per group instead of
-	//one per pixel. Every group starts it at zero before any of them counts.
+	//Per-group tally of moved pixels, so the counter takes one add per group rather than one per
+	//pixel. Every group zeroes it before any of them counts.
 	groupshared uint groupChanged;
 
-	//The accumulator as compute: the same state machine, plus the moved-pixel count the gate reads.
-	//The bounds guard is a predicate and not an early return, because a barrier has to sit in
-	//uniform flow control; and compute has no implicit derivatives, so every sample names its level.
+	//The accumulator as compute, plus the moved-pixel count the gate reads. The bounds guard is a
+	//predicate, not an early return, because a barrier has to sit in uniform flow control; and
+	//compute has no implicit derivatives, so every sample names its level.
 	[numthreads(64, 4, 1)]
 	void CS_Accum(uint3 tid : SV_DispatchThreadID, uint gi : SV_GroupIndex)
 	{
@@ -301,31 +268,24 @@ sampler AutoMap { Texture = texAutoMap; };
 		float3 now = tex2Dlod(ReShade::BackBuffer, float4(texcoord, 0.0, 0.0)).rgb;
 		float3 before = tex2Dlod(AutoHistory, float4(texcoord, 0.0, 0.0)).rgb;
 		float3 drift = tex2Dlod(AutoDriftA, float4(texcoord, 0.0, 0.0)).rgb;
-		//The comparison speaks in whole levels, so it is the level counts that are subtracted: the
-		//quantized colours differ by a float residue -- 0.9999999 for most of the 255 adjacent
-		//pairs -- which the deadband would then forgive at its most sensitive setting.
+		//The comparison subtracts the level counts, not the quantized colours: those differ by a float
+		//residue -- 0.9999999 for most of the 255 adjacent pairs -- which the deadband would forgive.
 		float3 nowLevels = round(now * 255.0);
 		float3 beforeLevels = round(before * 255.0);
 		now = nowLevels / 255.0;
-		//A pinned colour voids stillness on either side of the pair, on the same reasoning: what
-		//sits against a rail may be saturated rather than motionless, and the average of a pinned
-		//colour sits against the same rail. `all` is one answer for all three channels, so the
-		//count is a scalar: declared as a vector it made `clipped == 0.0` a three-wide test whose
-		//`&&` truncation fxc warns about (X3206), which ReShade prints at load.
+		//A pinned colour voids stillness on either side of the pair: saturation, not stillness. `all`
+		//makes the count a scalar, avoiding the X3206 truncation warning fxc emits for a vector form.
 		float clipped = all(now == 0.0.xxx) + all(now == 1.0.xxx)
 		              + all(before == 0.0.xxx) + all(before == 1.0.xxx)
 		              + all(drift == 0.0.xxx) + all(drift == 1.0.xxx);
 		float3 diff = abs(nowLevels - beforeLevels);
-		//The long-baseline reading, against the same deadband: how far the frame has got from
-		//where its colour has been, which is where a shift too small to cross a level between
-		//two frames still shows up. Either comparison calling it motion is motion.
+		//The long-baseline reading against the same deadband: how far the frame has got from where
+		//its colour has been. Either comparison calling it motion is motion.
 		float3 driftDiff = abs(now - drift) * 255.0;
 		float maxDiff = max(diff.r, max(diff.g, diff.b));
 		float maxDrift = max(driftDiff.r, max(driftDiff.g, driftDiff.b));
-		//The step is either tuned or measured: with auto-detect on it is the level the last frame's
-		//histogram found the scene's noise floor at, one frame behind exactly as the share is. The
-		//clamp is what keeps an unwritten or stale target from taking the deadband off the slider's
-		//own scale, so the first frame after the toggle goes on reads the most sensitive setting.
+		//The step is tuned (AutoMaskEps) or measured (last frame's histogram); the clamp keeps an
+		//unwritten target off the slider's own scale.
 		float deadband = AutoMaskAutoStep
 			? clamp(tex2Dlod(AutoStep, float4(0.5, 0.5, 0.0, 0.0)).r, 1.0, 8.0)
 			: max(ceil(AutoMaskEps), 1.0);
@@ -333,19 +293,9 @@ sampler AutoMap { Texture = texAutoMap; };
 		                   smoothstep(deadband - 1.0, deadband + 2.0, maxDrift));
 		float stable = (maxDiff < deadband && maxDrift < deadband && clipped == 0.0) ? 1.0 : 0.0;
 
-		//The average follows the frame at one horizon's worth a frame, and at once where the frame
-		//is a new picture rather than more of the same: a cut, a load, a fast pan, the first frame
-		//of all. There the average has nothing to add -- the shader has already read that move --
-		//and lagging it would only turn the move into drift for a horizon on end. What is left to
-		//accumulate is the case the short comparison is blind to: a shift too small to cross a
-		//level, building until the pixel sits visibly away from where its colour has been. At 0 the
-		//horizon is one frame, so the average is the frame and the channel is off.
-		//The reset is keyed to a change wide enough to be a new picture and *not* to the deadband,
-		//which is a different question: the deadband is the smallest change called motion, so at
-		//the most sensitive setting it is one level, and keyed to it the average was reset by any
-		//change at all -- making the drift reading equal to the frame-to-frame one on every frame,
-		//horizon and all. 8 is the top of the step's own range and the max keeps the two from ever
-		//collapsing back into one.
+		//The average follows the frame a horizon's worth a frame, and snaps to it where the frame is a
+		//new picture. The reset is keyed to a wide change rather than the deadband, so the max keeps
+		//the two thresholds from collapsing into one.
 		float horizon = max(AutoMaskDrift * AutoMaskTargetFPS, 1.0);
 		float3 next = (maxDiff < max(deadband, 8.0)) ? lerp(now, drift, 1.0 - 1.0 / horizon) : now;
 
@@ -392,9 +342,7 @@ sampler AutoMap { Texture = texAutoMap; };
 			held = 0.0;
 		}
 
-		//Count first, then reduce: a group only has to agree on the tally once every thread has
-		//added to it, and the two barriers are what make that ordering hold. The pixel path counted
-		//the same motion off the accumulator's flag, so the threshold is the same one.
+		//Count first, then reduce, so a group agrees on the tally once every thread has added to it.
 		bool changed = live && step(0.001, motion) > 0.5;
 		if (gi == 0)
 			groupChanged = 0u;
@@ -406,13 +354,9 @@ sampler AutoMap { Texture = texAutoMap; };
 			atomicAdd(AutoMotionCount, int2(0, 0), groupChanged);
 
 		//One bin per whole level of frame-to-frame difference, so the next frame can be told where
-		//this scene's noise ends rather than being given the answer. Every live pixel lands in a bin,
-		//moved or not, because it is the shape of the whole distribution that names the floor. The
-		//index truncates, which is what puts bin b exactly at the difference the verdict calls motion
-		//at deadband b -- the same `maxDiff < deadband` comparison, in the same units -- so the share
-		//above a level read here is the share that level would call moving; 255 is the last bin rather
-		//than an overflow, so anything larger is counted as the largest step there is. Only while the
-		//step is being measured: with auto-detect off the histogram is neither filled nor read.
+		//this scene's noise ends. Every live pixel lands in a bin, moved or not; the index truncates,
+		//so bin b is exactly the difference the verdict calls motion at deadband b, and 255 is the
+		//last bin rather than an overflow.
 		if (live && AutoMaskAutoStep)
 			atomicAdd(AutoMotionHist, int2(min(int(maxDiff), 255), 0), 1u);
 
@@ -431,13 +375,10 @@ sampler AutoMap { Texture = texAutoMap; };
 		tex2Dstore(AutoMotionCount, int2(0, 0), 0u);
 		tex2Dstore(AutoStatStore, int2(0, 0), share);
 
-		//Every live pixel landed in a bin, so only the low levels the walk speaks in have to be read
-		//back. The step is the smallest level that leaves no more than the noise floor changing above
-		//it, so the levels under it are the scene's noise -- which is what the deadband should be
-		//forgiving. Running out of the range means no level separates this frame's noise from its
-		//content, which is what a fully live frame looks like: every level still changes across the
-		//screen there, and a step picked from it would forgive real motion, so the slider's own
-		//value stands rather than the measurement guessing.
+		//Every live pixel landed in a bin, so only the low levels the walk speaks in are read back.
+		//The step is the smallest level that leaves no more than the noise floor changing above it;
+		//running out of the range means no level separates this frame's noise from its content, so
+		//the slider's own value stands.
 		if (AutoMaskAutoStep){
 			float floorCount = AutoMaskNoiseFloor * 0.01 * float(BUFFER_WIDTH * BUFFER_HEIGHT);
 			float step = max(ceil(AutoMaskEps), 1.0);
@@ -452,8 +393,8 @@ sampler AutoMap { Texture = texAutoMap; };
 			tex2Dstore(AutoStepStore, int2(0, 0), step);
 		}
 
-		//Cleared whether or not the step is being measured, so the bins are empty at the start of
-		//every frame and the toggle can be flipped without a frame of counts left over in them.
+		//Cleared whether or not the step is being measured, so the bins start every frame empty and
+		//the toggle can be flipped without stale counts.
 		for (int i = 0; i < 256; i++)
 			tex2Dstore(AutoMotionHist, int2(i, 0), 0u);
 	}
@@ -469,34 +410,26 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 {
 	float3 now = tex2D(ReShade::BackBuffer, texcoord).rgb;
 	float3 before = tex2D(AutoHistory, texcoord).rgb;
-	//The comparison speaks in whole 8-bit levels and the history is stored on that grid, so on a
-	//higher-precision back buffer the live sample is quantized onto it first: a change smaller than
-	//half a level reads as exactly zero instead of as a fraction the deadband forgives while the
-	//overlay's gain paints it red.
+	//The history is stored on the 8-bit grid, so on a higher-precision back buffer the live sample is
+	//quantized onto it first: a sub-half-level change reads as exactly zero instead of a fraction.
 	float3 nowLevels = round(now * 255.0);
 	float3 beforeLevels = round(before * 255.0);
 	now = nowLevels / 255.0;
 	//A pixel pinned at all 0 or all 255 shows no difference while it stays there, but that is
-	//saturation, not stillness: a wholly clipped frame on either side voids the still verdict,
-	//while the moves onto and off a rail are read by the difference as usual. `all` answers for
-	//all three channels at once, so the count is a scalar and not the vector it was written as:
-	//the vector form made `clipped == 0.0` a three-wide test whose `&&` truncation fxc warns
-	//about (X3206), which ReShade prints at load.
+	//saturation, not stillness, so a wholly clipped colour voids the still verdict. `all` makes the
+	//count a scalar, avoiding the X3206 truncation warning fxc emits for a vector form.
 	float clipped = all(now == 0.0.xxx) + all(now == 1.0.xxx)
 	              + all(before == 0.0.xxx) + all(before == 1.0.xxx);
 	float3 diff = abs(nowLevels - beforeLevels);
 	float maxDiff = max(diff.r, max(diff.g, diff.b));
-	//The deadband is a level count, so it is read as whole levels: a change of that many levels or
-	//more is motion, anything less is still. The ramp spans a fixed three levels, footed one under
-	//-- zero at the smallest setting, so any change at all is caught -- so the setting's own level
-	//reads a quarter-strength change at every position.
+	//The deadband is a level count: a change of that many levels or more is motion, anything less is
+	//still. The ramp spans a fixed three levels, footed one under, so its own level reads a quarter.
 	float deadband = max(ceil(AutoMaskEps), 1.0);
 	float motion = smoothstep(deadband - 1.0, deadband + 2.0, maxDiff);
 	float stable = (maxDiff < deadband && clipped == 0.0) ? 1.0 : 0.0;
 
-	//The two sliders speak in frames; the accumulator is confidence against the 0.5 verdict step, so
-	//a frame of credit is that step divided by the slider, kept a hair above the exact share so the
-	//half-precision accumulator crosses the step on the frame it should and not one frame either way.
+	//The sliders speak in frames; the accumulator is confidence against the 0.5 verdict step, so a
+	//frame of credit is that step over the slider, a hair above the exact share for half precision.
 	float gain = 0.504 / max(AutoMaskRise, 1.0);
 	float cost = 0.504 / max(AutoMaskFall, 1.0);
 
@@ -519,11 +452,9 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	}
 
 	if (stable > 0.5 && !inDeadzone){
-		//Still, so nothing is animating here: pay half a frame of the bridge back rather than ending
-		//it, so animation that outweighs its pauses still banks and brief bursts do not.
+		//Still, so pay half a frame of the bridge back rather than ending it.
 		held = max(held - 0.5, 0.0);
-		//A drawn world turns stillness into interface: repay debt, then earn. A stopped
-		//one cannot tell a held HUD from its own backdrop, so it changes nothing else.
+		//A drawn world turns stillness into interface: repay debt, then earn.
 		if (drawn){
 			if (conf < 0.0){
 				conf = min(0.0, conf + cost);
@@ -535,8 +466,7 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 		//Bridge brief animation before decay starts.
 		held += 1.0;
 	} else {
-		//Decay confidence and bank move debt: the fall never waits on the world being drawn, and a
-		//frame the deadband calls changing costs the same however small the change was.
+		//Decay confidence and bank move debt: the fall never waits on the world being drawn.
 		conf = conf - cost * (1.0 - stable);
 		if (AutoMaskMoveMemory > 0.0){
 			conf = min(conf, -cost * AutoMaskMoveMemory * (1.0 - stable));
@@ -683,9 +613,8 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	float3 color = lerp(live, stored, mask);
 
 	#if AutoMaskDiagnostics == 1
-		//Tint over the restore, drawn after it so it sits on top of the stored UI rather than being
-		//repainted by it: red where the motion view sees a change, green where the verdict view
-		//sees protection, nothing at all where it does not.
+		//Tint over the restore, drawn after it so it sits on top of the stored UI: red where the
+		//motion view sees a change, green where the verdict view sees protection.
 		float4 debug = tex2D(AutoDebug, texcoord);
 		float tint = UIDebugMotion ? debug.r : debug.g;
 		float3 mark = UIDebugMotion ? float3(1.0, 0.0, 0.0) : float3(0.0, 1.0, 0.0);
