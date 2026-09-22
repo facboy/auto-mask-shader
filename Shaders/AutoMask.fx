@@ -334,6 +334,25 @@ sampler AutoMap { Texture = texAutoMap; };
 	#define FLOW_RING 8
 	#define FLOW_WIDTH 640
 	#define FLOW_HEIGHT 360
+	//The search's own geometry. The window is in ring pixels, so at a quarter of a 1440p frame it
+	//reaches about twelve screen pixels either way while the floor is set by the scale: a shift
+	//smaller than one ring pixel is not in the reduced picture to find. The patch is a fixed scatter
+	//across the whole ring rather than a window somewhere in it, because the estimate is global --
+	//one vector for the picture, not one per region, which is what this step is measuring.
+	#define FLOW_SEARCH 3
+	#define FLOW_WINDOW (2 * FLOW_SEARCH + 1)
+	#define FLOW_OFFSETS (FLOW_WINDOW * FLOW_WINDOW)
+	#define FLOW_PATCH_X 10
+	#define FLOW_PATCH_Y 6
+	#define FLOW_PATCH_POINTS (FLOW_PATCH_X * FLOW_PATCH_Y)
+	#define FLOW_COVER_WIDTH 40
+	#define FLOW_COVER_HEIGHT 24
+	#define FLOW_COVER_SAMPLES 4
+	//The mean whole-level difference a match is allowed to leave per channel and still count as one:
+	//past this the two frames do not say the same thing at any offset and the ratio below is reading
+	//noise. It is not the flat-patch guard -- a featureless patch has the same score at every offset,
+	//so the ratio alone rejects it -- but the guard against a match that is simply bad.
+	#define FLOW_RESIDUAL 4.0
 	texture texFlowRef0 { Width = FLOW_WIDTH; Height = FLOW_HEIGHT; Format = RGBA8; };
 	texture texFlowRef1 { Width = FLOW_WIDTH; Height = FLOW_HEIGHT; Format = RGBA8; };
 	texture texFlowRef2 { Width = FLOW_WIDTH; Height = FLOW_HEIGHT; Format = RGBA8; };
@@ -381,8 +400,16 @@ sampler AutoMap { Texture = texAutoMap; };
 	//Where the match held up, one cell per 16 of the ring's pixels -- a coarse map of the picture's
 	//texture. The overlay tints only the cells whose estimate is trustworthy, which is what shows the
 	//featureless parts of a sky instead of painting them a direction no match supports.
-	texture texFlowCoverage { Width = 40; Height = 23; Format = R8; };
+	texture texFlowCoverage { Width = FLOW_COVER_WIDTH; Height = FLOW_COVER_HEIGHT; Format = R8; };
 	sampler FlowCoverage { Texture = texFlowCoverage; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
+	storage2D<float> FlowCoverageStore { Texture = texFlowCoverage; };
+	//Every candidate baseline's score at every offset, laid out one row per baseline and one column
+	//per offset, so the pick can read the surface back without re-running the whole matching -- and
+	//so the search itself is a wide pass rather than one thread doing a hundred thousand dependent
+	//fetches on its own. Writing it is what makes the pick possible; only the pick reads it.
+	texture texFlowScores { Width = FLOW_OFFSETS; Height = (FLOW_RING - 1); Format = R32F; };
+	storage2D<float> FlowScoreStore { Texture = texFlowScores; };
+	sampler FlowScores { Texture = texFlowScores; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
 #endif
 
 #if AutoMaskDiagnostics == 1
@@ -615,6 +642,176 @@ sampler AutoMap { Texture = texAutoMap; };
 					tex2Dstore(FlowRefStore6, int2(tid.xy), value);
 				else
 					tex2Dstore(FlowRefStore7, int2(tid.xy), value);
+			}
+		}
+	#endif
+
+	#if AutoMaskOpticalFlow == 1
+		//The estimate is one global translation for the picture, so the patch that is matched is a fixed
+		//scatter across the whole ring rather than one block somewhere in it: the same sixty places in
+		//the current frame against those places slid by each candidate offset in an older one. Sixty
+		//single-pixel comparisons is the cheapest sample that still averages, and the spacing is what
+		//makes them independent readings of the sky rather than sixty readings of one patch of it.
+		float FlowPatchX(int i)
+		{
+			return (float(i) * FLOW_WIDTH + FLOW_WIDTH / (2 * FLOW_PATCH_X)) / FLOW_PATCH_X;
+		}
+
+		float FlowPatchY(int j)
+		{
+			return (float(j) * FLOW_HEIGHT + FLOW_HEIGHT / (2 * FLOW_PATCH_Y)) / FLOW_PATCH_Y;
+		}
+
+		//One texel of the reduced picture as the whole level it holds, clamped at the border: the ring
+		//is matched on the same grid the accumulator and the drift comparison judge on, and a sample
+		//the offset pushes outside the ring is taken at its edge rather than wrapping to the far side,
+		//which would put content from the wrong end of the frame into the sum.
+		float3 FlowTexel(sampler source, int2 texel)
+		{
+			int2 p = clamp(texel, int2(0, 0), int2(FLOW_WIDTH - 1, FLOW_HEIGHT - 1));
+			float2 uv = (float2(p) + 0.5) / float2(FLOW_WIDTH, FLOW_HEIGHT);
+			return round(tex2Dlod(source, float4(uv, 0.0, 0.0)).rgb * 255.0);
+		}
+
+		//The sum of absolute differences over the patch, the current frame against one candidate
+		//baseline slid by `offset`. The template is the live frame rather than the ring slot just
+		//written: they are the same picture, and reading the frame directly keeps the pairing a fixed
+		//sampler against a chosen one instead of two chosen ones, which is what keeps this shader from
+		//being an eight-by-eight nest of the same loop.
+		float FlowSad(sampler candidate, int2 offset)
+		{
+			float sum = 0.0;
+			[loop] for (int j = 0; j < FLOW_PATCH_Y; j++){
+				[loop] for (int i = 0; i < FLOW_PATCH_X; i++){
+					int2 p = int2(FlowPatchX(i), FlowPatchY(j));
+					sum += dot(abs(FlowTexel(candidate, p + offset) - FlowTexel(ReShade::BackBuffer, p)), 1.0.xxx);
+				}
+			}
+			return sum;
+		}
+
+		//The eight slots are separate targets -- the dialect has no array-of-target form -- so a slot is
+		//picked with a guarded branch, the same shape the reduction writes with. Used twice: for the
+		//whole-patch score the match pass lays out, and for the one-texel difference the coverage map
+		//takes at the offset the pick settled on.
+		float FlowMatchSlot(uint slot, int2 offset)
+		{
+			if (slot == 0u) return FlowSad(FlowRef0, offset);
+			if (slot == 1u) return FlowSad(FlowRef1, offset);
+			if (slot == 2u) return FlowSad(FlowRef2, offset);
+			if (slot == 3u) return FlowSad(FlowRef3, offset);
+			if (slot == 4u) return FlowSad(FlowRef4, offset);
+			if (slot == 5u) return FlowSad(FlowRef5, offset);
+			if (slot == 6u) return FlowSad(FlowRef6, offset);
+			return FlowSad(FlowRef7, offset);
+		}
+
+		float FlowCoverTexel(uint slot, int2 texel, int2 offset)
+		{
+			if (slot == 0u) return dot(abs(FlowTexel(FlowRef0, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
+			if (slot == 1u) return dot(abs(FlowTexel(FlowRef1, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
+			if (slot == 2u) return dot(abs(FlowTexel(FlowRef2, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
+			if (slot == 3u) return dot(abs(FlowTexel(FlowRef3, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
+			if (slot == 4u) return dot(abs(FlowTexel(FlowRef4, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
+			if (slot == 5u) return dot(abs(FlowTexel(FlowRef5, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
+			if (slot == 6u) return dot(abs(FlowTexel(FlowRef6, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
+			return dot(abs(FlowTexel(FlowRef7, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
+		}
+
+		//Every candidate baseline's score at every offset, one thread per pair: the surface is what the
+		//pick below reads, and laying it out is what keeps the whole search parallel. One thread doing
+		//sixty taps for a hundred and twenty-one offsets and seven baselines on its own would be fifty
+		//thousand dependent fetches in a single lane, which no latency hiding can cover -- which is why
+		//the search is spread over passes rather than done in one.
+		[numthreads(64, 4, 1)]
+		void CS_FlowMatch(uint3 tid : SV_DispatchThreadID)
+		{
+			//The dispatch rounds up over both dimensions, so a predicate rather than an early return.
+			bool live = (tid.x < uint(FLOW_OFFSETS) && tid.y < uint(FLOW_RING - 1));
+			uint stride = uint(max(AutoMaskFlowStride, 1.0));
+			uint frame = uint(tex2Dlod(FlowCursor, float4(0.5, 0.5, 0.0, 0.0)).r);
+			//The slot the reduction just filed holds this frame, so it is the template and not a
+			//baseline; the seven older slots are the candidates, one stride to seven strides back.
+			uint slot = (frame / stride % FLOW_RING + FLOW_RING - 1u - tid.y) % FLOW_RING;
+			int2 offset = int2(int(tid.x % uint(FLOW_WINDOW)), int(tid.x / uint(FLOW_WINDOW)))
+				- int2(FLOW_SEARCH, FLOW_SEARCH);
+			float sum = 0.0;
+			if (live)
+				sum = FlowMatchSlot(slot, offset);
+			if (live)
+				tex2Dstore(FlowScoreStore, int2(tid.xy), sum);
+		}
+
+		//The reading is the ratio of the best offset to the best at a *different* offset, never the
+		//minimum alone: over a pure gradient every horizontal offset ties at zero while the offset
+		//found there is wrong, so `best` says nothing on its own and the tie is exactly what has to
+		//come out as no confidence. A residual floor behind it rejects the case the ratio cannot see --
+		//no offset matching at all, which is what a baseline that has drifted past recognition looks
+		//like. The winning slate is reported alongside, because which baseline matched is half of what
+		//the probe is asking.
+		[numthreads(1, 1, 1)]
+		void CS_FlowPick(uint3 tid : SV_DispatchThreadID)
+		{
+			float best = 1.0e9;
+			int bestColumn = 0, bestRow = 0;
+			[loop] for (int i = 0; i < FLOW_OFFSETS * (FLOW_RING - 1); i++){
+				int2 cell = int2(i % FLOW_OFFSETS, i / FLOW_OFFSETS);
+				float score = tex2Dlod(FlowScores, float4((float(cell.x) + 0.5) / float(FLOW_OFFSETS),
+					(float(cell.y) + 0.5) / float(FLOW_RING - 1), 0.0, 0.0)).r;
+				if (score < best){
+					best = score;
+					bestColumn = cell.x;
+					bestRow = cell.y;
+				}
+			}
+			//A ratio against the nearest competitor is all the flat case needs: over a pure gradient
+			//every horizontal offset ties, so the runner-up is level with the winner and the ratio
+			//collapses to nothing whatever the search found. Excluding only the winning *offset* is what
+			//keeps that true -- the same offset seen at a second baseline is the same offset, and were it
+			//allowed to be the runner-up a tie would read as a confident match.
+			float second = 1.0e9;
+			[loop] for (int i = 0; i < FLOW_OFFSETS * (FLOW_RING - 1); i++){
+				int2 cell = int2(i % FLOW_OFFSETS, i / FLOW_OFFSETS);
+				if (cell.x != bestColumn)
+					second = min(second, tex2Dlod(FlowScores, float4((float(cell.x) + 0.5) / float(FLOW_OFFSETS),
+						(float(cell.y) + 0.5) / float(FLOW_RING - 1), 0.0, 0.0)).r);
+			}
+			float ratio = saturate((second - best) / max(second, 1.0));
+			float residual = best / float(FLOW_PATCH_POINTS * 3);
+			float confidence = ratio * saturate(1.0 - residual / FLOW_RESIDUAL);
+
+			uint stride = uint(max(AutoMaskFlowStride, 1.0));
+			uint frame = uint(tex2Dfetch(FlowCursorStore, int2(0, 0)));
+			uint slot = (frame / stride % FLOW_RING + FLOW_RING - 1u - uint(bestRow)) % FLOW_RING;
+			int2 offset = int2(bestColumn % FLOW_WINDOW, bestColumn / FLOW_WINDOW) - int2(FLOW_SEARCH, FLOW_SEARCH);
+			tex2Dstore(FlowVecStore, int2(0, 0),
+				float4(float(offset.x), float(offset.y), confidence, float(slot)));
+		}
+
+		//Where the estimate holds, one cell per sixteen ring pixels: a cell's own texture matched at
+		//the offset and against the baseline the pick settled on, so the map is the estimate's *fit*
+		//rather than how busy the cell is. That is the reading that separates the two failures the
+		//overlay is meant to show -- a featureless stretch of sky, where the patch has no texture to
+		//match and the ratio above rejects it, and something moving on its own, where the cell has
+		//plenty of texture and the global vector still does not explain it.
+		[numthreads(64, 4, 1)]
+		void CS_FlowCover(uint3 tid : SV_DispatchThreadID)
+		{
+			bool live = (tid.x < FLOW_COVER_WIDTH && tid.y < FLOW_COVER_HEIGHT);
+			float4 vec = tex2Dlod(FlowVec, float4(0.5, 0.5, 0.0, 0.0));
+			if (live){
+				int2 offset = int2(int(round(vec.x)), int(round(vec.y)));
+				int2 base = int2(tid.xy) * int2(FLOW_WIDTH / FLOW_COVER_WIDTH, FLOW_HEIGHT / FLOW_COVER_HEIGHT);
+				float sum = 0.0;
+				[loop] for (int j = 0; j < FLOW_COVER_SAMPLES; j++){
+					[loop] for (int i = 0; i < FLOW_COVER_SAMPLES; i++){
+						int2 p = base + int2(i * (FLOW_WIDTH / FLOW_COVER_WIDTH) / FLOW_COVER_SAMPLES,
+							j * (FLOW_HEIGHT / FLOW_COVER_HEIGHT) / FLOW_COVER_SAMPLES);
+						sum += FlowCoverTexel(uint(max(round(vec.w), 0.0)), p, offset);
+					}
+				}
+				float residual = sum / float(FLOW_COVER_SAMPLES * FLOW_COVER_SAMPLES * 3);
+				tex2Dstore(FlowCoverageStore, int2(tid.xy), saturate(1.0 - residual / FLOW_RESIDUAL));
 			}
 		}
 	#endif
@@ -907,6 +1104,25 @@ technique AutoMask
 				ComputeShader = CS_FlowReduce;
 				DispatchSizeX = (FLOW_WIDTH + 63) / 64;
 				DispatchSizeY = (FLOW_HEIGHT + 3) / 4;
+			}
+			//Every baseline at every offset, against the frame just filed, then the pick that turns the
+			//surface into one vector and the coverage map that says where it holds. Wide dispatches
+			//rather than one thread walking the whole search: the taps are dependent fetches, and a
+			//single lane cannot hide their latency -- see the match pass.
+			pass {
+				ComputeShader = CS_FlowMatch;
+				DispatchSizeX = (FLOW_OFFSETS + 63) / 64;
+				DispatchSizeY = (FLOW_RING - 1 + 3) / 4;
+			}
+			pass {
+				ComputeShader = CS_FlowPick;
+				DispatchSizeX = 1;
+				DispatchSizeY = 1;
+			}
+			pass {
+				ComputeShader = CS_FlowCover;
+				DispatchSizeX = (FLOW_COVER_WIDTH + 63) / 64;
+				DispatchSizeY = (FLOW_COVER_HEIGHT + 3) / 4;
 			}
 		#endif
 		//Hands the count over as the share the next frame's gate reads, and clears it.

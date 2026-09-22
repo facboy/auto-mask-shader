@@ -229,18 +229,42 @@ because 1,024 taps cannot tell a level of dithering from a level of real motion.
 The fourth structural switch, `AutoMaskOpticalFlow`, carries the compute condition in its own guard
 rather than sitting beside it, so it always requires the compute path. It owns one **measuring** feature
 and nothing else: a ring of eight lagged low-resolution reference frames at a fixed 640×360, a 1×1
-`RGBA32F` readout (`dx`, `dy`, confidence, winning slot), a 1×1 `r32f` cursor and a low-res `R8` coverage
-map. The scale is a design constraint rather than a detail — the search can only find a shift of one ring
-pixel or more, so a quarter of a 1440p frame is what keeps a four-screen-pixel move findable there, and
-the compute path's old 16×16 coarse grid could not have served it because a whole-pixel shift lives
-inside one of its cells. It is an instrument, not part of the mask: no line of `CS_Accum`'s state
-machine, the gate, the drift channel or the mask reads any of its targets, so neither position of the
-switch changes what is protected.
+`RGBA32F` readout (`dx`, `dy`, confidence, winning slot), a 1×1 `r32f` cursor, a low-res `R8` coverage
+map and the `r32f` score surface the search is laid out in. The scale is a design constraint rather
+than a detail — the search can only find a shift of one ring pixel or more, so a quarter of a 1440p
+frame is what keeps a four-screen-pixel move findable there, and the compute path's old 16×16 coarse
+grid could not have served it because a whole-pixel shift lives inside one of its cells. It is an
+instrument, not part of the mask: no line of `CS_Accum`'s state machine, the gate, the drift channel
+or the mask reads any of its targets, so neither position of the switch changes what is protected.
 `CS_FlowReduce` files each frame into the ring slot the cursor names, on the ring's own 640×360 grid
 rather than the frame's — the ring is *fixed* resolution, so a dispatch taken from the buffer would
 cover pixels it has no texels for — and `CS_Finish` advances the cursor one frame behind, the lag the
 share and the measured step already carry. The reduction is the ring's only writer, so it takes the
 eight slots as storage and reads the cursor through a sampler.
+
+The search is **three passes, not the one the plan drew**, and the reason is latency rather than
+tidiness. The template is the live frame — the same picture the slot just written holds, which is why
+that slot is the *newest reference and not a candidate*: matching a frame against itself wins at
+`(0,0)` every time, so the slot holding it is read as the template and the seven older slots are the
+baselines, one to seven strides back. `CS_FlowMatch` is one thread per (baseline, offset) pair, writing
+a score surface — one row per baseline, one column per offset — that `CS_FlowPick` reads to choose; a
+single 1×1 pass doing the whole thing would be ~5×10⁴ *dependent* texture fetches in one lane, which no
+latency hiding can cover, where the existing 1×1 `CS_Finish` is cheap only because its 256-iteration
+loop is stores with at most eight fetches in it. The pick is two passes over the surface, so the two
+loops stay separate and the compiler cannot re-read stale values.
+The reading is the **ratio of the winner to the runner-up at a different offset**, never the minimum:
+over a pure gradient every horizontal offset ties at zero while the offset found there is wrong, so
+`best` alone says nothing and the tie is exactly what has to come out as no confidence. Excluding only
+the winning *offset* — not the winning cell — is what keeps that true across baselines; a residual floor
+behind it rejects the case the ratio cannot see, no offset matching at all, which is what a baseline
+drifted past recognition looks like. Both are *rejections, not scores*, and the confidence multiplies
+them so either can veto.
+`CS_FlowCover` is the estimate's **fit** and deliberately not the cell's brightness: it matches each
+cell at the offset and against the baseline the pick settled on, so a featureless stretch of sky and
+something moving on its own both read as unexplained — one reading for both of §4's failures, where a
+per-cell *contrast* would have shown only the first and a per-cell error at the winning offset would
+have called a featureless cell trustworthy, since a uniform patch matches equally badly everywhere.
+The coverage map is 40×24 against 40×23 so one cell is exactly 16×15 ring pixels.
 `AutoMaskFlowStride` is a slider rather than a drag because it is a frame count rather than a duration,
 and it is swept live because sweeping the baseline is the experiment §3 of `docs/optical-flow.md` turns
 on; its uniforms are declared beside the horizon for the same reason the horizon's are, the pixel path
@@ -294,7 +318,9 @@ Load-bearing, and follows from what each pass reads:
    every pass that writes it. `PS_Copy` stays a pixel pass in both variants — the accumulator is
    `RGBA16F` and the copy has no statistics to do — and `PS_CopyDrift` is its twin on the compute path.
    With the probe on, `CS_FlowReduce` rides between those two and `CS_Finish`, so it reads the frame the
-   accumulator read and files its reduction before the cursor advances.
+   accumulator read and files its reduction before the cursor advances, with `CS_FlowMatch`,
+   `CS_FlowPick` and `CS_FlowCover` behind it — the frame just filed is the template, so the match has
+   to follow the reduction, and the pick has to follow the surface the match laid out.
 4. `PS_Store`, keeping the mapped pixels.
 5. `PS_StoreFrame`, copying the untouched frame into the history target for the next frame.
 6. `PS_AntiBloom` — black the masked pixels in the live frame so a bloom pass downstream has no UI to
