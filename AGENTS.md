@@ -421,6 +421,30 @@ offline compile check:
   `cs_5_0` for a compute one, so a compute pass cannot slip through unread or be compiled as a pixel
   shader. A pass is read for `ComputeShader` as well as `PixelShader`, and a compute pass declaring fewer
   than two `DispatchSize`s exits non-zero the way ReShade rejects it (its error 3012).
+- **A warning is a failure, not a note.** ReShade prints every warning its compile emits into the log the
+  user reads at load, so shipping one is shipping an unreadable log — which is how a real warning gets
+  missed. `check` therefore reports a warning entry as `WARN` and exits non-zero on it. The one exception
+  is `X3579` (`ps_5_0 does not support groupshared, groupshared ignored`), which is the harness's own
+  artefact rather than the shader's: the whole preprocessed file is compiled once per entry point, so fxc
+  sees the compute path's file-scope `groupshared` tally while compiling a *pixel* entry point, where
+  ReShade — emitting one pass's shader from that pass's reachable code — does not. The game's log carrying
+  no such warning is what says the cause is the harness, so it is filtered on the reported code (this
+  `fxc` rejects `/wd`: `Unknown or invalid option`) and nothing else is. Exercise the gate by hand before
+  committing a change to it: put any of the constructs below back and it must exit non-zero naming the
+  code.
+- The shader is written so that `check` is silent, and each rewrite is the *only* thing that silences its
+  code — do not "tidy" one back into the warning shape. Two of the four were seen in a real ReShade log,
+  which is why they are the ones to leave alone: `X3556` eight times and `X4000` twice. The other two the
+  check reports and a per-pass emit happens not to — a difference in what gets compiled, not a reason to
+  put them back. A `clipped` accumulator declared `float3` makes `clipped == 0.0` a three-wide test whose
+  `&&` truncation is X3206, so it is a `float` (the `all()` answer is one value, not one per channel); a
+  slot-picking row of bare `if (...) return X;` statements with the last return unconditional reads to fxc
+  as a function that may return nothing (X4000), so both such helpers are an `if`/`else if`/`else` chain;
+  a flat counter unpacked with `int i % W` and `int i / W` is X3556 (integer modulus/division), so those
+  counters are `uint` and the divisions take `uint` operands — the numbers are identical either way, and
+  unsigned is the form fxc accepts without complaint; and two loops declaring the same counter name in one
+  scope is X3078, so each walk names its own. The first two are outright bugs in the log and the last two
+  are pure cost, so none is a cosmetic preference.
 - **It must fail loudly on missing data.** An earlier version of the companion tool reported a clean pass
   while emitting no bytecode at all, because a missing hash compares equal to another missing hash. Seven
   cases must keep exiting non-zero, each exercised by hand before committing a change here: an empty
@@ -486,7 +510,9 @@ The compile check needs `fxc.exe`, which is a Windows binary run under WSL:
   Compiling is `/Gec /T <profile> /E <entry> /Fc <asm> /Fo <binary>`, with `ps_5_0` for a pixel entry
   point and `cs_5_0` for a compute one; the instruction count is read from
   `// Approximately N instruction slots used` in the assembly, and that count is cross-checked against
-  the opcode histogram so a parsing miss cannot look like a pass.
+  the opcode histogram so a parsing miss cannot look like a pass. The compile's warning output is read
+  too, because that is the same text ReShade puts in the log it shows at load (see the warning gate
+  above).
 - ReShade's compute dialect is not HLSL: `storage2D`/`storage1D`/`storage3D` objects, the group and
   memory barriers, and the `atomic*` family are its own surface vocabulary, and ReShade's own codegen
   translates them (`RWTexture*`, `GroupMemoryBarrierWithGroupSync()`, `Interlocked*`) before handing the

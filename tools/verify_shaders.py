@@ -24,7 +24,7 @@ There is no baseline to compare against: this project has no shipped behaviour
 to preserve, so the point is only "it compiles, here is the pass list, and here
 is what it costs".
 
-Six properties are deliberate and must survive any change to this file:
+Seven properties are deliberate and must survive any change to this file:
 
 - Every failure is loud. A shader that compiles *and emits no bytecode* is an
   error here, not a pass, because a missing hash compares equal to another
@@ -57,6 +57,19 @@ Six properties are deliberate and must survive any change to this file:
   X3004 (`undeclared identifier or no matching intrinsic overload`). `fmod` did
   exactly that -- a clean pass here, a failed load in the game -- so the names
   fxc has and ReShade does not are refused outright. That is `NOT_IN_RESHADE`.
+- A warning is a failure too, with one exception that is the harness's own
+  artefact. ReShade prints every warning its compile emits to the log, so one is
+  a defect rather than a note: a log a user cannot read is how a real warning
+  gets missed, and a genuinely noisy load is what the shader should not ship.
+  The check reports a warning entry as `WARN` and fails on it. The single
+  exception is `X3579` (`ps_5_0 does not support groupshared, groupshared
+  ignored`), which is this harness's own artefact rather than the shader's: the
+  whole preprocessed file is compiled once per entry point, so fxc sees the
+  compute path's file-scope `groupshared` tally when compiling a pixel entry
+  point, where ReShade -- compiling one pass's shader at a time -- does not. The
+  game's own log carries no such warning, which is what says the cause is the
+  harness. See `HARNESS_WARNINGS`; the split is on the reported code because
+  this `fxc` does not accept `/wd`.
 """
 
 from __future__ import annotations
@@ -163,6 +176,27 @@ COMPUTE_ENTRY_POINT_THREADED = re.compile(
 
 # The fxc profile each kind of entry point compiles under.
 PROFILES = {"pixel": "ps_5_0", "compute": "cs_5_0"}
+
+# Warning codes that are this harness's own artefact rather than a shader defect,
+# and so are not failures. The reason is structural: this tool compiles the whole
+# preprocessed file once per entry point, so fxc sees every function in it,
+# referenced or not, while ReShade emits each pass's shader separately from that
+# pass's reachable code. The real log is what proves the difference -- it carries
+# no X3579 for a compute variant, which is why this is filtered here instead of
+# chased in the shader:
+#
+# - 3579: `ps_5_0 does not support groupshared, groupshared ignored`. The
+#   `groupshared` tally belongs to `CS_Accum` and is declared at file scope because
+#   the dialect forbids it inside a shader body (X3010), so a whole-file compile of
+#   a pixel entry point carries it into a pixel profile and fxc remarks on it. No
+#   pixel pass in the game reaches that declaration. `fxc` here does not accept
+#   `/wd` ("Unknown or invalid option" under D3DCompiler 43), so the split has to
+#   happen on the codes as reported.
+#
+# Everything else is the shader's own, and a warning ReShade would print into the
+# log the user reads is a defect rather than a note, so it fails the check.
+HARNESS_WARNINGS = frozenset((3579,))
+WARNING = re.compile(r"warning (X\d+):")
 
 # ReShade's compute dialect is not HLSL: storage objects, group barriers and the
 # atomic family are its own surface vocabulary, and ReShade's own codegen
@@ -691,6 +725,8 @@ def compile_entry(stripped: Path, entry: EntryPoint) -> dict:
     if not binary.is_file():
         # Compiling "succeeded" but emitted nothing: refuse to report it as ok.
         return {"status": "error", "error": "fxc produced no bytecode for %s" % entry.name}
+    warnings = [code for code in WARNING.findall(log)
+                if int(code[1:]) not in HARNESS_WARNINGS]
     text = asm.read_text(encoding="utf-8", errors="replace")
     match = INSTRUCTION_COUNT.search(text)
     histogram: dict[str, int] = {}
@@ -714,7 +750,8 @@ def compile_entry(stripped: Path, entry: EntryPoint) -> dict:
                          % (sum(histogram.values()), instructions)}
     return {"status": "ok", "instructions": instructions,
             "histogram": dict(sorted(histogram.items())),
-            "bytecode_sha256": sha256_file(binary)}
+            "bytecode_sha256": sha256_file(binary),
+            "warnings": warnings}
 
 
 def technique_blocks(text: str) -> list[tuple[str, str]]:
@@ -798,9 +835,23 @@ def cmd_check(args) -> int:
                     failed.append("%s %s %s (%s): %s"
                                   % (name, source.name, entry_name, kind,
                                      outcome.get("error")))
+                elif outcome["warnings"]:
+                    # A warning is a failure, not a note. ReShade prints every
+                    # warning its compile emits into the log it shows the user,
+                    # so shipping one means shipping an unreadable log -- which
+                    # is how a real warning gets missed. The harness's own
+                    # artefact is filtered out of the list it was read from
+                    # (see `HARNESS_WARNINGS`), so everything reaching here is
+                    # the shader's own.
+                    failed.append("%s %s %s (%s): compiled with %s"
+                                  % (name, source.name, entry_name, kind,
+                                     ", ".join(outcome["warnings"])))
+                status = outcome["status"]
+                if status == "ok" and outcome["warnings"]:
+                    status = "WARN"
                 print("%-*s %-30s %6s  %s"
                       % (VARIANT_WIDTH, name, entry_name,
-                         outcome.get("instructions", "-"), outcome["status"]))
+                         outcome.get("instructions", "-"), status))
                 if args.hashes and outcome["status"] == "ok":
                     print("  %s %s sha256=%s" % (name, entry_name, outcome["bytecode_sha256"]))
                 if args.opcodes and outcome["status"] == "ok":

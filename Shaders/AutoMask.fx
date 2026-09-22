@@ -444,10 +444,12 @@ sampler AutoMap { Texture = texAutoMap; };
 		now = nowLevels / 255.0;
 		//A pinned colour voids stillness on either side of the pair, on the same reasoning: what
 		//sits against a rail may be saturated rather than motionless, and the average of a pinned
-		//colour sits against the same rail.
-		float3 clipped = all(now == 0.0.xxx) + all(now == 1.0.xxx)
-		               + all(before == 0.0.xxx) + all(before == 1.0.xxx)
-		               + all(drift == 0.0.xxx) + all(drift == 1.0.xxx);
+		//colour sits against the same rail. `all` is one answer for all three channels, so the
+		//count is a scalar: declared as a vector it made `clipped == 0.0` a three-wide test whose
+		//`&&` truncation fxc warns about (X3206), which ReShade prints at load.
+		float clipped = all(now == 0.0.xxx) + all(now == 1.0.xxx)
+		              + all(before == 0.0.xxx) + all(before == 1.0.xxx)
+		              + all(drift == 0.0.xxx) + all(drift == 1.0.xxx);
 		float3 diff = abs(nowLevels - beforeLevels);
 		//The long-baseline reading, against the same deadband: how far the frame has got from
 		//where its colour has been, which is where a shift too small to cross a level between
@@ -693,29 +695,33 @@ sampler AutoMap { Texture = texAutoMap; };
 		//The eight slots are separate targets -- the dialect has no array-of-target form -- so a slot is
 		//picked with a guarded branch, the same shape the reduction writes with. Used twice: for the
 		//whole-patch score the match pass lays out, and for the one-texel difference the coverage map
-		//takes at the offset the pick settled on.
+		//takes at the offset the pick settled on. Written as an if/else chain rather than a row of
+		//bare ifs because fxc cannot see that the last one is unconditional through the branch above
+		//it, and reports the function as possibly returning nothing (X4000) -- a warning ReShade
+		//prints at load. The chain makes the fall-through explicit and compiles clean.
 		float FlowMatchSlot(uint slot, int2 offset)
 		{
 			if (slot == 0u) return FlowSad(FlowRef0, offset);
-			if (slot == 1u) return FlowSad(FlowRef1, offset);
-			if (slot == 2u) return FlowSad(FlowRef2, offset);
-			if (slot == 3u) return FlowSad(FlowRef3, offset);
-			if (slot == 4u) return FlowSad(FlowRef4, offset);
-			if (slot == 5u) return FlowSad(FlowRef5, offset);
-			if (slot == 6u) return FlowSad(FlowRef6, offset);
-			return FlowSad(FlowRef7, offset);
+			else if (slot == 1u) return FlowSad(FlowRef1, offset);
+			else if (slot == 2u) return FlowSad(FlowRef2, offset);
+			else if (slot == 3u) return FlowSad(FlowRef3, offset);
+			else if (slot == 4u) return FlowSad(FlowRef4, offset);
+			else if (slot == 5u) return FlowSad(FlowRef5, offset);
+			else if (slot == 6u) return FlowSad(FlowRef6, offset);
+			else return FlowSad(FlowRef7, offset);
 		}
 
 		float FlowCoverTexel(uint slot, int2 texel, int2 offset)
 		{
+			//As above: the chain is what tells fxc the last return is the fall-through (X4000).
 			if (slot == 0u) return dot(abs(FlowTexel(FlowRef0, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
-			if (slot == 1u) return dot(abs(FlowTexel(FlowRef1, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
-			if (slot == 2u) return dot(abs(FlowTexel(FlowRef2, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
-			if (slot == 3u) return dot(abs(FlowTexel(FlowRef3, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
-			if (slot == 4u) return dot(abs(FlowTexel(FlowRef4, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
-			if (slot == 5u) return dot(abs(FlowTexel(FlowRef5, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
-			if (slot == 6u) return dot(abs(FlowTexel(FlowRef6, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
-			return dot(abs(FlowTexel(FlowRef7, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
+			else if (slot == 1u) return dot(abs(FlowTexel(FlowRef1, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
+			else if (slot == 2u) return dot(abs(FlowTexel(FlowRef2, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
+			else if (slot == 3u) return dot(abs(FlowTexel(FlowRef3, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
+			else if (slot == 4u) return dot(abs(FlowTexel(FlowRef4, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
+			else if (slot == 5u) return dot(abs(FlowTexel(FlowRef5, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
+			else if (slot == 6u) return dot(abs(FlowTexel(FlowRef6, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
+			else return dot(abs(FlowTexel(FlowRef7, texel + offset) - FlowTexel(ReShade::BackBuffer, texel)), 1.0.xxx);
 		}
 
 		//Every candidate baseline's score at every offset, one thread per pair: the surface is what the
@@ -749,19 +755,27 @@ sampler AutoMap { Texture = texAutoMap; };
 		//no offset matching at all, which is what a baseline that has drifted past recognition looks
 		//like. The winning slate is reported alongside, because which baseline matched is half of what
 		//the probe is asking.
+		//
+		//The surface is one flat run of cells, and it is walked as unsigned arithmetic because that
+		//is the form fxc does not flag as slow integer division (X3556) -- the two axes are still
+		//recovered from the counter by `%` and `/`, so the surface is laid out exactly as before.
+		//The two walks also use differently named counters: declaring `i` twice in one scope is
+		//reported by fxc as a loop-variable conflict (X3078). Both are warnings ReShade prints at
+		//load, so neither is worth producing.
 		[numthreads(1, 1, 1)]
 		void CS_FlowPick(uint3 tid : SV_DispatchThreadID)
 		{
 			float best = 1.0e9;
-			int bestColumn = 0, bestRow = 0;
-			[loop] for (int i = 0; i < FLOW_OFFSETS * (FLOW_RING - 1); i++){
-				int2 cell = int2(i % FLOW_OFFSETS, i / FLOW_OFFSETS);
-				float score = tex2Dlod(FlowScores, float4((float(cell.x) + 0.5) / float(FLOW_OFFSETS),
-					(float(cell.y) + 0.5) / float(FLOW_RING - 1), 0.0, 0.0)).r;
+			uint bestColumn = 0u, bestRow = 0u;
+			[loop] for (uint i = 0u; i < uint(FLOW_OFFSETS * (FLOW_RING - 1)); i++){
+				uint column = i % uint(FLOW_OFFSETS);
+				uint row = i / uint(FLOW_OFFSETS);
+				float score = tex2Dlod(FlowScores, float4((float(column) + 0.5) / float(FLOW_OFFSETS),
+					(float(row) + 0.5) / float(FLOW_RING - 1), 0.0, 0.0)).r;
 				if (score < best){
 					best = score;
-					bestColumn = cell.x;
-					bestRow = cell.y;
+					bestColumn = column;
+					bestRow = row;
 				}
 			}
 			//A ratio against the nearest competitor is all the flat case needs: over a pure gradient
@@ -770,11 +784,12 @@ sampler AutoMap { Texture = texAutoMap; };
 			//keeps that true -- the same offset seen at a second baseline is the same offset, and were it
 			//allowed to be the runner-up a tie would read as a confident match.
 			float second = 1.0e9;
-			[loop] for (int i = 0; i < FLOW_OFFSETS * (FLOW_RING - 1); i++){
-				int2 cell = int2(i % FLOW_OFFSETS, i / FLOW_OFFSETS);
-				if (cell.x != bestColumn)
-					second = min(second, tex2Dlod(FlowScores, float4((float(cell.x) + 0.5) / float(FLOW_OFFSETS),
-						(float(cell.y) + 0.5) / float(FLOW_RING - 1), 0.0, 0.0)).r);
+			[loop] for (uint j = 0u; j < uint(FLOW_OFFSETS * (FLOW_RING - 1)); j++){
+				uint otherColumn = j % uint(FLOW_OFFSETS);
+				uint otherRow = j / uint(FLOW_OFFSETS);
+				if (otherColumn != bestColumn)
+					second = min(second, tex2Dlod(FlowScores, float4((float(otherColumn) + 0.5) / float(FLOW_OFFSETS),
+						(float(otherRow) + 0.5) / float(FLOW_RING - 1), 0.0, 0.0)).r);
 			}
 			float ratio = saturate((second - best) / max(second, 1.0));
 			float residual = best / float(FLOW_PATCH_POINTS * 3);
@@ -782,8 +797,9 @@ sampler AutoMap { Texture = texAutoMap; };
 
 			uint stride = uint(max(AutoMaskFlowStride, 1.0));
 			uint frame = uint(tex2Dfetch(FlowCursorStore, int2(0, 0)));
-			uint slot = (frame / stride % FLOW_RING + FLOW_RING - 1u - uint(bestRow)) % FLOW_RING;
-			int2 offset = int2(bestColumn % FLOW_WINDOW, bestColumn / FLOW_WINDOW) - int2(FLOW_SEARCH, FLOW_SEARCH);
+			uint slot = (frame / stride % FLOW_RING + FLOW_RING - 1u - bestRow) % FLOW_RING;
+			int2 offset = int2(int(bestColumn % uint(FLOW_WINDOW)), int(bestColumn / uint(FLOW_WINDOW)))
+				- int2(FLOW_SEARCH, FLOW_SEARCH);
 			tex2Dstore(FlowVecStore, int2(0, 0),
 				float4(float(offset.x), float(offset.y), confidence, float(slot)));
 		}
@@ -793,7 +809,9 @@ sampler AutoMap { Texture = texAutoMap; };
 		//rather than how busy the cell is. That is the reading that separates the two failures the
 		//overlay is meant to show -- a featureless stretch of sky, where the patch has no texture to
 		//match and the ratio above rejects it, and something moving on its own, where the cell has
-		//plenty of texture and the global vector still does not explain it.
+		//plenty of texture and the global vector still does not explain it. The sample strides are
+		//taken in unsigned arithmetic because that is the form fxc does not warn about (X3556); the
+		//cell size and the sample offsets are the same numbers either way.
 		[numthreads(64, 4, 1)]
 		void CS_FlowCover(uint3 tid : SV_DispatchThreadID)
 		{
@@ -801,12 +819,12 @@ sampler AutoMap { Texture = texAutoMap; };
 			float4 vec = tex2Dlod(FlowVec, float4(0.5, 0.5, 0.0, 0.0));
 			if (live){
 				int2 offset = int2(int(round(vec.x)), int(round(vec.y)));
-				int2 base = int2(tid.xy) * int2(FLOW_WIDTH / FLOW_COVER_WIDTH, FLOW_HEIGHT / FLOW_COVER_HEIGHT);
+				int2 base = int2(tid.xy) * int2(uint(FLOW_WIDTH / FLOW_COVER_WIDTH), uint(FLOW_HEIGHT / FLOW_COVER_HEIGHT));
 				float sum = 0.0;
 				[loop] for (int j = 0; j < FLOW_COVER_SAMPLES; j++){
 					[loop] for (int i = 0; i < FLOW_COVER_SAMPLES; i++){
-						int2 p = base + int2(i * (FLOW_WIDTH / FLOW_COVER_WIDTH) / FLOW_COVER_SAMPLES,
-							j * (FLOW_HEIGHT / FLOW_COVER_HEIGHT) / FLOW_COVER_SAMPLES);
+						int2 p = base + int2(uint(i) * uint(FLOW_WIDTH / FLOW_COVER_WIDTH) / uint(FLOW_COVER_SAMPLES),
+							uint(j) * uint(FLOW_HEIGHT / FLOW_COVER_HEIGHT) / uint(FLOW_COVER_SAMPLES));
 						sum += FlowCoverTexel(uint(max(round(vec.w), 0.0)), p, offset);
 					}
 				}
@@ -836,9 +854,12 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	now = nowLevels / 255.0;
 	//A pixel pinned at all 0 or all 255 shows no difference while it stays there, but that is
 	//saturation, not stillness: a wholly clipped frame on either side voids the still verdict,
-	//while the moves onto and off a rail are read by the difference as usual.
-	float3 clipped = all(now == 0.0.xxx) + all(now == 1.0.xxx)
-	               + all(before == 0.0.xxx) + all(before == 1.0.xxx);
+	//while the moves onto and off a rail are read by the difference as usual. `all` answers for
+	//all three channels at once, so the count is a scalar and not the vector it was written as:
+	//the vector form made `clipped == 0.0` a three-wide test whose `&&` truncation fxc warns
+	//about (X3206), which ReShade prints at load.
+	float clipped = all(now == 0.0.xxx) + all(now == 1.0.xxx)
+	              + all(before == 0.0.xxx) + all(before == 1.0.xxx);
 	float3 diff = abs(nowLevels - beforeLevels);
 	float maxDiff = max(diff.r, max(diff.g, diff.b));
 	//The deadband is a level count, so it is read as whole levels: a change of that many levels or
