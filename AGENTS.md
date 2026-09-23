@@ -30,6 +30,7 @@ for the concept, the store/restore pattern and the anti-bloom suppression belong
 | `docs/compute-path.md` | What `AutoMaskCompute=1` changes, in full: the compute passes, histogram, auto-deadband, drift channel, pass order. |
 | `docs/verification.md` | The compile check's design, the toolchain, and the end-to-end scenarios that need a game. |
 | `docs/editing-conventions.md` | The reasoning behind the annotation, target-FPS and reset-step rules below. |
+| `docs/definitions.md` | Glossary of the vocabulary reused across the shader, the README and the docs. |
 | `docs/review.md`, `docs/drift-snap-review.md`, `docs/optical-flow.md` | Recorded design history and closed investigations. |
 
 There is **no `.fxh` companion header and there deliberately never will be**. A header holds authored
