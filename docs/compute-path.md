@@ -9,9 +9,10 @@ that owns the shaders, the pass entries and every target only they use. The gate
 rather than an addition — the coarse grid and its two reduction passes are gone, not skipped — which is
 what keeps that cost claim honest. Two readings are *added* rather than replaced, both resting on the
 compute path's ability to see every pixel: the drift channel's two full-res `RGBA32F` ping-pong targets,
-which the pixel path has nowhere to put and deliberately does not carry, and the histogram's 256×1
-`r32u` plus the 1×1 `r32f` step it feeds — 1 KB together — which the coarse grid cannot take at all,
-because 1,024 taps cannot tell a level of dithering from a level of real motion.
+which the pixel path has nowhere to put and deliberately does not carry, and the histogram's
+`AUTOMASK_STEP_MAX`×1 `r32u` plus the 1×1 `r32f` step it feeds — a few dozen bytes together, against 1 KB
+when the bins were one per level — which the coarse grid cannot take at all, because 1,024 taps cannot
+tell a level of dithering from a level of real motion.
 
 - `CS_Accum` is `PS_Accum`'s state machine verbatim, plus one count: every pixel it calls changed adds to
   a `groupshared` tally, and one thread per **group** adds that tally to a single 1×1 `r32u` counter, so
@@ -25,28 +26,42 @@ because 1,024 taps cannot tell a level of dithering from a level of real motion.
   line is needed at the read sites — only the declaration differs per variant.
 - The count replaces `PS_Motion`/`PS_MotionAvg` and the 16×16 coarse target. The gate was 1,024 taps
   standing in for every pixel; it is now exact.
-- The **change-size histogram** rides in the same pass and is guarded with it: one `atomicAdd` per pixel
-  into one of 256 `r32u` bins, indexed by the whole level of frame-to-frame difference, so the frame
-  reports the whole distribution of its own movement rather than only the pixels above a threshold. The
-  histogram exists because the pixel path cannot take the reading at all — 1,024 taps cannot tell a level
-  of dithering from a level of real motion — and it is what makes an auto-deadband possible: `CS_Finish`
-  reads the low levels back, finds the smallest one leaving no more than `AutoMaskNoiseFloor` percent of
-  the screen changing above it, and writes that into a second 1×1 `r32f` target the next frame's
-  `CS_Accum` reads through a sampler named `AutoStep`, one frame behind exactly as the share is. The
-  measurement is per frame and never writes back into the slider. The walk covers levels 1 to 8 only,
-  because 8 is where the `AutoMaskEps` slider ends and a step outside that range is not a position the
-  manual path could take either. Running out of the range means no level separated the frame's noise from
-  its content — what a fully live frame looks like, every level still changing somewhere — and there the
-  slider's own value stands rather than the measurement guessing, so a fast camera movement cannot talk
-  the shader into forgiving real motion. The bins are filled only while the toggle is on — that is the
-  per-pixel atomic, so gating it is what keeps the off path costing what it cost before the feature
-  existed — but the clear runs unconditionally, because a toggle flip with the bins left full would have
-  the first measured step read off a stale frame. Clearing 256 bins from a 1-thread pass costs nothing
-  worth eliding. `AutoMaskAutoStep` and `AutoMaskNoiseFloor` are declared beside the horizon inside the compute
-  guard for the same reason it is: the pixel path has no pass that would read them. The auto-deadband is
-  a live toggle rather than a fourth structural switch, so its targets stay allocated while it is off —
-  the convention is that a value tuned by watching stays a slider and costs nothing but the memory its
-  guard already owns, and 1 KB is not worth a recompile per comparison.
+- The **change-size histogram** rides in the same pass and is guarded with it, and it counts the whole
+  distribution of the frame's movement rather than only the pixels above a threshold — which is why an
+  auto-deadband is possible at all: `CS_Finish` reads the low levels back, finds the smallest one leaving
+  no more than `AutoMaskNoiseFloor` percent of the screen changing above it, and writes that into a
+  second 1×1 `r32f` target the next frame's `CS_Accum` reads through a sampler named `AutoStep`, one frame
+  behind exactly as the share is. The measurement is per frame and never writes back into the slider. The
+  walk covers levels 1 to 8 only, because 8 is where the `AutoMaskEps` slider ends and a step outside that
+  range is not a position the manual path could take either. Running out of the range means no level
+  separated the frame's noise from its content — what a fully live frame looks like, every level still
+  changing somewhere — and there the slider's own value stands rather than the measurement guessing, so a
+  fast camera movement cannot talk the shader into forgiving real motion. The histogram exists because the
+  pixel path cannot take the reading at all: 1,024 taps cannot tell a level of dithering from a level of
+  real motion.
+- **The histogram is tallied in groupshared, not in the global bins, and that is what the feature's cost
+  turns on.** The first version wrote one `atomicAdd` per pixel straight into a 256×1 `r32u` target, and
+  that is the whole of what the toggle cost: ~3.7M global atomics a frame at 1440p, nearly all of them
+  aimed at the same bin in a still scene, which is the worst case for atomic contention. `CS_Accum` now
+  keeps an 8-bin `groupshared` tally beside the moved-pixel one, so a block's pixels contend only with
+  each other, and one thread per group hands the totals over — a handful of global adds per group, and a
+  bin no pixel reached is skipped entirely. The target is `AUTOMASK_STEP_MAX` wide rather than 256 for the
+  same reason: the walk reads levels 1 to 8 and nothing else, bins above it were never read, and a pixel
+  that did not change now lands in no bin at all, so the quiet majority is counted by its absence instead
+  of by an add apiece onto bin 0. The readings are equivalent, not merely similar — verified statement for
+  statement against the old 256-bin walk over 20,000 synthetic frames, no mismatch — because the walk sums
+  the bins and subtracts each level's own, which is the same arithmetic whether level 0 is stored or left
+  implicit.
+- The bins are still filled only while the toggle is on, and the flush with them, so the off path does no
+  histogram work beyond the shared-memory clear — which is the group's own scratch space, not the bins the
+  next frame reads, and therefore has to run regardless. The *global* bins are cleared in `CS_Finish` (now
+  8 writes from a 1-thread pass instead of 256) because a toggle flip with them left full would have the
+  first measured step read off a stale frame. `AutoMaskAutoStep` and `AutoMaskNoiseFloor` are declared
+  beside the horizon inside the compute guard for the same reason it is: the pixel path has no pass that
+  would read them. The auto-deadband is a live toggle rather than a fourth structural switch, so its
+  targets stay allocated while it is off — the convention is that a value tuned by watching stays a slider
+  and costs nothing but the memory its guard already owns, and 1 KB is not worth a recompile per
+  comparison.
 - The **drift channel** rides in the same pass and is guarded with it. Two full-res `RGBA32F` ping-pong
   targets hold a long-baseline average of each pixel's colour (`drift' = lerp(now, drift, 1 - 1/K)`,
   `K = AutoMaskDrift × AutoMaskTargetFPS` frames), and a pixel is marked moving when **either** the
@@ -100,7 +115,13 @@ All found the hard way:
   `bool live = (tid.x < BUFFER_WIDTH && tid.y < BUFFER_HEIGHT)`, with the frame sample and the store
   gated on it rather than skipped early.
 - **`groupshared` is a file-scope declaration**, not a local: declaring it inside the shader body is
-  error X3010.
+  error X3010. An **array** of them is fine, and so is `atomicAdd` on a dynamically indexed element
+  (`atomicAdd(groupHist[bin], 1u)`): the index-expression rule admits arrays, and the atomic intrinsics
+  take the addressed element rather than an object. That is what lets the histogram be tallied where it
+  is cheap. Verified against ReShade v6.8.0's own parser and HLSL codegen — the shared tally emits as
+  `groupshared uint V__groupHist[8];` and the adds as `InterlockedAdd(V__groupHist[bin], 1u, _res)`,
+  which is the codegen path the game takes. It is worth naming because that index-expression rule is a
+  trap in the very next bullet, for the opposite reason:
 - **A storage object cannot be indexed.** `store[int2(x, y)] = v` looks like HLSL and is not: the
   declaration's element type is a storage type, and the index-expression rule accepts only arrays,
   vectors and matrices, so ReShade rejects the bracket form with X3121 (`array, matrix, vector, or

@@ -139,7 +139,10 @@ offline compile check. `docs/verification.md` is the full account; the essential
 - **Some spellings cannot be checked by compiling**, because the tool rewrites them before `fxc` sees
   them: the storage keywords, the `tex2Dfetch`/`tex2Dstore` intrinsics, and the bracket form they
   translate to. Those are pinned by the tool instead, and `fmod` is refused outright. Do not "tidy" any
-  of these guards back. `docs/verification.md` is the full list.
+  of these guards back. The same blind spot covers a dialect construct the tool does *not* rewrite but
+  `fxc` accepts anyway — a `groupshared` array indexed dynamically, say — so a new one is verified
+  against ReShade's own parser and codegen rather than inferred from a passing compile.
+  `docs/verification.md` is the full list.
 - **Real end-to-end testing means loading both techniques in ReShade in a game**, which an agent cannot
   do. State that clearly instead of claiming the change is verified, and name the scenarios that need
   eyes on them — `docs/verification.md` lists them per feature.

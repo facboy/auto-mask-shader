@@ -292,3 +292,23 @@ Reproduced and verified offline rather than by inspection: ReShade v6.8.0's own 
 - Add `AutoMaskAutoStep` (`__UNIFORM_SLIDER_BOOL1`, default off) selecting the effective deadband in `CS_Accum`, and `AutoMaskNoiseFloor` slider (default 0.5%); finalise the tail policy with the overlay as the instrument.
 - README: the toggle and noise-floor slider, when to prefer manual, and the known TAA interaction.
 - Verify: eight variants; histogram and deadband targets elided when the switch is off; full manual-scenario checklist appended to the stage summary as the list that needs eyes in ReShade.
+
+**Fix after use, on the feature's cost.** The per-pixel `atomicAdd` into the 256-bin target turned out to
+be the whole of what the toggle cost — ~3.7M global atomics a frame at 1440p, nearly all of them aimed at
+the same bin in a still scene, the worst case for atomic contention, and the user measured it at about a
+millisecond a frame. `CS_Accum` now tallies the eight levels the walk reads in a `groupshared` array
+beside the moved-pixel tally and lets one thread per group hand the totals over, so the global bins take
+a handful of adds per group and a bin no pixel reached is skipped. The target narrowed to
+`AUTOMASK_STEP_MAX` (8) for the same reason the walk does: levels above it were never read, and a pixel
+that did not change now lands in no bin at all, so the quiet majority is counted by its absence instead
+of by an add apiece onto bin 0. The flush and the fill are both gated on the toggle, so the off path does
+none of the histogram work; the global clear stays in `CS_Finish` (8 writes now, not 256) because a
+toggle flip with the bins left full would have the first measured step read off a stale frame.
+
+The reading is provably unchanged, not merely close: a scratch probe mirrors both the old 256-bin walk
+and the new 8-bin one statement for statement and finds no mismatch over 20,000 synthetic frames. The
+dialect question was settled against ReShade v6.8.0's own parser and HLSL codegen rather than by
+compiling, because this check rewrites the dialect before `fxc` sees it — the codegen emits
+`groupshared uint V__groupHist[8];` and `InterlockedAdd(V__groupHist[bin], 1u, _res)`, which is the shape
+the game takes. Cost: `CS_Accum` 157 → 177 slots, `CS_Finish` 41 → 48 (both 1-thread-ish passes at the
+margin); the off path's four `AutoMaskCompute=0` variants still hash byte-for-byte as before.

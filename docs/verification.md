@@ -161,6 +161,18 @@ whether the reading you are looking at is current.
   value and all. The third is a fully live frame — pan across detailed scenery with auto-detect on —
   where there is no quiet majority to measure and the slider's own value is what must govern, so the
   mask cannot start forgiving real motion just because the camera is moving.
+  Two of this feature's properties are checkable off-GPU and should be re-checked that way after any
+  change to the histogram, rather than looked for on screen. **The reading must be unchanged by how the
+  bins are counted**: the walk's answer for the reduced 8-bin groupshared tally must be identical to the
+  256-bin per-pixel one for every distribution a frame can produce, which a scratch probe
+  (`tools/.work/`, not committed) confirms by mirroring both readings statement for statement over
+  20,000 synthetic frames — 0 mismatches. **The dialect must accept the tally**: because
+  `strip_for_fxc` rewrites the dialect before fxc sees it, a clean compile says nothing about whether
+  ReShade takes a dynamically indexed `groupshared` array or an `atomicAdd` on one, so that was checked
+  against ReShade v6.8.0's own parser and codegen instead, which emits
+  `groupshared uint V__groupHist[8];` and `InterlockedAdd(V__groupHist[bin], 1u, _res)`. Both are the
+  same probes the storage-keyword failures needed, and the same rule applies: a construct this check
+  cannot judge has to be verified against ReShade's source, not inferred from a passing compile.
 - The exact comparison, at `AutoMaskEps = 1`, where it is a visible change rather than an arithmetic
   one: the motion view over a large smooth gradient — a sky, a wall lit by a lamp — must now show a
   red rim wherever the ramp crosses a level, since every one-level change trips the verdict where only

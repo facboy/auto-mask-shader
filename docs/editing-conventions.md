@@ -29,5 +29,13 @@ annotation, the frame-count sliders' conversion, or the drift channel's reset st
   never collapse back into one, and 8 is the number the shader already treats as its top-of-range level,
   so there is no second constant to keep in step. It is deliberately *not* a slider — nobody watches the
   reset's threshold, and `AutoMaskDrift` has to remain the setting being read.
+- The 8 that literal names stays a literal, and the walk's own top level is now a named constant
+  (`AUTOMASK_STEP_MAX`) instead. The two are deliberately not tied together: they answer different
+  questions — "is this a new picture?" against "where does the scene's noise end?" — so raising the
+  walk's range to catch a coarser noise floor must not quietly raise the threshold that decides a scene
+  cut is not drift. Within the histogram the constant *is* worth having, because the same number sizes
+  the target, the `groupshared` tally, the clear loop, the bin clamp and the walk's range, and those
+  cannot be allowed to drift apart. `AUTOMASK_DILATE_MAX` is the existing precedent for a definition
+  that bounds a fixed loop rather than holding data or eliding a pass.
 - The credit lives in both `LICENSE` and the header block on purpose: someone copying just the `.fx`
   into their ReShade folder takes the attribution with it.

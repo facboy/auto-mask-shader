@@ -212,11 +212,13 @@ sampler AutoMap { Texture = texAutoMap; };
 //1x1 float share the pixel passes sample. The accumulator writes as storage, read and written only
 //through tex2Dfetch/tex2Dstore -- a bracket fails in ReShade with X3121.
 #if AutoMaskCompute == 1
+	//The last level the walk measures in, and the end of the AutoMaskEps slider with it.
+	#define AUTOMASK_STEP_MAX 8
 	texture texAutoMotionCount { Width = 1; Height = 1; Format = r32u; };
 	storage2D<uint> AutoMotionCount { Texture = texAutoMotionCount; };
-	//The change-size histogram: one bin per level of difference, so the scene itself says where its
-	//noise floor is.
-	texture texAutoMotionHist { Width = 256; Height = 1; Format = r32u; };
+	//The change-size histogram: one bin per level the walk speaks in, so the scene itself says where
+	//its noise floor is. A pixel that did not change takes no bin at all.
+	texture texAutoMotionHist { Width = AUTOMASK_STEP_MAX; Height = 1; Format = r32u; };
 	storage2D<uint> AutoMotionHist { Texture = texAutoMotionHist; };
 	texture texAutoStat { Width = 1; Height = 1; Format = r32f; };
 	storage2D<float> AutoStatStore { Texture = texAutoStat; };
@@ -251,9 +253,10 @@ sampler AutoMap { Texture = texAutoMap; };
 
 //Pixel shaders
 #if AutoMaskCompute == 1
-	//Per-group tally of moved pixels, so the counter takes one add per group rather than one per
-	//pixel. Every group zeroes it before any of them counts.
+	//Per-group tallies, so the counter and the histogram take a handful of adds per group rather
+	//than one per pixel. Every group zeroes them before any of them counts.
 	groupshared uint groupChanged;
+	groupshared uint groupHist[AUTOMASK_STEP_MAX];
 
 	//The accumulator as compute, plus the moved-pixel count the gate reads. The bounds guard is a
 	//predicate, not an early return, because a barrier has to sit in uniform flow control; and
@@ -342,23 +345,41 @@ sampler AutoMap { Texture = texAutoMap; };
 			held = 0.0;
 		}
 
-		//Count first, then reduce, so a group agrees on the tally once every thread has added to it.
+		//Count first, then reduce, so a group agrees on the tallies once every thread has added to
+		//them. Both are tallied in groupshared, so the screen costs a handful of adds per group
+		//rather than one per pixel: a global bin would take an add from every pixel, and on a still
+		//screen nearly all of them land on the same bin.
 		bool changed = live && step(0.001, motion) > 0.5;
+		//One bin per whole level of frame-to-frame difference, so the next frame can be told where
+		//this scene's noise ends. The index truncates, so bin level-1 is exactly the difference the
+		//verdict calls motion at deadband level, and the levels above the walk's own share the top
+		//bin. A pixel that did not change takes no bin at all: the walk sums the bins, so the quiet
+		//majority is counted by its absence rather than by an add onto one bin apiece. The index is
+		//only read when there is a bin, so a still pixel cannot reach the array off its low end.
+		bool binned = live && AutoMaskAutoStep && maxDiff >= 1.0;
+		int bin = min(int(maxDiff), AUTOMASK_STEP_MAX) - 1;
 		if (gi == 0)
 			groupChanged = 0u;
+		if (gi < AUTOMASK_STEP_MAX)
+			groupHist[gi] = 0u;
 		barrier();
 		if (changed)
 			atomicAdd(groupChanged, 1u);
+		if (binned)
+			atomicAdd(groupHist[bin], 1u);
 		barrier();
-		if (gi == 0)
+		//One thread hands both tallies over. The bins are read with constant indices, so the reads
+		//are in bounds whatever the group size; a bin no pixel reached is skipped, which is what
+		//makes a still frame's histogram cost almost nothing, and the whole flush is gated on the
+		//toggle so the off path does no histogram work at all -- the clear above is the shared
+		//memory the group is about to discard, not the bins the next frame reads.
+		if (gi == 0){
 			atomicAdd(AutoMotionCount, int2(0, 0), groupChanged);
-
-		//One bin per whole level of frame-to-frame difference, so the next frame can be told where
-		//this scene's noise ends. Every live pixel lands in a bin, moved or not; the index truncates,
-		//so bin b is exactly the difference the verdict calls motion at deadband b, and 255 is the
-		//last bin rather than an overflow.
-		if (live && AutoMaskAutoStep)
-			atomicAdd(AutoMotionHist, int2(min(int(maxDiff), 255), 0), 1u);
+			if (AutoMaskAutoStep)
+				for (int i = 0; i < AUTOMASK_STEP_MAX; i++)
+					if (groupHist[i] > 0u)
+						atomicAdd(AutoMotionHist, int2(i, 0), groupHist[i]);
+		}
 
 		if (live){
 			tex2Dstore(AutoAccumStore, int2(tid.xy), float4(clamp(conf, -cost * AutoMaskMoveMemory, 1.0), held, motion, 1.0));
@@ -375,27 +396,30 @@ sampler AutoMap { Texture = texAutoMap; };
 		tex2Dstore(AutoMotionCount, int2(0, 0), 0u);
 		tex2Dstore(AutoStatStore, int2(0, 0), share);
 
-		//Every live pixel landed in a bin, so only the low levels the walk speaks in are read back.
-		//The step is the smallest level that leaves no more than the noise floor changing above it;
-		//running out of the range means no level separates this frame's noise from its content, so
-		//the slider's own value stands.
+		//A pixel that did not change has no bin, so the bins sum to the share changing at the first
+		//level, and each level's own bin is what the level below it subtracts. The step is the
+		//smallest level that leaves no more than the noise floor changing above it; running out of
+		//the range means no level separates this frame's noise from its content, so the slider's own
+		//value stands.
 		if (AutoMaskAutoStep){
 			float floorCount = AutoMaskNoiseFloor * 0.01 * float(BUFFER_WIDTH * BUFFER_HEIGHT);
 			float step = max(ceil(AutoMaskEps), 1.0);
-			uint above = uint(BUFFER_WIDTH * BUFFER_HEIGHT) - tex2Dfetch(AutoMotionHist, int2(0, 0));
-			for (int level = 1; level <= 8; level++){
+			uint above = 0u;
+			for (int i = 0; i < AUTOMASK_STEP_MAX; i++)
+				above += tex2Dfetch(AutoMotionHist, int2(i, 0));
+			for (int level = 1; level <= AUTOMASK_STEP_MAX; level++){
 				if (float(above) <= floorCount){
 					step = float(level);
 					break;
 				}
-				above -= tex2Dfetch(AutoMotionHist, int2(level, 0));
+				above -= tex2Dfetch(AutoMotionHist, int2(level - 1, 0));
 			}
 			tex2Dstore(AutoStepStore, int2(0, 0), step);
 		}
 
 		//Cleared whether or not the step is being measured, so the bins start every frame empty and
 		//the toggle can be flipped without stale counts.
-		for (int i = 0; i < 256; i++)
+		for (int i = 0; i < AUTOMASK_STEP_MAX; i++)
 			tex2Dstore(AutoMotionHist, int2(i, 0), 0u);
 	}
 
