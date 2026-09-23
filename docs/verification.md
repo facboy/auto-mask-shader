@@ -4,8 +4,8 @@ How this project is verified and how the offline check is exercised. Extracted f
 this when a change touches `tools/verify_shaders.py`, adds a shader entry point or dialect spelling, or
 when you need the detailed failure-mode list before committing a change to the check.
 
-Nothing here is testable automatically in the true sense, so verification is a review pass plus an
-offline compile check:
+Nothing here is automatically testable, so verification is a review pass plus an offline compile
+check:
 
 - `uv run tools/verify_shaders.py init` fetches the pinned ReShade headers, then
   `uv run tools/verify_shaders.py check` preprocesses and compiles every shader with `fxc` and reports
@@ -46,14 +46,13 @@ offline compile check:
   twice and leave the other uncompiled — coverage read off a report that does not have it; and a call to
   an intrinsic `fxc` implements but ReShade does not, below.
 - **A spelling the tool rewrites cannot be checked by compiling.** Storage declarations are translated to
-  `RWTexture*` before fxc sees them, so a keyword ReShade would reject compiles in the check regardless —
-  which is the one failure mode the check cannot see on its own. That already bit: a lowercase `storage2d`
-  passed every variant and failed in ReShade with a bare X3000 pointing at the line rather than the case,
-  and because the bad declaration dropped its target, two further X3004 errors followed from it. The
-  dialect keywords are therefore pinned to ReShade's own lexer — `storage`, `storage1D`, `storage2D`,
-  `storage3D` with a **capital** dimension letter, and those four only — and a near-miss is a loud
-  failure rather than something to rewrite. Exercise it by hand with the file changed back to the
-  lowercase spelling before committing any change to the translation.
+  `RWTexture*` before fxc sees them, so a keyword ReShade would reject compiles in the check regardless.
+  That already bit: a lowercase `storage2d` passed every variant and failed in ReShade with a bare X3000
+  pointing at the line rather than the case, and because the bad declaration dropped its target, two
+  further X3004 errors followed from it. The dialect keywords are therefore pinned to ReShade's own lexer
+  — `storage`, `storage1D`, `storage2D`, `storage3D` with a **capital** dimension letter, and those four
+  only — and a near-miss is a loud failure rather than something to rewrite. Exercise it by hand with the
+  file changed back to the lowercase spelling before committing any change to the translation.
 - **The same rule covers the access intrinsics, and it bit a second time.** `tex2Dfetch`/`tex2Dstore` are
   translated to bracket form before fxc sees them, so their spellings are pinned the same way (a
   lowercased one is a loud failure, and a wrong argument count is too — it cannot be translated and must

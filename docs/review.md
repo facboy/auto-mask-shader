@@ -2,7 +2,7 @@
 
 ## 1. Overview & Scope
 
-This review examines `Shaders/AutoMask.fx`, evaluating:
+`Shaders/AutoMask.fx`, evaluated for:
 - Unused, dead, or redundant variables, parameters, constants, and render targets.
 - Algorithmic and memory efficiency across all passes (specifically the motion reduction pipeline).
 - Adherence to project conventions defined in `AGENTS.md`, with particular attention to comment verbosity.
@@ -27,7 +27,7 @@ Every pixel shader in the pipeline declares `float4 pos : SV_Position` as its fi
 - `PS_DebugMap`
 - `PS_DebugOverlay`
 
-**Observation & Critical Finding**: While `pos` is not explicitly read inside the pixel shader bodies, **it must not be removed**. ReShade's vertex shader (`PostProcessVS`, from `ReShade.fxh`) is:
+While `pos` is not explicitly read inside the pixel shader bodies, **it must not be removed**. ReShade's vertex shader (`PostProcessVS`, from `ReShade.fxh`) is:
 ```hlsl
 void PostProcessVS(in uint id : SV_VertexID, out float4 position : SV_Position, out float2 texcoord : TEXCOORD)
 ```
@@ -37,7 +37,7 @@ The failure is not a value reinterpretation. The driver either reports a mismatc
 
 The parameter is required even when the body never reads the input, and `PS_MotionAvg` is the case in this file: it samples at constant UVs and its body has **no `dcl_input_ps` at all**, yet its compiled signature still lists both inputs with an empty `Used` column (see `tools/.work/PS_MotionAvg.asm`). Linkage is decided on the declared signature, and `fxc` preserves declared inputs whether or not the body reads them.
 
-**Conclusion**: Keep `float4 pos : SV_Position, float2 texcoord : TEXCOORD` on all pixel shaders.
+Keep `float4 pos : SV_Position, float2 texcoord : TEXCOORD` on all pixel shaders.
 
 ---
 
@@ -57,7 +57,7 @@ float3 stored = tex2D(AutoFrame, texcoord).rgb;
 float mask = step(0.5, tex2D(AutoMap, texcoord).r);
 float3 color = lerp(live, stored, mask);
 ```
-**Observation**: `PS_Restore` performs a linear interpolation between `live` and `stored` based on `mask`. When `mask == 0`, `PS_Restore` selects `live`. Pre-multiplying by `mask` in `PS_Store` zeros out unmasked pixels in `texAutoFrame`, which is safe and isolates UI contents in debug inspections, but mathematically redundant for the composite pass.
+`PS_Restore` performs a linear interpolation between `live` and `stored` based on `mask`. When `mask == 0`, `PS_Restore` selects `live`. Pre-multiplying by `mask` in `PS_Store` zeros out unmasked pixels in `texAutoFrame`, which is safe and isolates UI contents in debug inspections, but mathematically redundant for the composite pass.
 
 ---
 
@@ -75,7 +75,7 @@ for (int i = -AUTOMASK_DILATE_MAX; i <= AUTOMASK_DILATE_MAX; i++){
     mask = max(mask, tex2D(AutoAccumA, uv).r * keep);
 }
 ```
-**Observation**: When `i == 0`, `uv == texcoord`. The loop computes `edge = 0.0`, sets `keep = 1.0`, and re-samples `tex2D(AutoAccumA, texcoord)` and `ReShade::BackBuffer`. While the HLSL compiler (`fxc`) may optimize redundant texture fetches at `i == 0`, starting with `mask` and checking neighbors for `i != 0` avoids redundant calculation.
+When `i == 0`, `uv == texcoord`. The loop computes `edge = 0.0`, sets `keep = 1.0`, and re-samples `tex2D(AutoAccumA, texcoord)` and `ReShade::BackBuffer`. While the HLSL compiler (`fxc`) may optimize redundant texture fetches at `i == 0`, starting with `mask` and checking neighbors for `i != 0` avoids redundant calculation.
 
 ---
 

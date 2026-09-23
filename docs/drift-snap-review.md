@@ -29,22 +29,21 @@ them fixed the drift channel is left behaving as §2.1's floor table describes.
 **A third defect has since been found, and it is the one that explains the symptom this review was
 written about.** §5.2 dismisses the horizon because raising it moved the swaying bank only "for the
 accidental reason in §5.4"; the actual reason is stronger than the review's, and it is not in §5.4 at
-all. The average's **reset** was keyed to the same `deadband` as the per-pixel verdict (`next =
-maxDiff < deadband ? creep : now`). The deadband is the smallest change called motion, so at the
-default `AutoMaskEps = 1` it is one level — and the reset therefore fired on *every* single-level
-change, which is exactly the sky the channel exists for. Once reset onto the frame, the next frame's
-drift reading *is* the frame-to-frame reading: measured over a creeping sky, the two agreed on **100%
-of frames at every horizon setting**, 0.5 s to 10 s. The channel was not floored; it was disabled, and
-the slider had nothing to move. §2.1's floor table and §2.2's doubling describe a channel that resets
-only on a cut, which is what it became when the reset was decoupled — the rule is now
-`maxDiff < max(deadband, 8.0)`, so only a change wide enough to be a new picture snaps the average.
-Two consequences worth recording against the review's own conclusions: §5.2's "raising the horizon"
-now does catch slower drift, at `deadband / K` as §2.1 always said; and §7.4's "every repair to the
-existing channel either makes the returning sky worse or leaves it unchanged" held only while the reset
-kept the channel inert, since a working average is what the repairs were measured against. §5.1's
-repeat detector remains unimplemented and its case — a pixel that *sways* within the horizon rather
-than creeping one way — is still the one the channel does not answer, which is the limitation that
-survives this fix rather than being closed by it.
+all. The average's **reset** was keyed to the same `deadband` as the per-pixel verdict (`next = maxDiff
+< deadband ? creep : now`). The deadband is the smallest change called motion, so at the default
+`AutoMaskEps = 1` it is one level — and the reset therefore fired on *every* single-level change, which
+is exactly the sky the channel exists for. Once reset onto the frame, the next frame's drift reading
+*is* the frame-to-frame reading: measured over a creeping sky, the two agreed on **100% of frames at
+every horizon setting**, 0.5 s to 10 s. The channel was not floored; it was disabled, and the slider
+had nothing to move. §2.1's floor table and §2.2's doubling describe a channel that resets only on a
+cut, which is what it became when the reset was decoupled — the rule is now `maxDiff < max(deadband,
+8.0)`, so only a change wide enough to be a new picture snaps the average. Two consequences, against
+the review's own conclusions: §5.2's "raising the horizon" now does catch slower drift, at `deadband /
+K` as §2.1 always said; and §7.4's "every repair to the existing channel either makes the returning sky
+worse or leaves it unchanged" held only while the reset kept the channel inert, since a working average
+is what the repairs were measured against. §5.1's repeat detector remains unimplemented and its case —
+a pixel that *sways* within the horizon rather than creeping one way — is still the one the channel
+does not answer, which is the limitation that survives this fix rather than being closed by it.
 
 ---
 
@@ -171,17 +170,16 @@ The crossing pairs are `1, 2, 4, 8, 16, 32, 64, 128` — the binade edges. Per l
 comparison trips on 4 of 8 pairs in levels 1–8, 2 of 24 in 9–32, 2 of 96 in 33–128 and 0 of 127
 above 128, so dark scenery trips it far more often than bright.
 
-It is worth recording, but it is **not** the cause of the reported symptom — and, more
-importantly, correcting it is **not neutral**. Measured with the comparison forced to whole
-levels, the one-level swing does not merely stay banked: the *whole* band banks, 253 of 253
-levels instead of 141, because the fragile miss is what leaves the average frozen instead of
-snapping onto the pixel (§5.4). Exactness removes the only thing currently keeping half of the
-sky out. It is a defect, but it is load-bearing by accident.
+It is **not** the cause of the reported symptom — and correcting it is **not neutral**.
+Measured with the comparison forced to whole levels, the one-level swing does not merely stay
+banked: the *whole* band banks, 253 of 253 levels instead of 141, because the fragile miss is
+what leaves the average frozen instead of snapping onto the pixel (§5.4). Exactness removes
+the only thing currently keeping half of the sky out. It is a defect, but it is load-bearing
+by accident.
 
-One other consumer of the same value is **not** affected, and the difference is instructive: the
-motion gate counts a change with `step(0.001, motion) > 0.5` — the ramp's own threshold is
-`0.001`, not `0.5` — and `smoothstep` is continuous, so the two spellings of a one-level step are
-the same number to it:
+One other consumer of the same value is **not** affected: the motion gate counts a change with
+`step(0.001, motion) > 0.5` — the ramp's own threshold is `0.001`, not `0.5` — and `smoothstep`
+is continuous, so the two spellings of a one-level step are the same number to it:
 
 | deadband | ramp at a 1-level step | counted toward `live_share` |
 | ---: | ---: | --- |
@@ -291,7 +289,7 @@ true so the per-pixel verdict is genuinely exercised. The shader was read for th
 the order of operations rather than assumed; the gate's own contribution is analysed separately
 in §4.
 
-Limits worth stating plainly:
+Limits:
 
 - The signals are synthetic — constant-rate drifts and triangle excursions of a single pixel
   value. That is the right instrument for the arithmetic question being asked, but it is not a

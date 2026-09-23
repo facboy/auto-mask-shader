@@ -6,9 +6,9 @@ A follow-up to `docs/drift-snap-review.md`. That review found that both the fram
 comparison and the drift average measure **displacement**, and a skybox *returns*, so neither can
 see it. The suggested remedy was a per-pixel repeat detector.
 
-This document examines a different remedy: **detect the motion vector.** Rather than asking
-whether a pixel stayed put, ask *"where did this patch of image move from, and to?"* — the "these
-pixels over these frames show an object moving from A to B" framing.
+A different remedy: **detect the motion vector.** Rather than asking whether a pixel stayed put,
+ask *"where did this patch of image move from, and to?"* — the "these pixels over these frames
+show an object moving from A to B" framing.
 
 Constraints taken as given:
 
@@ -32,16 +32,15 @@ it tracked a real sky, and it did not. What the experiment cost to keep was not 
 and score targets, four passes per frame, and a third overlay view — and it bought a reading the mask
 never used and the drift channel already provides better, per pixel and at full resolution.
 
-**The rest of this review stands as written and as it was written.** It is a feasibility review kept in
-its original voice on purpose, so the reasoning that led to the experiment can be read against its
-result: §3's baseline tension is why the probe swept its baseline live and reported which one matched,
-§4's patchiness is what its coverage map was there to show, and §5's "a vector is not the same question
-as 'is this HUD'" is why it was an instrument rather than a fix. The repeat detector of
-`docs/drift-snap-review.md` §5.1 is still not implemented — the two are alternatives, and §6's "Against
-the alternative" is the comparison between them. Nothing between §2 and §8 is revised to match the probe
-either: those passages describe what was built and why, in the terms the review used, not what is in the
-shader now. §9 is the one exception — it was an open follow-up and is now closed, so it carries the
-strike rather than the invitation.
+**The rest of this review is kept in its original voice**, so the reasoning that led to the experiment
+can be read against its result: §3's baseline tension is why the probe swept its baseline live and
+reported which one matched, §4's patchiness is what its coverage map was there to show, and §5's "a
+vector is not the same question as 'is this HUD'" is why it was an instrument rather than a fix. The
+repeat detector of `docs/drift-snap-review.md` §5.1 is still not implemented — the two are alternatives,
+and §6's "Against the alternative" is the comparison between them. Nothing between §2 and §8 is revised
+to match the probe either: those passages describe what was built and why, in the terms the review used,
+not what is in the shader now. §9 is the one exception — it was an open follow-up and is now closed, so
+it carries the strike rather than the invitation.
 
 **§6.2 answered, in a real game — the negative result the experiment existed to produce.** With
 `AutoMaskCompute=1` and `AutoMaskOpticalFlow=1` (the switch as it stood before removal), standing still
@@ -64,17 +63,17 @@ while a sky pans slowly, watched on the flow view:
 4. **The verdict never changed.** The probe is wired into nothing, and every mask scenario behaved
    with the estimate on exactly as with it off.
 
-**Conclusion drawn:** for this mask's verdict, matching adds nothing the existing signals don't
-already own. The slow-creep case the mask needs solved is per-pixel time accumulation — the drift
-channel's mechanism, already in the shader, with no whole-pixel threshold to cross and no loop
-failure to answer for. The matcher refinements that *would* see sub-floor creep (area-averaged
-storage, sub-pixel readout, sub-level precision) converge on the drift channel's design at block
-granularity; the first two landed in the probe as instrument work (`CS_FlowReduce` averages a 2×2
-block per ring texel; `CS_FlowPick` refines the winning offset with a parabolic fit, guarded to real
-interior minima), the third is scoped below, and none of it is wired into the verdict. §6.3 stays
-closed: the experiment its decision was gated on returned "no at this scale" for the sky it was
-asked about, and the burden of proof is now on a proposal that answers the loop failure §3 names
-before anything is built on a vector.
+**Conclusion:** for this mask's verdict, matching adds nothing the existing signals don't already
+own. The slow-creep case the mask needs solved is per-pixel time accumulation — the drift channel's
+mechanism, already in the shader, with no whole-pixel threshold to cross and no loop failure to
+answer for. The matcher refinements that *would* see sub-floor creep (area-averaged storage,
+sub-pixel readout, sub-level precision) converge on the drift channel's design at block granularity;
+the first two landed in the probe as instrument work (`CS_FlowReduce` averages a 2×2 block per ring
+texel; `CS_FlowPick` refines the winning offset with a parabolic fit, guarded to real interior
+minima), the third is scoped below, and none of it is wired into the verdict. §6.3 stays closed: the
+experiment its decision was gated on returned "no at this scale" for the sky it was asked about, and
+the burden of proof is now on a proposal that answers the loop failure §3 names before anything is
+built on a vector.
 
 **Decision taken: the probe is removed.** §6.3 was gated on a positive answer and got a negative one,
 so the experiment's own terms are what close it — the shader carries no switch, no ring, no search
@@ -238,7 +237,7 @@ bet. Neither is cheap, and neither is a retune of what exists.
 
 The matching tests are on synthetic skies — a vertical gradient plus soft blobs, translated
 bilinearly so sub-pixel motion is representable, quantized to 8-bit levels, then searched with an
-integer SAD. Two configurations produced the tables, which is worth stating because they differ:
+integer SAD. Two configurations produced the tables, which differ:
 
 | table | image | patch | search |
 | --- | --- | --- | --- |

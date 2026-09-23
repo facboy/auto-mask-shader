@@ -6,13 +6,12 @@ channel, or the pass order inside `AutoMask`.
 
 `AutoMaskCompute=1` swaps the accumulator and the screen-motion gate for compute passes, under a guard
 that owns the shaders, the pass entries and every target only they use. The gate half is a replacement
-rather than an addition — the coarse grid and its two reduction passes are gone, not skipped — which is
-what keeps that cost claim honest. Two readings are *added* rather than replaced, both resting on the
-compute path's ability to see every pixel: the drift channel's two full-res `RGBA32F` ping-pong targets,
-which the pixel path has nowhere to put and deliberately does not carry, and the histogram's
-`AUTOMASK_STEP_MAX`×1 `r32u` plus the 1×1 `r32f` step it feeds — a few dozen bytes together, against 1 KB
-when the bins were one per level — which the coarse grid cannot take at all, because 1,024 taps cannot
-tell a level of dithering from a level of real motion.
+rather than an addition — the coarse grid and its two reduction passes are gone, not skipped. Two
+readings are *added* rather than replaced, both resting on the compute path's ability to see every pixel:
+the drift channel's two full-res `RGBA32F` ping-pong targets, which the pixel path has nowhere to put and
+deliberately does not carry, and the histogram's `AUTOMASK_STEP_MAX`×1 `r32u` plus the 1×1 `r32f` step it
+feeds — a few dozen bytes together, against 1 KB when the bins were one per level — which the coarse grid
+cannot take at all, because 1,024 taps cannot tell a level of dithering from a level of real motion.
 
 - `CS_Accum` is `PS_Accum`'s state machine verbatim, plus one count: every pixel it calls changed adds to
   a `groupshared` tally, and one thread per **group** adds that tally to a single 1×1 `r32u` counter, so
@@ -28,37 +27,34 @@ tell a level of dithering from a level of real motion.
   standing in for every pixel; it is now exact.
 - The **change-size histogram** rides in the same pass and is guarded with it, and it counts the whole
   distribution of the frame's movement rather than only the pixels above a threshold — which is why an
-  auto-deadband is possible at all. The rule the walk implements is one sentence: **the measured step is
-  the smallest change size 1–8 at which no more than `AutoMaskNoiseFloor` percent of the screen is still
-  changing by that much or more.** It holds because of how the bins are indexed: the index truncates, so
-  bin `b` is exactly the difference the verdict calls motion at `deadband = b` (its test is
-  `maxDiff < deadband`), which makes the above-share read off the histogram at a level *the same count*
-  the verdict would act on — same units, same boundary, no second convention to keep in step. `CS_Finish`
-  walks the bins from level 1 up, subtracting each level's own bin as it passes it, and stops at the
-  first that satisfies the rule; that level goes into a second 1×1 `r32f` target the next frame's
-  `CS_Accum` reads through a sampler named `AutoStep`, one frame behind exactly as the share is. The
-  measurement is per frame and never writes back into the slider. The walk covers levels 1 to 8 only,
-  because 8 is where the `AutoMaskEps` slider ends and a step outside that range is not a position the
-  manual path could take either. Running out of the range means no level separated the frame's noise from
-  its content — what a fully live frame looks like, every level still changing somewhere — and there the
-  slider's own value stands rather than the measurement guessing, so a fast camera movement cannot talk
-  the shader into forgiving real motion. Because the threshold is a share of the *screen* and not a count
-  of levels, it means the same thing at every resolution: at 1440p the `0.5` default is 18,432 pixels.
-  The histogram exists because the pixel path cannot take the reading at all: 1,024 taps cannot tell a
-  level of dithering from a level of real motion.
-- **The histogram is tallied in groupshared, not in the global bins, and that is what the feature's cost
-  turns on.** The first version wrote one `atomicAdd` per pixel straight into a 256×1 `r32u` target, and
-  that is the whole of what the toggle cost: ~3.7M global atomics a frame at 1440p, nearly all of them
-  aimed at the same bin in a still scene, which is the worst case for atomic contention. `CS_Accum` now
-  keeps an 8-bin `groupshared` tally beside the moved-pixel one, so a block's pixels contend only with
-  each other, and one thread per group hands the totals over — a handful of global adds per group, and a
-  bin no pixel reached is skipped entirely. The target is `AUTOMASK_STEP_MAX` wide rather than 256 for the
-  same reason: the walk reads levels 1 to 8 and nothing else, bins above it were never read, and a pixel
-  that did not change now lands in no bin at all, so the quiet majority is counted by its absence instead
-  of by an add apiece onto bin 0. The readings are equivalent, not merely similar — verified statement for
-  statement against the old 256-bin walk over 20,000 synthetic frames, no mismatch — because the walk sums
-  the bins and subtracts each level's own, which is the same arithmetic whether level 0 is stored or left
-  implicit.
+  auto-deadband is possible at all. The walk's rule: **the measured step is the smallest change size 1–8
+  at which no more than `AutoMaskNoiseFloor` percent of the screen is still changing by that much or
+  more.** It holds because of how the bins are indexed: the index truncates, so bin `b` is exactly the
+  difference the verdict calls motion at `deadband = b` (its test is `maxDiff < deadband`), which makes
+  the above-share read off the histogram at a level *the same count* the verdict would act on — same
+  units, same boundary, no second convention to keep in step. `CS_Finish` walks the bins from level 1 up,
+  subtracting each level's own bin as it passes it, and stops at the first that satisfies the rule; that
+  level goes into a second 1×1 `r32f` target the next frame's `CS_Accum` reads through a sampler named
+  `AutoStep`, one frame behind exactly as the share is. The measurement is per frame and never writes
+  back into the slider. The walk covers levels 1 to 8 only, because 8 is where the `AutoMaskEps` slider
+  ends and a step outside that range is not a position the manual path could take either. Running out of
+  the range means no level separated the frame's noise from its content — what a fully live frame looks
+  like, every level still changing somewhere — and there the slider's own value stands rather than the
+  measurement guessing, so a fast camera movement cannot talk the shader into forgiving real motion.
+  Because the threshold is a share of the *screen* and not a count of levels, it means the same thing at
+  every resolution: at 1440p the `0.5` default is 18,432 pixels.
+- **The histogram is tallied in groupshared, not in the global bins.** The first version wrote one
+  `atomicAdd` per pixel straight into a 256×1 `r32u` target, and that is the whole of what the toggle
+  cost: ~3.7M global atomics a frame at 1440p, nearly all of them aimed at the same bin in a still scene,
+  which is the worst case for atomic contention. `CS_Accum` now keeps an 8-bin `groupshared` tally beside
+  the moved-pixel one, so a block's pixels contend only with each other, and one thread per group hands
+  the totals over — a handful of global adds per group, and a bin no pixel reached is skipped entirely.
+  The target is `AUTOMASK_STEP_MAX` wide rather than 256 for the same reason: the walk reads levels 1 to 8
+  and nothing else, bins above it were never read, and a pixel that did not change now lands in no bin at
+  all, so the quiet majority is counted by its absence instead of by an add apiece onto bin 0. The
+  readings are equivalent, not merely similar — verified statement for statement against the old 256-bin
+  walk over 20,000 synthetic frames, no mismatch — because the walk sums the bins and subtracts each
+  level's own, which is the same arithmetic whether level 0 is stored or left implicit.
 - The bins are still filled only while the toggle is on, and the flush with them, so the off path does no
   histogram work beyond the shared-memory clear — which is the group's own scratch space, not the bins the
   next frame reads, and therefore has to run regardless. The *global* bins are cleared in `CS_Finish` (now
@@ -94,26 +90,23 @@ tell a level of dithering from a level of real motion.
   far wider than that step, and lagging a whole colour distance behind would hold a mask out of a cut for
   a horizon on end. So a cut drags the average straight to the new scene and only the genuinely
   sub-deadband movement is left to accumulate.
-- **The reset is keyed to a fixed wide step and not to the deadband**, and the distinction is
-  load-bearing rather than cosmetic. The deadband is the smallest change called motion, so at the most
-  sensitive setting it is one level — and a reset keyed to it fires on *every* single-level change, which
-  is precisely the sky the channel exists for. Its first frame then reset the average onto the frame, and
-  the next frame's drift reading was the frame-to-frame reading by construction: measured over a creeping
-  sky at `AutoMaskEps = 1`, the two agreed on **100%** of frames at every horizon setting, so neither the
-  channel nor its slider did anything. The two thresholds answer different questions — "did this pixel
-  move?" against "is this a new picture?" — and only the second belongs on the reset, which is why the
-  rule is `maxDiff < max(deadband, 8.0)` rather than `maxDiff < deadband`. The floor the reset sets is
-  deliberately low against a cut (8 levels is a fast pan at 60 fps), so `AutoMaskDrift` stays the only
-  lever on how slow a drift the channel reaches and raising it now catches slower movement instead of
-  changing nothing. The cost is that a move the short comparison reads at a few levels — a camera pan —
-  no longer resets the average, so it stays in the drift reading for the horizon rather than being wiped
-  by it; that is the memory working as intended, and it is why pan-then-stop recovery rests on
-  `AutoMaskMoveMemory` rather than on the average snapping (a pan is still rejected either way, by the
-  accumulating lag it builds once it no longer resets).
+- **The reset is keyed to a fixed wide step and not to the deadband.** The deadband is the smallest
+  change called motion, so at the most sensitive setting it is one level — and a reset keyed to it fires
+  on *every* single-level change, which is precisely the sky the channel exists for. Its first frame then
+  reset the average onto the frame, and the next frame's drift reading was the frame-to-frame reading by
+  construction: measured over a creeping sky at `AutoMaskEps = 1`, the two agreed on **100%** of frames
+  at every horizon setting, so neither the channel nor its slider did anything. The two thresholds answer
+  different questions — "did this pixel move?" against "is this a new picture?" — and only the second
+  belongs on the reset, which is why the rule is `maxDiff < max(deadband, 8.0)` rather than `maxDiff <
+  deadband`. The floor the reset sets is deliberately low against a cut (8 levels is a fast pan at 60
+  fps), so `AutoMaskDrift` stays the only lever on how slow a drift the channel reaches and raising it
+  now catches slower movement instead of changing nothing. The cost is that a move the short comparison
+  reads at a few levels — a camera pan — no longer resets the average, so it stays in the drift reading
+  for the horizon rather than being wiped by it; that is the memory working as intended, and it is why
+  pan-then-stop recovery rests on `AutoMaskMoveMemory` rather than on the average snapping (a pan is
+  still rejected either way, by the accumulating lag it builds once it no longer resets).
 
 ## Four constraints the dialect imposes on any compute pass here
-
-All found the hard way:
 
 - **Sampling has no implicit derivatives.** `tex2D` is rejected outright at `cs_5_0` (X4532); a compute
   pass must use `tex2Dlod` and name its mip level. The pixel passes are unaffected.
@@ -127,8 +120,8 @@ All found the hard way:
   take the addressed element rather than an object. That is what lets the histogram be tallied where it
   is cheap. Verified against ReShade v6.8.0's own parser and HLSL codegen — the shared tally emits as
   `groupshared uint V__groupHist[8];` and the adds as `InterlockedAdd(V__groupHist[bin], 1u, _res)`,
-  which is the codegen path the game takes. It is worth naming because that index-expression rule is a
-  trap in the very next bullet, for the opposite reason:
+  which is the codegen path the game takes. That same index-expression rule is the trap in the very
+  next bullet, for the opposite reason:
 - **A storage object cannot be indexed.** `store[int2(x, y)] = v` looks like HLSL and is not: the
   declaration's element type is a storage type, and the index-expression rule accepts only arrays,
   vectors and matrices, so ReShade rejects the bracket form with X3121 (`array, matrix, vector, or
@@ -147,7 +140,7 @@ resolution, and the dispatch rounds up — which is exactly why the in-shader bo
 
 ## Pass order inside `AutoMask`
 
-Load-bearing, and follows from what each pass reads:
+Follows from what each pass reads:
 
 1. `PS_Accum` — builds the new confidence against the *previous* frame, **before** the history store, and
    applies the world-drawn premise by reading the statistic the previous frame left behind. With
