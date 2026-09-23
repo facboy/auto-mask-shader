@@ -29,7 +29,7 @@ for the concept, the store/restore pattern and the anti-bloom suppression belong
 | `docs/core-model.md` | How the mask is decided, in full: the verdict, the hold, the move memory, the clip exclusion, the arithmetic. |
 | `docs/compute-path.md` | What `AutoMaskCompute=1` changes, in full: the compute passes, histogram, auto-deadband, drift channel, pass order. |
 | `docs/verification.md` | The compile check's design, the toolchain, and the end-to-end scenarios that need a game. |
-| `docs/editing-conventions.md` | The reasoning behind the annotation, target-FPS and reset-step rules below. |
+| `docs/editing-conventions.md` | The reasoning behind the prose-budget, annotation, target-FPS and reset-step rules below. |
 | `docs/definitions.md` | Glossary of the vocabulary reused across the shader, the README and the docs. |
 | `docs/review.md`, `docs/drift-snap-review.md`, `docs/optical-flow.md` | Recorded design history and closed investigations. |
 
@@ -87,6 +87,8 @@ histogram and auto-deadband, the `RGBA32F` drift channel, and the pass order ins
   one exception is the ruled credit block at the top of `Shaders/AutoMask.fx` — title, licence and the
   credit to Kaiser's `UIDetectMulti` and Brussels1 — which follows the companion pack's style and is the
   only long comment in the file. Do not add per-function attribution below it.
+- The same prose budget covers the HLSL comments and the docs here; `docs/editing-conventions.md` holds
+  its reasoning and the worked example.
 - LF line endings.
 - A uniform annotation must match the declared type: `__UNIFORM_SLIDER_FLOAT1`/`_FLOAT3` for floats,
   `__UNIFORM_SLIDER_BOOL1` for bools. A mismatch is a silent ReShade UI bug. The widget family is chosen

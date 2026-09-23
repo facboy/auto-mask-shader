@@ -1,8 +1,17 @@
 # Editing conventions, in full
 
 The reasoning behind the rules condensed in `AGENTS.md`. Read this when a change touches a uniform's
-annotation, the frame-count sliders' conversion, or the drift channel's reset step.
+annotation, the frame-count sliders' conversion, the prose budget, or the drift channel's reset step.
 
+- **Say it and stop.** The prose budget is the one the HLSL comments keep, and it covers the README, the
+  docs and this file alike. It buys words for what a reader cannot work out — a value, a cause, a
+  consequence — not framing that describes the writing instead of the subject, nor a clause restating the
+  sentence before it. Both phrases cut from `docs/definitions.md` were the first kind: "It is a lookup
+  rather than an argument" and "the ambiguity is what sends a reader looking" say what the paragraph is
+  doing, and neither is missed. This file is where the budget is hardest to keep, since every rule in it
+  *is* reasoning; reasoning earns a sentence only where it changes what an editor would do — a cap that
+  would cross another threshold, a widget family that must match a declared type. What a value used to be
+  belongs in the review docs.
 - The uniform widget is chosen by the annotation macro's family, and the family by what the value means:
   the duration settings (`AutoMaskRise`, `AutoMaskFall`, `AutoMaskForget`, `AutoMaskMoveMemory`, and the
   compute path's `AutoMaskDrift`) use `__UNIFORM_DRAG_FLOAT1`, a drag widget over free values rather

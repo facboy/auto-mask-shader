@@ -1,11 +1,10 @@
 # Definitions
 
 The vocabulary this project reuses across the shader, the README and the subject docs, defined once, in
-a sentence or two each, in the sense *this* shader gives the word. It is a lookup rather than an
-argument: the reasoning stays in the document each entry points at, and entries are grouped by subject
+a sentence or two each, in the sense *this* shader gives the word. Entries are grouped by subject
 so each term sits beside the ones it is read against — `deadband` with `ramp` and `still`, `walk` with
 `bin` and the histogram. Where a word carries two senses here — `bank`, `gate`, `hold`, `motion` — both
-are listed under it, because the ambiguity is what sends a reader looking.
+are listed under it.
 
 ## The mask and the approach
 
