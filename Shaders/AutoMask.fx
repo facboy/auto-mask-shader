@@ -177,12 +177,13 @@ uniform bool AutoMaskDeadzoneMotionOnly <
 		ui_category_toggle = true;
 	> = false;
 
-	//The share of the screen the derived step may leave changing above it; lowering it forgives more.
-	//Shown only while the toggle above is on, because nothing reads it otherwise.
+	//The measured step is the smallest change size 1-8 at which no more than this share of the screen is
+	//still changing by that much or more. Shown only while the toggle above is on, because nothing
+	//reads it otherwise.
 	uniform float AutoMaskNoiseFloor <
 		__UNIFORM_SLIDER_FLOAT1
 		ui_label = "Noise floor (percent)";
-		ui_tooltip = "How much of the screen the measured step may leave changing above it.\nLower finds a higher step and forgives more; higher finds a lower step and keeps the smaller movements.";
+		ui_tooltip = "The measured step is the smallest change size 1-8 at which no more than this much of the screen is still changing by that much or more.\nLower forgives more: the step settles higher, so more small movement passes as still.\nHigher keeps the smaller movements, at the cost of admitting more noise as motion.";
 		ui_category = "Step detection";
 		ui_min = 0.0; ui_max = 5.0;
 		ui_step = 0.05;
@@ -400,10 +401,11 @@ sampler AutoMap { Texture = texAutoMap; };
 		tex2Dstore(AutoMotionCount, int2(0, 0), 0u);
 		tex2Dstore(AutoStatStore, int2(0, 0), share);
 
-		//A pixel that did not change has no bin, so the bins sum to the share changing at the first
-		//level, and each level's own bin is what the level below it subtracts. The step is the
-		//smallest level that leaves no more than the noise floor changing above it; running out of
-		//the range means no level separates this frame's noise from its content, so the slider's own
+		//A pixel that did not change has no bin, so the bins sum to the count changing at the first
+		//level, and each level's own bin is what the level below it subtracts -- at the test for level
+		//L, `above` is exactly the count the verdict calls motion at deadband L. The step is therefore
+		//the smallest level 1-8 leaving no more than AutoMaskNoiseFloor percent above it; running out
+		//of the range means no level separates this frame's noise from its content, so the slider's own
 		//value stands.
 		if (AutoMaskAutoStep){
 			float floorCount = AutoMaskNoiseFloor * 0.01 * float(BUFFER_WIDTH * BUFFER_HEIGHT);

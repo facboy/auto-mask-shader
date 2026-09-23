@@ -28,17 +28,24 @@ tell a level of dithering from a level of real motion.
   standing in for every pixel; it is now exact.
 - The **change-size histogram** rides in the same pass and is guarded with it, and it counts the whole
   distribution of the frame's movement rather than only the pixels above a threshold — which is why an
-  auto-deadband is possible at all: `CS_Finish` reads the low levels back, finds the smallest one leaving
-  no more than `AutoMaskNoiseFloor` percent of the screen changing above it, and writes that into a
-  second 1×1 `r32f` target the next frame's `CS_Accum` reads through a sampler named `AutoStep`, one frame
-  behind exactly as the share is. The measurement is per frame and never writes back into the slider. The
-  walk covers levels 1 to 8 only, because 8 is where the `AutoMaskEps` slider ends and a step outside that
-  range is not a position the manual path could take either. Running out of the range means no level
-  separated the frame's noise from its content — what a fully live frame looks like, every level still
-  changing somewhere — and there the slider's own value stands rather than the measurement guessing, so a
-  fast camera movement cannot talk the shader into forgiving real motion. The histogram exists because the
-  pixel path cannot take the reading at all: 1,024 taps cannot tell a level of dithering from a level of
-  real motion.
+  auto-deadband is possible at all. The rule the walk implements is one sentence: **the measured step is
+  the smallest change size 1–8 at which no more than `AutoMaskNoiseFloor` percent of the screen is still
+  changing by that much or more.** It holds because of how the bins are indexed: the index truncates, so
+  bin `b` is exactly the difference the verdict calls motion at `deadband = b` (its test is
+  `maxDiff < deadband`), which makes the above-share read off the histogram at a level *the same count*
+  the verdict would act on — same units, same boundary, no second convention to keep in step. `CS_Finish`
+  walks the bins from level 1 up, subtracting each level's own bin as it passes it, and stops at the
+  first that satisfies the rule; that level goes into a second 1×1 `r32f` target the next frame's
+  `CS_Accum` reads through a sampler named `AutoStep`, one frame behind exactly as the share is. The
+  measurement is per frame and never writes back into the slider. The walk covers levels 1 to 8 only,
+  because 8 is where the `AutoMaskEps` slider ends and a step outside that range is not a position the
+  manual path could take either. Running out of the range means no level separated the frame's noise from
+  its content — what a fully live frame looks like, every level still changing somewhere — and there the
+  slider's own value stands rather than the measurement guessing, so a fast camera movement cannot talk
+  the shader into forgiving real motion. Because the threshold is a share of the *screen* and not a count
+  of levels, it means the same thing at every resolution: at 1440p the `0.5` default is 18,432 pixels.
+  The histogram exists because the pixel path cannot take the reading at all: 1,024 taps cannot tell a
+  level of dithering from a level of real motion.
 - **The histogram is tallied in groupshared, not in the global bins, and that is what the feature's cost
   turns on.** The first version wrote one `atomicAdd` per pixel straight into a 256×1 `r32u` target, and
   that is the whole of what the toggle cost: ~3.7M global atomics a frame at 1440p, nearly all of them
