@@ -1,8 +1,8 @@
 # AGENTS.md
 
-Guidance for AI agents working in this repository. This file is the index: it holds the rules you need
-on every task. The reasoning behind them lives in `docs/`, split by subject so you only load the part a
-change actually touches. Read the pointer when the task touches that area.
+Guidance for AI agents working in this repository: the index of rules every task needs. The reasoning
+behind them lives in `docs/`, split by subject so a change loads only the part it touches; read that
+pointer.
 
 ## What this project is
 
@@ -55,17 +55,17 @@ not attempted. Two techniques, and both placements are load-bearing:
 
 This shader and `UIDetectMulti` are **alternatives, not companions**: both want those same two slots, so
 loading both means one reads a frame the other has already written into. The user avoids that rather than
-the shader policing it at runtime, and the README says so plainly.
+the shader policing it at runtime, and `README.md` covers it for them.
 
-Every rule below follows from a decision whose full reasoning is in `docs/core-model.md`; read it before
+Every rule below follows from a decision reasoned in `docs/core-model.md`; read it before
 changing the verdict, the hold, the move memory, the clip exclusion or the accumulator's arithmetic:
 
 - **Coverage, not magnitude**, is the statistic: the share of each block whose pixels changed at all.
 - **The frame sliders are durations.** The verdict step is fixed at 0.5 and the frame count is converted
-  into a step per frame, so a slider position is the duration it names and nothing else is retuned with
-  it. The conversion keeps a hair above the exact share (0.504, not 0.5) so the half-precision
-  accumulator crosses the step on the frame it should. Keep `AutoMaskFall`'s frames at or under
-  `AutoMaskRise`'s, or the mask lingers over moving scenery.
+  into a step per frame, so a slider position is the duration it names. The conversion keeps a hair above
+  the exact share (0.504, not 0.5) so the half-precision accumulator crosses the step on the frame it
+  should. Keep `AutoMaskFall`'s frames at or under `AutoMaskRise`'s, or the mask lingers over moving
+  scenery.
 - **`AutoMaskMotion` is the premise, not a refinement.** Stillness alone proves nothing, so a still pixel
   is taken for interface only while the world around it animates; its default is not 0.
 - **`AutoMaskEps` counts whole levels out of 255** and decides one thing only: whether the frame moved a
@@ -85,8 +85,8 @@ histogram and auto-deadband, the `RGBA32F` drift channel, and the pass order ins
 
 - HLSL comments are **short and sparse** (`//UINr 13`). Do not add tutorial narration to the shader. The
   one exception is the ruled credit block at the top of `Shaders/AutoMask.fx` — title, licence and the
-  credit to Kaiser's `UIDetectMulti` and Brussels1 — which follows the companion pack's style and is the
-  only long comment in the file. Do not add per-function attribution below it.
+  credit to Kaiser's `UIDetectMulti` and Brussels1 — which follows the companion pack's style. Do not add
+  per-function attribution below it.
 - The same prose budget covers the HLSL comments and the docs here; `docs/editing-conventions.md` holds
   its reasoning and the worked example.
 - LF line endings.
@@ -125,8 +125,8 @@ histogram and auto-deadband, the `RGBA32F` drift channel, and the pass order ins
 
 ## Verification
 
-Nothing here is testable automatically in the true sense, so verification is a review pass plus an
-offline compile check. `docs/verification.md` is the full account; the essentials:
+Nothing here is automatically testable, so verification is a review pass plus an offline compile check.
+`docs/verification.md` is the full account; the essentials:
 
 - `uv run tools/verify_shaders.py init` fetches the pinned ReShade headers, then
   `uv run tools/verify_shaders.py check` preprocesses and compiles every shader with `fxc` and reports
@@ -156,13 +156,18 @@ offline compile check. `docs/verification.md` is the full account; the essential
 
 ## What this shader cannot do
 
-These are inherent to the signal rather than tuning problems, and they belong in the README rather than
-being discovered: semi-transparent UI is never protected; a quiet interior with no ambient animation can
-accumulate; something animating in a stopped scene is given up; bloom can still find an edge at the HUD
-contour; a HUD that flickers without moving is given up by the drift channel; and HUD that animates more
-than briefly needs the hold to bridge it, which makes `AutoMaskForget` the most important slider. The full
-reasoning for each — including why the move memory and the drift channel cannot help with the quiet
-interior — is in `docs/core-model.md`.
+These are inherent to the signal rather than tuning problems, and they belong in `README.md`:
+
+- Semi-transparent UI is never protected.
+- A quiet interior with no ambient animation can accumulate.
+- Something animating in a stopped scene is given up.
+- Bloom can still find an edge at the HUD contour.
+- A HUD that flickers without moving is given up by the drift channel.
+- HUD that animates more than briefly needs the hold to bridge it, which makes `AutoMaskForget` the most
+  important slider.
+
+The full reasoning for each — including why the move memory and the drift channel cannot help with the
+quiet interior — is in `docs/core-model.md`.
 
 ## Repository rules
 
