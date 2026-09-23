@@ -8,6 +8,24 @@ annotation, the frame-count sliders' conversion, or the drift channel's reset st
   compute path's `AutoMaskDrift`) use `__UNIFORM_DRAG_FLOAT1`, a drag widget over free values rather
   than a stepped track; everything else is a slider. A mismatch between annotation family and declared
   type is a silent ReShade UI bug.
+- **The panel has no per-uniform visibility annotation, only a per-category one**, and it is worth
+  knowing exactly what it can do before reaching for it. ReShade reads `ui_category_toggle` off a
+  boolean uniform and hides every *other* member of that category while the value is false — the value
+  comes from the uniform itself, so it is a live toggle and not a compile-time `#if`. Two consequences
+  follow, and both are traps:
+  - **The gated variable is never hidden itself.** It is what turns the rest of the category back on,
+    so the checkbox always stays drawn. That is why `AutoMaskAutoStep` carries the annotation and
+    `AutoMaskNoiseFloor` is the one hidden behind it, rather than the other way round.
+  - **The gate only works if the gated variable opens the category.** ReShade takes the value off the
+    variable at whose index the category *changes*, so the annotation has to sit on the first uniform
+    of the group. Put it on a later one and it is silently ignored — the category renders as an
+    ordinary always-open one, with nothing in the log to say so.
+  This is also why the step settings are their own category rather than more rows under `AutoMask`:
+  unticking the gate hides the rest of *its* category, so a gate placed among the main settings would
+  hide every slider in the shader. The two categories are therefore `AutoMask` (everything always
+  shown) and `Step detection` (the toggle, then the floor it gates). `ui_category` is not a way to
+  hide one setting conditionally on another in general — there is no annotation that does that, so a
+  value that must stay visible whatever its neighbours are set to stays in `AutoMask`.
 - `AutoMaskTargetFPS` is the one further definition, a setup number rather than a tuning one. The
   frame-count settings are durations, so their `ui_max` caps are seconds × `AutoMaskTargetFPS` (rise
   10 s, fall 1 s, grace 5 s, move memory 10 s) and grow with the frame rate a user plays at, which

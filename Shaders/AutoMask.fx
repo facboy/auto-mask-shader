@@ -87,38 +87,6 @@ uniform float AutoMaskMoveMemory <
 	ui_step = 5.0;
 > = 2.0 * AutoMaskTargetFPS;
 
-#if AutoMaskCompute == 1
-	//How long a colour lingers in the average the drift comparison reads, catching a shift too small
-	//to cross a level between two frames. 0 turns it off.
-	uniform float AutoMaskDrift <
-		__UNIFORM_DRAG_FLOAT1
-		ui_label = "Drift horizon (seconds)";
-		ui_tooltip = "How long the slow colour average the drift comparison reads remembers.\nCatches scenery that shifts by less than a level a frame -- a skybox panning slowly -- which the frame-to-frame comparison cannot see.\n0 turns it off.";
-		ui_category = "AutoMask";
-		ui_min = 0.0; ui_max = 10.0;
-		ui_step = 0.25;
-	> = 2.0;
-
-	//The step measured rather than tuned: on, it is the level the last frame's histogram found the
-	//scene's noise floor at. Off, AutoMaskEps applies as on the pixel path. The floor is the share of
-	//the screen the derived step may leave changing above it; lowering it forgives more.
-	uniform bool AutoMaskAutoStep <
-		__UNIFORM_SLIDER_BOOL1
-		ui_label = "Auto-detect RGB step";
-		ui_tooltip = "On, the RGB step is measured from the scene each frame rather than read from the slider above.\nThe step is set where only a sliver of the screen still changes above it.";
-		ui_category = "AutoMask";
-	> = false;
-
-	uniform float AutoMaskNoiseFloor <
-		__UNIFORM_SLIDER_FLOAT1
-		ui_label = "Noise floor (percent)";
-		ui_tooltip = "How much of the screen the measured step may leave changing above it.\nLower finds a higher step and forgives more; higher finds a lower step and keeps the smaller movements.";
-		ui_category = "AutoMask";
-		ui_min = 0.0; ui_max = 5.0;
-		ui_step = 0.05;
-	> = 0.5;
-#endif
-
 #define AUTOMASK_DILATE_MAX 3
 uniform float AutoMaskDilate <
 	__UNIFORM_SLIDER_FLOAT1
@@ -184,6 +152,42 @@ uniform bool AutoMaskDeadzoneMotionOnly <
 	ui_tooltip = "On, the deadzone suppresses accumulation only while the world is being drawn,\nso full-screen menus can still build a mask over a stopped scene.\nOff, it suppresses at all times";
 	ui_category = "AutoMask";
 > = false;
+
+#if AutoMaskCompute == 1
+	//How long a colour lingers in the average the drift comparison reads, catching a shift too small
+	//to cross a level between two frames. 0 turns it off.
+	uniform float AutoMaskDrift <
+		__UNIFORM_DRAG_FLOAT1
+		ui_label = "Drift horizon (seconds)";
+		ui_tooltip = "How long the slow colour average the drift comparison reads remembers.\nCatches scenery that shifts by less than a level a frame -- a skybox panning slowly -- which the frame-to-frame comparison cannot see.\n0 turns it off.";
+		ui_category = "AutoMask";
+		ui_min = 0.0; ui_max = 10.0;
+		ui_step = 0.25;
+	> = 2.0;
+
+	//Gates the floor below, so it must open its own category -- ReShade reads ui_category_toggle off
+	//the variable that opens one, and unticking it would hide the rest of "AutoMask" if it lived there.
+	//The step measured rather than tuned: on, it is the level the last frame's histogram found the
+	//scene's noise floor at. Off, AutoMaskEps applies as on the pixel path.
+	uniform bool AutoMaskAutoStep <
+		__UNIFORM_SLIDER_BOOL1
+		ui_label = "Auto-detect RGB step";
+		ui_tooltip = "On, the RGB step is measured from the scene each frame rather than read from the slider.\nThe step is set where only a sliver of the screen still changes above it.";
+		ui_category = "Step detection";
+		ui_category_toggle = true;
+	> = false;
+
+	//The share of the screen the derived step may leave changing above it; lowering it forgives more.
+	//Shown only while the toggle above is on, because nothing reads it otherwise.
+	uniform float AutoMaskNoiseFloor <
+		__UNIFORM_SLIDER_FLOAT1
+		ui_label = "Noise floor (percent)";
+		ui_tooltip = "How much of the screen the measured step may leave changing above it.\nLower finds a higher step and forgives more; higher finds a lower step and keeps the smaller movements.";
+		ui_category = "Step detection";
+		ui_min = 0.0; ui_max = 5.0;
+		ui_step = 0.05;
+	> = 0.5;
+#endif
 
 //Targets
 //Accumulator ping-pong: .r=confidence/debt, .g=hold, .b=motion
@@ -603,7 +607,7 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 		__UNIFORM_SLIDER_BOOL1
 		ui_label = "Diagnostics: motion view";
 		ui_tooltip = "On, the overlay shows red where the frame sees a change.\nOff, it shows green where a pixel has earned protection, without the closing radius.\nThe deadzone ring and the corner marker show in both";
-		ui_category = "AutoMask";
+		ui_category = "Diagnostics";
 	> = true;
 
 	//Motion visualization gain for diagnostics overlay.
@@ -611,7 +615,7 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 		__UNIFORM_SLIDER_FLOAT1
 		ui_label = "Diagnostics: motion gain";
 		ui_tooltip = "Brightens the red motion reading in the overlay,\nso a change too small to see becomes visible";
-		ui_category = "AutoMask";
+		ui_category = "Diagnostics";
 		ui_min = 1.0; ui_max = 64.0;
 		ui_step = 1.0;
 	> = 8.0;

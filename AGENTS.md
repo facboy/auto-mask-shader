@@ -92,6 +92,10 @@ histogram and auto-deadband, the `RGBA32F` drift channel, and the pass order ins
   by what the value means: the duration settings (`AutoMaskRise`, `AutoMaskFall`, `AutoMaskForget`,
   `AutoMaskMoveMemory`, and the compute path's `AutoMaskDrift`) use `__UNIFORM_DRAG_FLOAT1`; everything
   else is a slider. See `docs/editing-conventions.md`.
+- ReShade can only hide a whole **category** of settings at a time, via `ui_category_toggle` on the
+  boolean that *opens* it, and it never hides that boolean itself. So a gated setting belongs in its own
+  category with the gate first — never inside `AutoMask`, where unticking would hide every other slider.
+  There is no per-uniform visibility annotation. See `docs/editing-conventions.md`.
 - `BUFFER_WIDTH`/`BUFFER_HEIGHT` are injected by ReShade at runtime, not defined here. Anything
   buffer-relative stays correct across resolutions; absolute pixel numbers do not.
 - Every pixel shader keeps `float4 pos : SV_Position` as its **first** parameter, even though no body
