@@ -77,10 +77,6 @@ changing the verdict, the hold, the move memory, the clip exclusion or the accum
   no rise, no fall, no heal — while a moving pixel still falls. A stopped scene can only lose mask.
 - **The move memory is a duration** of still frames, negative in the accumulator's confidence, and 0
   restores the old behaviour exactly.
-- **The mask's edge is feathered for the restore only.** `AutoMaskFeather` ramps the published map's edge
-  outward in the store pass and the restore blends by it; each neighbour lends its verdict at a share
-  under one, so the ramp is outward-only and never at full strength, and 0 is the binary map. The
-  anti-bloom keeps the hard map.
 
 `docs/compute-path.md` holds what `AutoMaskCompute=1` swaps in — the exact motion count, the change-size
 histogram and auto-deadband, the `RGBA32F` drift channel, and the pass order inside `AutoMask`.

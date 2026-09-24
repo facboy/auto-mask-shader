@@ -156,11 +156,7 @@ Follows from what each pass reads:
    from `BackBuffer` exceeds `AutoMaskEdge`. Reading the frame there is safe only because it is before
    every pass that writes it. `PS_Copy` stays a pixel pass in both variants — the accumulator is
    `RGBA16F` and the copy has no statistics to do — and `PS_CopyDrift` is its twin on the compute path.
-4. `PS_Store`, keeping the mapped pixels. It also ramps the mapped edge outward for `AutoMaskFeather` and
-   banks that ramp in the stored frame's alpha, which is what the restore blends by. The ramp is drawn
-   from the *published* map, so it rides on whatever contour the close settled on — including one the
-   luma step cut short, which is exactly the edge the blend has to cross. It never reaches the map's own
-   hard channel, so the anti-bloom and the close see the map unchanged.
+4. `PS_Store`, keeping the mapped pixels.
 5. `PS_StoreFrame`, copying the untouched frame into the history target for the next frame.
 6. `PS_AntiBloom` — black the masked pixels in the live frame so a bloom pass downstream has no UI to
    pick up. It comes after the store, which is what keeps the real UI for the restore pass; blacking

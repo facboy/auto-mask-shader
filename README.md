@@ -78,7 +78,6 @@ fallback on a frame where the walk finds no floor.
 | **Noise floor (percent)** *(compute path only)* | How strict the measurement is, as a share of the screen. The rule in one sentence: **the measured step is the smallest change size `1`–`8` at which no more than this much of the screen is still changing by that much or more.** At the `0.5` default that is about 0.5% of the picture, so level `1` is chosen as soon as almost nothing is changing by a full level — which is why the measurement often settles on `1` and looks as though it is doing nothing. Lower it and the shader forgives more, because the step it settles on sits higher and more of the picture's small movement passes as still; raise it and the step sits lower, keeping the smallest movements at the cost of counting more of the noise as motion. It is a share of the screen rather than a count of levels, so it means the same thing at every resolution, and it is one frame behind: the frame being judged never sets its own threshold. Only the levels the RGB step can take are searched, so if no level separates a busy frame the slider's own value stands for that frame rather than a guess. It does nothing while **Auto-detect RGB step** is off, so it is only shown in the panel while that is ticked. |
 | **Closing radius in pixels** | Grows the mask slightly to close anti-aliased edges and thin text. `0` turns it off. |
 | **Luma step counted as a boundary** | Stops that growth at a real edge in the picture, so the mask snaps to the HUD's outline instead of spilling out into the scenery. |
-| **Feather radius in pixels** | Spreads the mask's edge over this many pixels just outside it, so the interface the restore puts back meets the effects-processed picture in a short ramp rather than a hard step. The ramp runs **outward only**: it never reaches full strength out past the mask, so a pixel outside the interface is never restored over, and the interface itself is never partly protected — the edge softens, the mask does not blur. `0` gives the hard edge back, and `1` (the default) halves the step; `2` spreads it over one more pixel. Bloom sees the unfeathered edge regardless, so anti-bloom is unchanged. |
 | **Motion needed to trust stillness (percent)** | How much of the screen has to be changing before the shader believes the world is being drawn. Above it, a pixel that holds still is taken for interface and the mask builds; below it, stillness earns nothing, because what holds still in a still scene is the scenery. This is the line that decides whether the screen is being drawn at all — the premise rather than a refinement, which is why its default is not zero. Raise it if scenery is still getting caught, lower it if a HUD fails to appear. |
 | **Enable center deadzone** | The master switch for the whole elliptical exclusion below it. It is off by default, so the deadzone is simply not in play and there is nothing extra to tune; tick it first, then set the sizes. Turning it off parks the region — the ellipse is off whatever the four settings still say, and they keep their values. The ring the overlay draws appears only while this is ticked and a width and height are set. |
 | **Center deadzone width (percent)** | Width of an elliptical center region where stillness does not accumulate into the mask. Keeps a third-person player character tethered to the camera from being captured as interface. |
@@ -175,10 +174,9 @@ your other effects see, so there is nothing bright there for bloom to pick up. T
 back by `AutoMask_Restore` at the end, so you never see the black.
 
 The final picture is therefore unchanged by this switch; it only changes what the effects in between are
-allowed to see. It blacks the interface at its **hard** edge — the closing radius's contour, not the
-feathered one — since a partly-blackened pixel is a partly-lost bloom source, and the black step against
-a bright scene is what bloom keys on either way. Feathering is for the restore, where an intermediate
-value is a blend between the interface and the picture your effects made, not a hole in a source.
+allowed to see. It blacks the interface at the closing radius's contour, since a partly-blackened pixel
+is a partly-lost bloom source, and the black step against a bright scene is what bloom keys on either
+way.
 
 ## What it can't do
 
@@ -244,11 +242,6 @@ time:
   motion. The measurement is therefore a reading of calm scenes, which is exactly where the slider is
   hardest to set by hand. If it settles on a step you don't like in a particular game, turn it off and
   use the slider — the two are alternatives, and the slider is untouched while auto-detect is on.
-- **Feather radius softens the boundary, not a wrong mask.** The ramp only ever runs *outward* from the
-  mask, and only ever at a fraction of full strength, so it cannot cover scenery the verdict left out or
-  leave an interface pixel partly protected. What it cannot do is rescue an edge that is in the wrong
-  place: a ramp over the wrong contour is a softer wrong contour. Fix the contour — the closing radius,
-  the luma step, the timing — and the feather rides along with it.
 - **A wrong mask is worse than a wrong verdict.** Where a mask image toggles effects at the wrong moment,
   this one is continuously visible if it's wrong. If in doubt, tune toward a longer grace period and a
   tighter closing radius rather than an eager mask.
