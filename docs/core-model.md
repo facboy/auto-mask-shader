@@ -148,7 +148,15 @@ discovered:
   that step: the pack's blend is `lerp(colorOrig, color, maskChan)`, exactly proportional to the mask,
   over unfiltered samplers and masks that were hard-edged in practice. The softness either comes from the
   mask (there) or from the map (here, via `AutoMaskDilate` and the luma stop); nothing is added by the
-  anti-bloom pass itself.
+  anti-bloom pass itself, which deliberately reads the map's hard channel rather than the feathered one.
+- **The restore's edge is feathered; the anti-bloom's is not.** `AutoMaskFeather` ramps the published
+  map outward in the store pass, so the interface the restore puts back meets the effects-processed
+  picture in a short falloff instead of a step. Each neighbour lends its verdict at a share under one,
+  which is the whole bound: the ramp reaches past the mask's edge but never at full strength, so it
+  cannot protect scenery the verdict left out or leave an interface pixel partly protected, and `0`
+  reproduces the binary map exactly. It softens whatever contour the verdict drew rather than moving it.
+  The anti-bloom keeps the hard channel: bloom keys on the step either way, and a partly-black source is
+  a partly-lost one.
 - **A HUD that flickers without moving is given up by the drift channel.** Dithering and temporal
   anti-aliasing make a static pixel wander a level or two frame to frame, and a working average is what
   reads that as drift: measured on the compute path, an element that oscillates by two levels at 60 fps

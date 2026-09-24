@@ -106,6 +106,18 @@ uniform float AutoMaskEdge <
 	ui_step = 1.0;
 > = 40.0;
 
+//Pixels the map's edge is ramped over, just outside it. Small: each one is a pixel the effects are only
+//partly held off, and the walk is a full neighbourhood read.
+#define AUTOMASK_FEATHER_MAX 2
+uniform float AutoMaskFeather <
+	__UNIFORM_SLIDER_FLOAT1
+	ui_label = "Feather radius in pixels";
+	ui_tooltip = "Spreads the mask's edge over this many pixels just outside it, so the restored interface blends into the reshaded scenery instead of stepping.\nThe ramp runs outward only: the interface itself is never partly protected.\n0 keeps the edge hard";
+	ui_category = "AutoMask";
+	ui_min = 0.0; ui_max = 2.0;
+	ui_step = 1.0;
+> = 1.0;
+
 //Minimum screen motion coverage to credit stillness as interface. Below it the mask is held --
 //nothing added and only what moves lost; above it the mask advances.
 uniform float AutoMaskMotion <
@@ -201,7 +213,8 @@ sampler AutoAccumB { Texture = texAutoAccumB; };
 texture texAutoHistory { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
 sampler AutoHistory { Texture = texAutoHistory; };
 
-//Stored UI pixels to restore after downstream effects.
+//Stored UI pixels to restore after downstream effects. The alpha is the feathered edge the restore
+//blends by; the colour is kept whole so only that one lerp applies the ramp.
 texture texAutoFrame { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
 sampler AutoFrame { Texture = texAutoFrame; };
 
@@ -580,11 +593,35 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	return float4(mask.xxx, 1.0);
 }
 
-//Stores masked UI pixels before downstream processing.
+//How far the published map's edge is ramped at this pixel: 1 inside the verdict, falling off over the
+//feather radius outside. A neighbour lends its verdict at a share under one, so the ramp reaches past
+//the map's edge but never at full strength: it can soften the boundary, never protect scenery the
+//verdict left out or leave an interface pixel partly protected. A radius of 0 is the binary map
+//exactly. The close's luma stop is deliberately not read here -- the contour it stopped at is the one
+//the edge is blended across.
+float featherAlpha(float2 texcoord)
+{
+	float2 texel = BUFFER_PIXEL_SIZE;
+	int rf = (int)clamp(floor(AutoMaskFeather + 0.5), 0.0, AUTOMASK_FEATHER_MAX);
+	float alpha = step(0.5, tex2D(AutoMap, texcoord).r);
+
+	for (int y = -rf; y <= rf; y++){
+		for (int x = -rf; x <= rf; x++){
+			float dist = length(float2(x, y));
+			float2 uv = texcoord + float2(x * texel.x, y * texel.y);
+			alpha = max(alpha, step(0.5, tex2D(AutoMap, uv).r) * (rf + 1.0 - dist) / (rf + 1.0));
+		}
+	}
+	return alpha;
+}
+
+//Stores masked UI pixels before downstream processing, and carries the feathered edge in its alpha for
+//the restore to blend by. The ramp is banked too, since that is the band the restore blends across.
 float4 PS_Store(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
-	float mask = step(0.5, tex2D(AutoMap, texcoord).r);
-	return float4(tex2D(ReShade::BackBuffer, texcoord).rgb * mask, 1.0);
+	float alpha = featherAlpha(texcoord);
+	float banked = step(0.001, alpha);
+	return float4(tex2D(ReShade::BackBuffer, texcoord).rgb * banked, alpha);
 }
 
 //Stores untouched frame for next frame's comparison.
@@ -634,12 +671,12 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 	}
 #endif
 
-//Restores stored UI pixels over processed frame.
+//Restores stored UI pixels over processed frame, blending by the feathered edge the store banked.
 float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float3 live = tex2D(ReShade::BackBuffer, texcoord).rgb;
 	float3 stored = tex2D(AutoFrame, texcoord).rgb;
-	float mask = step(0.5, tex2D(AutoMap, texcoord).r);
+	float mask = tex2D(AutoFrame, texcoord).a;
 	float3 color = lerp(live, stored, mask);
 
 	#if AutoMaskDiagnostics == 1

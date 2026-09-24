@@ -14,7 +14,8 @@ are listed under it.
   per-element identity is not attempted, and conflating health with inventory is accepted by design
   (`docs/core-model.md`).
 - **published mask** — `texAutoMap` as the restore and anti-bloom passes read it, i.e. after the closing
-  radius. The verdict is the same decision *before* the radius, which is what the verdict view draws.
+  radius. The verdict is the same decision *before* the radius, which is what the verdict view draws. The
+  restore applies the feather to it; the anti-bloom takes it hard.
 - **element / panel** — a piece of interface. The mask holds no notion of one, so "an element keeps its
   mask" always means the pixels of it do.
 - **authored mask** — a hand-painted mask image with coordinates and per-element configuration, the
@@ -207,6 +208,7 @@ switches and the setup constants listed below. Tuning guidance is in `README.md`
 | `AutoMaskMoveMemory` | Frames a move is remembered | Duration of still frames a move is remembered for; the debt clamp. |
 | `AutoMaskDilate` | Closing radius in pixels | How far the mask is grown to close anti-aliased edges and thin text. |
 | `AutoMaskEdge` | Luma step counted as a boundary | The luma difference, 0–255, past which that growth stops. |
+| `AutoMaskFeather` | Feather radius in pixels | How far past the mask's edge the restore's blend is ramped, so the boundary is not a hard step. |
 | `AutoMaskMotion` | Motion needed to trust stillness (percent) | Share of the screen that must change before stillness is credited. The premise. |
 | `AutoMaskDeadzoneWidth` / `Height` / `Y` | Center deadzone width / height / vertical position | The ellipse in which stillness does not accumulate, and where its centre sits. |
 | `AutoMaskDeadzoneMotionOnly` | Only suppress deadzone while world moves | Whether the deadzone applies while the world is stopped. |
@@ -233,6 +235,12 @@ switches and the setup constants listed below. Tuning guidance is in `README.md`
   range must not drift apart.
 - **`AUTOMASK_DILATE_MAX`** — `3`: the fixed half-width of the dilation loops, and the cap of
   `AutoMaskDilate`. The precedent for a definition that bounds a fixed loop rather than eliding a pass.
+- **`AUTOMASK_FEATHER_MAX`** — `2`: the cap of `AutoMaskFeather` and the half-width of the neighbourhood
+  the feather walk reads. Bounds a fixed loop like the definition above, and no pass is elided by it.
+- **feather** — `AutoMaskFeather`: the ramp the store lays over the published map's edge and the restore
+  blends by. Each neighbour lends its verdict at a share under one, so the ramp runs outward only and
+  never at full strength — the boundary softens, neither verdict is inverted, and `0` is the binary map.
+  The anti-bloom deliberately reads the hard pre-feather map instead.
 - **the reset's wide step** — `max(deadband, 8.0)`, in the drift average's reset. Deliberately not a
   slider: it has to stay at or above the deadband so the two thresholds cannot collapse into one, and
   the `max` means it cannot if either cap is ever raised.
@@ -252,9 +260,12 @@ switches and the setup constants listed below. Tuning guidance is in `README.md`
 - **effect list** — ReShade's ordered list of enabled effects. The placement rules are about position in
   it: `AutoMask` compares untouched frames only if nothing has written them first.
 - **store/restore pattern** — store the masked pixels in `AutoMask`, let the user's effects run, put them
-  back in `AutoMask_Restore`. The credit for it belongs to Kaiser's `UIDetectMulti`.
+  back in `AutoMask_Restore`. The credit for it belongs to Kaiser's `UIDetectMulti`. The store also banks
+  the feathered edge in the stored frame's alpha, which is what the restore blends by.
 - **anti-bloom** — `PS_AntiBloom` blacking the masked pixels in the live frame so a bloom pass downstream
-  has no UI to pick up. The real pixels are put back by the restore, so the final picture is unchanged.
+  has no UI to pick up. The real pixels are put back by the restore, so the final picture is unchanged. It
+  blacks at the hard closing-radius contour, not the feathered one: a partly-black pixel is a partly-lost
+  bloom source, and the black step is what bloom keys on either way.
 - **closing radius / dilation** — the two separable `PS_DilateH`/`PS_DilateV` passes growing the mask,
   stopped where the luma step read from the back buffer is exceeded.
 - **luma step** — `AutoMaskEdge` compared against `dot(colour, float3(0.299, 0.587, 0.114))`, the Rec.601

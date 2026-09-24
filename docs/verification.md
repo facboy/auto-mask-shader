@@ -172,6 +172,16 @@ whether the reading you are looking at is current.
   `groupshared uint V__groupHist[8];` and `InterlockedAdd(V__groupHist[bin], 1u, _res)`. Both are the
   same probes the storage-keyword failures needed, and the same rule applies: a construct this check
   cannot judge has to be verified against ReShade's source, not inferred from a passing compile.
+- The feather, on any path: with the default radius a still HUD element over a contrasty scene must show
+  no hard seam where the restored interface meets the effects-processed picture, and the element's own
+  edge must **not** soften — the ramp is outward only and never reaches the UI. At `0` the seam must be
+  exactly what it always was, which is the negative control: any change from the pre-feather build at
+  that setting is the ramp leaking into the hard map. Then the anti-bloom check that keeps the two edges
+  apart: a bright HUD over a bright scene with bloom on must look the same at `0` and at the default,
+  because that pass reads the hard map either way. Properties checkable off-GPU, to re-check after any
+  change to the walk: `0` reproduces the binary map exactly, no pixel the map called HUD reads under `1`,
+  no pixel it did not reads `1`, and the ramp rises monotonically toward the UI rather than dipping where
+  the close's luma step stopped.
 - The exact comparison, at `AutoMaskEps = 1`, where it is a visible change rather than an arithmetic
   one: the motion view over a large smooth gradient — a sky, a wall lit by a lamp — must now show a
   red rim wherever the ramp crosses a level, since every one-level change trips the verdict where only
