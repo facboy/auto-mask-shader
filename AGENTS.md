@@ -32,6 +32,7 @@ for the concept, the store/restore pattern and the anti-bloom suppression belong
 | `docs/editing-conventions.md` | The reasoning behind the prose-budget, annotation, target-FPS and reset-step rules below. |
 | `docs/definitions.md` | Glossary of the vocabulary reused across the shader, the README and the docs. |
 | `docs/review.md`, `docs/drift-snap-review.md`, `docs/optical-flow.md` | Recorded design history and closed investigations. |
+| `docs/ui-isolation-options.md` | Options for reading interface as a region rather than per pixel, none of them scoped. What §6's instrument decides between. |
 
 There is **no `.fxh` companion header and there deliberately never will be**. A header holds authored
 data — pixel tables, coordinates, stored colours — and this shader has none: every tuning value is a
