@@ -77,6 +77,9 @@ changing the verdict, the hold, the move memory, the clip exclusion or the accum
   no rise, no fall, no heal — while a moving pixel still falls. A stopped scene can only lose mask.
 - **The move memory is a duration** of still frames, negative in the accumulator's confidence, and 0
   restores the old behaviour exactly.
+- **The verdict carries no spatial term, and the isolation gate is the one exception.** A masked pixel is
+  kept only while enough still pixels surround it, counted on the verdict rather than on colour, over the
+  closing radius. It is the only thing that removes a pixel the verdict claimed, so it ships off.
 
 `docs/compute-path.md` holds what `AutoMaskCompute=1` swaps in — the exact motion count, the change-size
 histogram and auto-deadband, the `RGBA32F` drift channel, and the pass order inside `AutoMask`.
@@ -93,8 +96,9 @@ histogram and auto-deadband, the `RGBA32F` drift channel, and the pass order ins
 - A uniform annotation must match the declared type: `__UNIFORM_SLIDER_FLOAT1`/`_FLOAT3` for floats,
   `__UNIFORM_SLIDER_BOOL1` for bools. A mismatch is a silent ReShade UI bug. The widget family is chosen
   by what the value means: the duration settings (`AutoMaskRise`, `AutoMaskFall`, `AutoMaskForget`,
-  `AutoMaskMoveMemory`, and the compute path's `AutoMaskDrift`) use `__UNIFORM_DRAG_FLOAT1`; everything
-  else is a slider. See `docs/editing-conventions.md`.
+  `AutoMaskMoveMemory`, and the compute path's `AutoMaskDrift`) use `__UNIFORM_DRAG_FLOAT1`; a share uses
+  the typed field `__UNIFORM_INPUT_FLOAT1` (`AutoMaskDensity`, which is `ui_step = 1.0` so it stays whole);
+  everything else is a slider. See `docs/editing-conventions.md`.
 - ReShade can only hide a whole **category** of settings at a time, via `ui_category_toggle` on the
   boolean that *opens* it, and it never hides that boolean itself. So a gated setting belongs in its own
   category with the gate first — never inside `AutoMask`, where unticking would hide every other slider.
@@ -124,6 +128,18 @@ histogram and auto-deadband, the `RGBA32F` drift channel, and the pass order ins
   `AutoMaskDeadzone` instead opens `Center deadzone` with `ui_category_toggle`, which is what makes the
   four settings below it live and hideable at once. A feature with a pass, a shader or a target to its
   name still gets a definition; a branch inside an existing pass does not.
+- The **isolation gate follows the deadzone's rule** rather than getting a definition of its own: it owns
+  no pass, shader or target, the still count riding in the channel `texAutoDilate` leaves unused on the two
+  closing passes. `AutoMaskIsolated` opens `Isolated pixels` with `ui_category_toggle`, and the test it
+  gates is a share of the box (`AutoMaskDensity`), the pixel itself counted, so one number means the same
+  thing at every radius.
+- The **isolation radius is its own setting** (`AutoMaskIsolation`), not the closing radius: shape and
+  evidence are different questions, and tying them would move what `AutoMaskDensity` means whenever the
+  closing is retuned. It is a share rather than a count, so it means one thing at every radius; a count
+  would need a cap at the smallest box's area. It shares the closing's fixed loop, so it costs no extra tap
+  and caps at `AUTOMASK_DILATE_MAX` with it; read as 1 at the bottom, so the setting cannot silently switch
+  the gate off. `AutoMaskDensity` is the one `__UNIFORM_INPUT_FLOAT1` in the shader — a typed field rather
+  than a track, because it names a share.
 - `AutoMaskTargetFPS` is the one further definition, a setup number rather than a tuning one: it multiplies
   seconds into frames for the `ui_max` caps and for the drift horizon. See `docs/editing-conventions.md`.
 - The reset's wide step is `max(deadband, 8.0)` rather than a bare literal, so it can never collapse back
@@ -148,10 +164,11 @@ Nothing here is automatically testable, so verification is a review pass plus an
 - **A warning is a failure, not a note.** ReShade prints every warning its compile emits into the log the
   user reads at load, so `check` reports one as `WARN` and exits non-zero on it. The single filtered
   exception is `X3579`, the harness's own artefact.
-- **It must fail loudly on missing data.** Seven cases must keep exiting non-zero — an empty `Shaders/`,
+- **It must fail loudly on missing data.** Eight cases must keep exiting non-zero — an empty `Shaders/`,
   an unfindable technique pass list, a technique binding a missing shader, broken shader syntax, a
-  compute pass missing a `DispatchSize`, two variants under one name, and a call to an intrinsic `fxc`
-  has but ReShade does not. `docs/verification.md` names each and the construct that exercises it.
+  compute pass missing a `DispatchSize`, two variants under one name, a call to an intrinsic `fxc` has
+  but ReShade does not, and an identifier ReShade's lexer reserves though HLSL does not.
+  `docs/verification.md` names each and the construct that exercises it.
 - **Some spellings cannot be checked by compiling**, because the tool rewrites them before `fxc` sees
   them: the storage keywords, the `tex2Dfetch`/`tex2Dstore` intrinsics, and the bracket form they
   translate to. Those are pinned by the tool instead, and `fmod` is refused outright. Do not "tidy" any
@@ -174,6 +191,8 @@ These are inherent to the signal rather than tuning problems, and they belong in
 - A HUD that flickers without moving is given up by the drift channel.
 - HUD that animates more than briefly needs the hold to bridge it, which makes `AutoMaskForget` the most
   important slider.
+- Interface thinner than the isolation filter's neighbourhood is dropped by that filter, which is why it
+  ships off.
 
 The full reasoning for each — including why the move memory and the drift channel cannot help with the
 quiet interior — is in `docs/core-model.md`.

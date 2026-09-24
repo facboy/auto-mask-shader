@@ -14,8 +14,11 @@ annotation, the frame-count sliders' conversion, the prose budget, or the drift 
 - The uniform widget is chosen by the annotation macro's family, and the family by what the value means:
   the duration settings (`AutoMaskRise`, `AutoMaskFall`, `AutoMaskForget`, `AutoMaskMoveMemory`, and the
   compute path's `AutoMaskDrift`) use `__UNIFORM_DRAG_FLOAT1`, a drag widget over free values rather
-  than a stepped track; everything else is a slider. A mismatch between annotation family and declared
-  type is a silent ReShade UI bug.
+  than a stepped track; a value that names a **share** is a typed field, and everything else is a slider.
+  `AutoMaskDensity` is the one input widget (`__UNIFORM_INPUT_FLOAT1`, `ui_type = "input"`), so a
+  percentage can be entered exactly rather than dragged; `ui_min`/`ui_max`/`ui_step` still bound and step
+  it, so `ui_step = 1.0` is what keeps it whole. A mismatch between annotation family and declared type is
+  a silent ReShade UI bug.
 - **The panel has no per-uniform visibility annotation, only a per-category one.** ReShade reads
   `ui_category_toggle` off a boolean uniform and hides every *other* member of that category while the
   value is false — the value comes from the uniform itself, so it is a live toggle and not a
@@ -30,7 +33,8 @@ annotation, the frame-count sliders' conversion, the prose budget, or the drift 
   This is also why the step settings are their own category rather than more rows under `AutoMask`:
   unticking the gate hides the rest of *its* category, so a gate placed among the main settings would
   hide every slider in the shader. The gated categories are therefore `RGB step detection` (the toggle,
-  then the floor it gates) and `Center deadzone` (the gate, then the four settings it governs), with the
+  then the floor it gates), `Center deadzone` (the gate, then the four settings it governs) and
+  `Isolated pixels` (the gate, then the count it governs), with the
   ungated `AutoMask` and `Frame timing` staying visible whatever any gate says. `ui_category` is not a way
   to hide one setting conditionally on another in general — there is no annotation that does that, so a
   value that must stay visible whatever its neighbours are set to stays in an ungated category.
@@ -46,8 +50,14 @@ annotation, the frame-count sliders' conversion, the prose budget, or the drift 
   `PS_Accum`/`CS_Accum` and a ring in the restore — so a `#if AutoMaskDeadzone` would save a few
   instructions in one entry point while costing a recompile every time someone ticks the box. It is
   therefore a live `AutoMaskDeadzone` bool carrying `ui_category_toggle`, and the branch reads it. The
-  structural switches keep their definitions because each elides a whole pass and the `texture`/`sampler`
-  pairs only that pass reads, which ReShade would otherwise allocate forever.
+  isolation gate is the second of the kind: a count and a branch inside the two closing passes, so it
+  takes the same live bool and rides in the closing's own target — and its radius is its own slider
+  (`AutoMaskIsolation`) rather than the closing's, because a count of still pixels is a different question
+  from how far the mask is grown, and sharing one number would mean retuning the closing silently changed
+  what the count means. Both radii sit inside the same fixed `AUTOMASK_DILATE_MAX` loop, so the second one
+  costs no extra tap. The structural switches keep their
+  definitions because each elides a whole pass and the `texture`/`sampler` pairs only that pass reads,
+  which ReShade would otherwise allocate forever.
 - **A category is a contiguous run of uniforms.** ReShade starts a new group where the `ui_category`
   value changes, so the same category named again further down the list renders as a second heading
   with the same name. That is why the deadzone settings are declared as a block at the end of the

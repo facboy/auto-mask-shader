@@ -17,6 +17,27 @@ are listed under it.
   radius. The verdict is the same decision *before* the radius, which is what the verdict view draws.
 - **element / panel** — a piece of interface. The mask holds no notion of one, so "an element keeps its
   mask" always means the pixels of it do.
+- **speck / isolated pixel** — a pixel the verdict claims with too few still pixels around it to be
+  interface: a stuck pixel, a lone sample in a noisy gradient. What the isolation gate drops.
+- **isolation gate / `AutoMaskIsolated`** — the one spatial term on the verdict, and the only thing that
+  takes a pixel *out* of the mask the verdict put in. A masked pixel is kept while its neighbourhood holds
+  `AutoMaskDensity` percent of still pixels, itself counted, over the isolation radius; the count is on the
+  verdict and not on colour, so it is the opposite of the closing radius, which only grows the mask. Ships
+  off.
+- **neighbourhood / the box** — the `2r + 1` square the gate reads, `r` the isolation radius. A fixed-size
+  box, so the density is the only thing that decides the outcome once the radius is set.
+- **density** — `AutoMaskDensity`, the share of that box that must be still, itself counted. A *share*
+  rather than a count so it means one thing at every radius: a count would need a cap at the smallest box's
+  area, and would mean 100% at one radius and 18% at another. `100` is a fully solid box, `0` keeps
+  everything. A line of width `n` fills `n / side` of the box, so a wider box erodes thin strokes.
+- **isolation radius / `AutoMaskIsolation`** — `r` for the box the density is measured over, deliberately
+  its own setting rather than the closing radius: shape and evidence are different questions, and tying
+  them would move what `AutoMaskDensity` means whenever the closing is retuned. Read as 1 at the bottom, so
+  the setting cannot silently switch the filter off, and capped at `AUTOMASK_DILATE_MAX` because it shares
+  the closing's fixed loop — so raising it costs no extra tap.
+- **text box / `__UNIFORM_INPUT_FLOAT1`** — the widget `AutoMaskDensity` uses (`ui_type = "input"`): a
+  typed field rather than a track, so a share can be set exactly. The other uniform in its category is a
+  slider; the widget family follows what the value means.
 - **authored mask** — a hand-painted mask image with coordinates and per-element configuration, the
   approach this shader replaces. `UIDetectMulti` uses them.
 - **`UIDetectMulti`** — Kaiser's pack, where the concept, the store/restore pattern and the anti-bloom
@@ -215,6 +236,9 @@ durations — are the `Frame timing` section.
 | `AutoMaskDeadzone` | Enable center deadzone | The gate the other four deadzone settings sit behind; cleared, the ellipse is off however they are set. |
 | `AutoMaskDeadzoneWidth` / `Height` / `Y` | Center deadzone width / height / vertical position | The ellipse in which stillness does not accumulate, and where its centre sits. |
 | `AutoMaskDeadzoneMotionOnly` | Only suppress deadzone while world moves | Whether the deadzone applies while the world is stopped. |
+| `AutoMaskIsolated` | Enable isolated pixel removal | The gate the isolation count sits behind; off, the mask is the closing radius alone. |
+| `AutoMaskDensity` | Still neighbourhood density (percent) | Share of the box that must be still, itself counted; a text box, stepped by 1. |
+| `AutoMaskIsolation` | Isolation radius in pixels | How far that density is measured; its own radius rather than the closing's. |
 | `UIDebugMotion` | Diagnostics: motion view | Which reading the overlay draws: motion view (red) or verdict view (green). |
 | `UIDebugGain` | Diagnostics: motion gain | Multiplier making a small change visible in the overlay. |
 
@@ -263,6 +287,12 @@ durations — are the `Frame timing` section.
   has no UI to pick up. The real pixels are put back by the restore, so the final picture is unchanged.
 - **closing radius / dilation** — the two separable `PS_DilateH`/`PS_DilateV` passes growing the mask,
   stopped where the luma step read from the back buffer is exceeded.
+- **opening / the gate's operation** — what the isolation gate does to the mask, but not a plain
+  morphology: it is the closing with a count test on top, not a min of the mask over the box. A pixel
+  survives when the verdict's own count in its box clears the threshold, so a pixel the closing grew out
+  over thin neighbourhood goes, and a pixel inside a solid panel stays whatever its own verdict was. It
+  rides in the closing's own two passes, in the channels `texAutoDilate` leaves unused, and not on
+  `AutoMaskEdge`: a contour inside a HUD must not cost the pixel its support.
 - **luma step** — `AutoMaskEdge` compared against `dot(colour, float3(0.299, 0.587, 0.114))`, the Rec.601
   luma the dilation reads from the frame.
 - **center deadzone** — the ellipse, sized and placed by the deadzone sliders, where stillness does not
@@ -313,7 +343,10 @@ durations — are the `Frame timing` section.
   keyword, a wrong argument count, the bracket form the translation produces, and `fmod` — because a
   rewrite would hide the failure from `fxc` and let it reach a game.
 - **loud failure** — the check's contract that missing data exits non-zero rather than reporting a clean
-  pass. `docs/verification.md` names the seven cases and the construct that exercises each.
+  pass. `docs/verification.md` names the eight cases and the construct that exercises each.
+- **reserved word** — a word ReShade's lexer emits as a token rather than an identifier (`sample`,
+  `new`, `this`, `half`), while HLSL has no such token, so `fxc` compiles it and ReShade fails the load
+  with X3000. `RESERVED_WORD` refuses it, read from ReShade's own lexer rather than guessed.
 
 ## Signals considered and rejected
 

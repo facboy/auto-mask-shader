@@ -37,14 +37,15 @@ check:
   `clipped == 0.0` a three-wide test whose `&&` truncation is X3206, so it is a `float` (the `all()` answer
   is one value, not one per channel). It is an outright bug in the log rather than a cosmetic preference.
 - **It must fail loudly on missing data.** An earlier version of the companion tool reported a clean pass
-  while emitting no bytecode at all, because a missing hash compares equal to another missing hash. Seven
+  while emitting no bytecode at all, because a missing hash compares equal to another missing hash. Eight
   cases must keep exiting non-zero, each exercised by hand before committing a change here: an empty
   `Shaders/`; a technique whose passes the parser cannot find (cross-checked against the `pass` keyword
   count, so a pattern miss cannot look like a technique with fewer passes); a technique binding a shader
   that does not exist; a shader whose syntax is broken; a compute pass missing one of its dispatch
   sizes; a variant list carrying two entries under one name, which would show the same combination
-  twice and leave the other uncompiled — coverage read off a report that does not have it; and a call to
-  an intrinsic `fxc` implements but ReShade does not, below.
+  twice and leave the other uncompiled — coverage read off a report that does not have it; a call to
+  an intrinsic `fxc` implements but ReShade does not; and an identifier that is a reserved word in
+  ReShade's lexer though not in HLSL, both below.
 - **A spelling the tool rewrites cannot be checked by compiling.** Storage declarations are translated to
   `RWTexture*` before fxc sees them, so a keyword ReShade would reject compiles in the check regardless.
   That already bit: a lowercase `storage2d` passed every variant and failed in ReShade with a bare X3000
@@ -73,6 +74,17 @@ check:
   `frac`, `floor`, `round`, `saturate`, `lerp`, `smoothstep`, `step`, `mad` and the `tex2D*` family — the
   whole vocabulary this shader uses — so a wrap around an integer is `%` rather than `fmod`. Exercise it
   by hand with `fmod` put back before committing a change to that guard.
+- **The fourth form of the same blind spot is a word, not a call.** ReShade's lexer emits some spellings
+  as a reserved token where HLSL has no such thing, so `float sample = ...` is well-formed HLSL: `fxc`
+  compiles it and ReShade fails the *load* with X3000 (`unexpected reserved word, expected identifier`),
+  pointing at the column rather than naming the word. That reached the game, and the check had passed
+  every variant, so the set is pinned to ReShade's own lexer rather than guessed — the `(name,
+  tokenid::reserved)` table of `source/effect_lexer.cpp`, which is where `sample`, `new`, `this` and the
+  `half`/`double`/`Texture2D` spellings sit. It is a deny set, so an ordinary identifier is never
+  mistaken for a reserved word, and the guard reads the source with comments and string literals dropped
+  first, because those words are ordinary English and this file's own tooltips use them. Exercise it by
+  hand with `sample` put back before committing a change to that guard: the check must exit non-zero
+  naming the word.
 - `pyproject.toml` lives in `tools/`, not at the repo root: this is a shader project, and `uv run`
   discovers the project by searching upward from the script, so the root-level command above works.
 
@@ -191,6 +203,22 @@ whether the reading you are looking at is current.
   **Step detection**, and the RGB step slider drawn as the last row of **AutoMask** so it sits directly
   above that group. A category named twice in the uniform list draws two headings of the same name, so a
   second **AutoMask** block is the failure to look for after any move of a uniform.
+- The isolation gate, in the panel and in the mask: the checkbox ships off, so on first load
+  **Isolated pixels** must show the gate alone with the count and radius hidden under it, and it must be a
+  *third* gated category beside **RGB step detection** and **Center deadzone** — a second **AutoMask**
+  heading after any move of the uniform is the failure to look for. With it on, a still speck with no still
+  neighbourhood — a stuck pixel, a flat patch in a noisy gradient — must vanish from the mask while a
+  solid element keeps its. **Still neighbourhood density** is a typed field, not a slider, and must show
+  its value as entered (a `ui_type = "input"` mismatch would draw a track instead); **Isolation radius**
+  must be independent of **Closing radius**, so moving the closing alone must not change which specks are
+  dropped, and the gate must work with the closing at `0`. Both are checkable off-GPU, and the probe does
+  exactly that: it sweeps the two radii and the density, and holds every pixel of the two passes to the
+  closed-form rule — keep what the closing grew, unless the still share of the box (itself counted) is
+  under the density. The count is of the shader's own still/moving reading, so
+  the check that it is not a colour test is a still element with a hard internal edge — a boxed health
+  bar, text on a plate — which must survive: it must not be eaten for changing colour across the box, only
+  for lacking still pixels around it. Clearing the checkbox must give back exactly the mask the closing
+  radius alone produces; that equivalence is checkable off-GPU too, as the probe's second check does.
 - The deadzone's gate, in the panel and in the mask: the checkbox ships off, so on first load the category
   must show the gate alone with the four settings hidden under it, and ticking it must reveal them — the
   gate is the one checkbox ReShade never hides, so a still-visible slider while it is clear is the

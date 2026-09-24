@@ -91,6 +91,35 @@ verdict step divided by X, and the conversion keeps a hair above the exact share
 the half-precision accumulator crosses the step on the frame it should and not one either way. Keep
 `AutoMaskFall`'s frames at or under `AutoMaskRise`'s, or the mask lingers over moving scenery.
 
+### The isolation gate, which is the one spatial term
+
+The verdict is per pixel and carries no spatial term, so a still pixel with no still pixel near it is
+protected on the same evidence as a panel: a stuck pixel, a flat patch between two dithering regions, one
+lone sample in a noisy gradient. The missing test is regional, and it belongs on the verdict rather than on
+colour — a neighbour counts toward a pixel only when the comparison itself calls it still. Colour similarity
+is the closing radius's own question and the wrong one here, since a HUD's edges are high-contrast while a
+speck's neighbourhood is whatever the scene happens to be.
+
+So the gate rides in the two closing passes, in the channels they leave unused. `PS_DilateH` counts the still
+pixels in each output pixel's row and writes the count into `.g` of `texAutoDilate` scaled by
+`AUTOMASK_COUNT_SCALE`, so a whole count lands on a whole byte; `PS_DilateV` sums those rows and blanks the
+pixel when the box's still share — the pixel itself counted — is under `AutoMaskDensity`. The box is the
+isolation radius (`AutoMaskIsolation`), not the closing's: the closing is how far the mask is grown, which
+is about shape, while the box is how much corroboration a pixel needs, which is about evidence, and tying
+them would move the gate's meaning whenever the closing is retuned. It is read as one pixel at the bottom
+so the setting cannot silently switch the filter off, and it is applied to every masked pixel rather than
+only the ones the verdict claimed, so what the closing grew around a speck goes with it. Only the growth
+keeps the luma bound: a contour inside a HUD must not cost the pixel support.
+
+The test is a **share** of that box, not a count of pixels: `AutoMaskDensity` percent of its area, the
+pixel itself counted. A count would be capped by the smallest box's area, so the same slider value would
+mean a solid box at one radius and a sparse one at another — 100% at a 3×3 and 18% at 7×7. As a share it
+means one thing wherever the radius is set: `0` keeps every pixel, `100` wants a fully solid box. The one
+consequence to know is that a line of width `n` fills only `n / side` of the box, so a wider isolation
+radius erodes thin strokes at a fixed density. The gate is a live checkbox rather than a fourth structural
+switch, by the same rule as the deadzone: it owns no pass, shader or target, riding in the two the closing
+already has. With it off the mask is byte-identical to the closing alone.
+
 The heal is one frame of the unmarking countdown per still frame, part of the same credit as the rise, so
 it happens while the world is drawn and stops while it is not — a stopped world is not evidence.
 `AutoMaskForget` protects a briefly-animating element from being banked at all and runs as a balance

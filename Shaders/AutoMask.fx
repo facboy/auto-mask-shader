@@ -78,6 +78,9 @@ uniform float AutoMaskMoveMemory <
 > = 2.0 * AutoMaskTargetFPS;
 
 #define AUTOMASK_DILATE_MAX 3
+//The isolation gate's row count rides in texAutoDilate's 8-bit .g, so the whole number is scaled by
+//this on the way in and back out, landing it on the same byte at either end.
+#define AUTOMASK_COUNT_SCALE 255.0
 uniform float AutoMaskDilate <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Closing radius in pixels";
@@ -203,6 +206,40 @@ uniform bool AutoMaskDeadzoneMotionOnly <
 	ui_category = "Center deadzone";
 > = false;
 
+//Keeps a masked pixel only while enough still pixels are around it, so a lone speck the comparison
+//cannot tell from a HUD is not protected. Its own category, gated by the checkbox first in it.
+uniform bool AutoMaskIsolated <
+	__UNIFORM_SLIDER_BOOL1
+	ui_label = "Enable isolated pixel removal";
+	ui_tooltip = "On, a pixel in the mask is kept only while enough of its neighbourhood is still too, itself counted, so a lone speck of noise or scenery is not protected as interface.\nThe neighbourhood is the isolation radius below, measured as the density below";
+	ui_category = "Isolated pixels";
+	ui_category_toggle = true;
+> = false;
+
+//Share of the neighbourhood that must be still, itself counted, for the gate above. A share rather
+//than a count, so it means one thing at every isolation radius: a count would have to be capped at the
+//smallest box's area.
+uniform float AutoMaskDensity <
+	__UNIFORM_DRAG_FLOAT1
+	ui_label = "Still neighbourhood density (percent)";
+	ui_tooltip = "What share of a masked pixel's neighbourhood must be still, itself counted, for the pixel to stay in the mask.\n0 keeps every pixel, 100 keeps only a fully solid neighbourhood.\nMeasured in steps of 1";
+	ui_category = "Isolated pixels";
+	ui_min = 0.0; ui_max = 100.0;
+	ui_step = 1.0;
+> = 33.0;
+
+//How far the neighbourhood reaches, independent of the closing radius: shape and evidence are different
+//questions, and tying this to AutoMaskDilate would move the gate's meaning whenever the closing is
+//retuned. Shares the closing's fixed loop, so it costs no extra tap.
+uniform float AutoMaskIsolation <
+	__UNIFORM_SLIDER_FLOAT1
+	ui_label = "Isolation radius in pixels";
+	ui_tooltip = "How far the density above is measured, as a square 2 x this + 1 across.\nIndependent of the closing radius: the closing is how far the mask is grown, this is how much corroboration a pixel needs";
+	ui_category = "Isolated pixels";
+	ui_min = 0.0; ui_max = 3.0;
+	ui_step = 1.0;
+> = 1.0;
+
 //Targets
 //Accumulator ping-pong: .r=confidence/debt, .g=hold, .b=motion
 texture texAutoAccumA { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA16F; };
@@ -218,7 +255,8 @@ sampler AutoHistory { Texture = texAutoHistory; };
 texture texAutoFrame { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
 sampler AutoFrame { Texture = texAutoFrame; };
 
-//Intermediate target for separable dilation.
+//Intermediate target for separable dilation. .g carries the isolation gate's row count, the channel
+//the closing radius leaves unused.
 texture texAutoDilate { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
 sampler AutoDilate { Texture = texAutoDilate; };
 
@@ -558,38 +596,61 @@ float4 PS_Copy(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	return tex2D(AutoAccumB, texcoord);
 }
 
-//Horizontal dilation bounded by luma edge threshold.
+//Horizontal closing bounded by luma edge, plus the row's still count for the isolation gate.
 float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float2 texel = BUFFER_PIXEL_SIZE;
 	float r = floor(AutoMaskDilate + 0.5);
-	float mask = tex2D(AutoAccumA, texcoord).r;
+	//The box has its own radius, one pixel wide at least so the gate always has a share to read.
+	float reach = max(floor(AutoMaskIsolation + 0.5), 1.0);
+	float centre = tex2D(AutoAccumA, texcoord).r;
+	float mask = centre;
 	float lumaCentre = dot(tex2D(ReShade::BackBuffer, texcoord).rgb, float3(0.299, 0.587, 0.114));
+	float nearby = 0.0;
 
 	for (int i = -AUTOMASK_DILATE_MAX; i <= AUTOMASK_DILATE_MAX; i++){
 		float2 uv = texcoord + float2(i * texel.x, 0.0);
+		bool inRange = abs(float(i)) <= r;
 		float luma = dot(tex2D(ReShade::BackBuffer, uv).rgb, float3(0.299, 0.587, 0.114));
 		float edge = abs(luma - lumaCentre) * 255.0;
-		float keep = (abs(float(i)) <= r && edge <= AutoMaskEdge) ? 1.0 : 0.0;
-		mask = max(mask, tex2D(AutoAccumA, uv).r * keep);
+		float keep = (inRange && edge <= AutoMaskEdge) ? 1.0 : 0.0;
+		float neighbour = tex2D(AutoAccumA, uv).r;
+		//The count is the verdict, unbounded by luma: a contour inside a HUD must not cost it support.
+		nearby += abs(float(i)) <= reach ? step(0.5, neighbour) : 0.0;
+		mask = max(mask, neighbour * keep);
 	}
-	return float4(mask.xxx, 1.0);
+	return float4(mask, nearby / AUTOMASK_COUNT_SCALE, mask, 1.0);
 }
 
+//Vertical closing bounded by luma edge, plus the box's still count and the isolation gate.
 float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float2 texel = BUFFER_PIXEL_SIZE;
 	float r = floor(AutoMaskDilate + 0.5);
-	float mask = tex2D(AutoDilate, texcoord).r;
+	float reach = max(floor(AutoMaskIsolation + 0.5), 1.0);
+	float4 centre = tex2D(AutoDilate, texcoord);
+	float mask = centre.r;
 	float lumaCentre = dot(tex2D(ReShade::BackBuffer, texcoord).rgb, float3(0.299, 0.587, 0.114));
+	float nearby = 0.0;
 
 	for (int i = -AUTOMASK_DILATE_MAX; i <= AUTOMASK_DILATE_MAX; i++){
 		float2 uv = texcoord + float2(0.0, i * texel.y);
+		bool inRange = abs(float(i)) <= r;
 		float luma = dot(tex2D(ReShade::BackBuffer, uv).rgb, float3(0.299, 0.587, 0.114));
 		float edge = abs(luma - lumaCentre) * 255.0;
-		float keep = (abs(float(i)) <= r && edge <= AutoMaskEdge) ? 1.0 : 0.0;
-		mask = max(mask, tex2D(AutoDilate, uv).r * keep);
+		float keep = (inRange && edge <= AutoMaskEdge) ? 1.0 : 0.0;
+		float4 row = tex2D(AutoDilate, uv);
+		nearby += abs(float(i)) <= reach ? row.g * AUTOMASK_COUNT_SCALE : 0.0;
+		mask = max(mask, row.r * keep);
 	}
+
+	//Every masked pixel is tested, not only the ones the verdict claimed: what the closing radius grew
+	//around a speck has that speck's thin neighbourhood and goes with it. The box is the isolation
+	//radius, so the share is the same test at every position of it.
+	float side = 2.0 * reach + 1.0;
+	if (AutoMaskIsolated && nearby < AutoMaskDensity * 0.01 * side * side)
+		mask = 0.0;
+
 	return float4(mask.xxx, 1.0);
 }
 

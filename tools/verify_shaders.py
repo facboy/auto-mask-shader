@@ -24,7 +24,7 @@ There is no baseline to compare against: this project has no shipped behaviour
 to preserve, so the point is only "it compiles, here is the pass list, and here
 is what it costs".
 
-Seven properties are deliberate and must survive any change to this file:
+Eight properties are deliberate and must survive any change to this file:
 
 - Every failure is loud. A shader that compiles *and emits no bytecode* is an
   error here, not a pass, because a missing hash compares equal to another
@@ -57,6 +57,12 @@ Seven properties are deliberate and must survive any change to this file:
   X3004 (`undeclared identifier or no matching intrinsic overload`). `fmod` did
   exactly that -- a clean pass here, a failed load in the game -- so the names
   fxc has and ReShade does not are refused outright. That is `NOT_IN_RESHADE`.
+- The same blind spot covers a *word* rather than a call. ReShade's lexer emits
+  some spellings as a reserved token where HLSL has no such thing, so `float
+  sample = ...` is well-formed HLSL that fxc compiles and ReShade rejects at load
+  with X3000 (`unexpected reserved word, expected identifier`). That reached a
+  game, so the reserved set is read from ReShade's own lexer and refused; that is
+  `RESERVED_WORD`.
 - A warning is a failure too, with one exception that is the harness's own
   artefact. ReShade prints every warning its compile emits to the log, so one is
   a defect rather than a note: a log a user cannot read is how a real warning
@@ -240,6 +246,37 @@ NOT_IN_RESHADE = frozenset((
 # longest names come first so `texCUBElod` is not read as `texCUBE`.
 NOT_IN_RESHADE_CALL = re.compile(
     r'\b(%s)\s*\(' % "|".join(sorted(NOT_IN_RESHADE, key=len, reverse=True)))
+# The other half of the same blind spot, and a third form of it: a word ReShade's
+# lexer emits as a reserved token rather than an identifier. fxc has no such token,
+# so `float sample = ...` compiles here and fails in ReShade with X3000 (`unexpected
+# 'reserved word', expected 'identifier'`) at load -- which is how this reached a
+# game. The list is read from ReShade's own lexer, `source/effect_lexer.cpp`, the
+# `(name, tokenid::reserved)` table, not guessed. It is a deny set, so an ordinary
+# identifier is never mistaken for a reserved word, and the type-like entries
+# (`double`, `half`, `Texture2D`) are in it on purpose: ReShade lexes those as
+# reserved too, so writing one as an identifier fails there whatever fxc makes of it.
+RESERVED_WORDS = frozenset((
+    "SamplerState", "Texture1D", "Texture1DArray", "Texture2D", "Texture2DArray",
+    "Texture2DMS", "Texture2DMSArray", "Texture3D", "TextureCube", "TextureCubeArray",
+    "asm", "asm_fragment", "auto", "cast", "catch", "centroid", "char", "class",
+    "column_major", "compile", "const_cast", "delete", "double", "dynamic_cast", "enum",
+    "explicit", "external", "foreach", "friend", "globallycoherent", "goto", "half",
+    "half2", "half2x1", "half2x2", "half2x3", "half2x4", "half3", "half3x1", "half3x2",
+    "half3x3", "half3x4", "half4", "half4x1", "half4x2", "half4x3", "half4x4", "inline",
+    "interface", "long", "mutable", "new", "noinline", "operator", "packed", "packoffset",
+    "private", "protected", "public", "register", "reinterpret_cast", "restrict",
+    "row_major", "sample", "sampler1DArray", "sampler2DArray", "sampler2DMS",
+    "sampler2DMSArray", "samplerCUBE", "samplerCube", "samplerCubeArray", "samplerRECT",
+    "samplerRect", "sampler_state", "shared", "short", "signed", "sizeof", "snorm",
+    "static_cast", "template", "textureCUBE", "textureRECT", "this", "try", "typedef",
+    "union", "unorm", "unsigned", "using", "virtual",
+))
+# A bare word, so a member (`a.sample`) is refused too -- ReShade rejects the token
+# wherever it stands -- while an identifier that merely contains one (`sampler2D`) is
+# untouched by the word boundaries. The longest names come first so `half2x1` is read
+# before `half2`, and `half` before it as well.
+RESERVED_WORD = re.compile(
+    r'\b(%s)\b' % "|".join(sorted(RESERVED_WORDS, key=len, reverse=True)))
 # A function the shader defines itself, read the same way the entry points are: a
 # type keyword, then the name, then a parameter list. A local definition of one of
 # the names above is legal in ReShade -- the call resolves to it before any
@@ -462,6 +499,19 @@ def strip_for_fxc(text: str) -> str:
                  "counterparts). ReShade would report the bare identifier as "
                  "undeclared, and this check would otherwise translate it into "
                  "valid HLSL and report it clean" % misspelled_access.group(0))
+    # Loud guard, the same class as the two above and a third form of it: a word
+    # ReShade lexes as a reserved token. fxc has no such token, so this source is
+    # well-formed HLSL and the compile below succeeds on a shader ReShade refuses
+    # with X3000 -- `float sample = ...` did exactly that. Comments and string
+    # literals are dropped first, since `sample` is an ordinary English word and
+    # this file's own tooltips say it.
+    reserved = RESERVED_WORD.search(drop_comments_and_strings(text))
+    if reserved:
+        sys.exit("FAIL -- %r is a reserved word in ReShade's lexer, so it cannot be "
+                 "an identifier there and the effect fails at load with X3000 "
+                 "('unexpected reserved word, expected identifier'); fxc accepts it, "
+                 "so this check would compile it clean. Rename the identifier"
+                 % reserved.group(0))
     # Loud guard, on the same reasoning as the two above but a different cause: the
     # name is real HLSL, so fxc compiles it and the translation has nothing to do
     # with it. Only ReShade's parser rejects it, and it does so at load time with
@@ -490,6 +540,19 @@ def strip_for_fxc(text: str) -> str:
         text = pattern.sub(replacement, text)
     text = translate_atomics(text)
     return translate_storage_access(text)
+
+
+def drop_comments_and_strings(text: str) -> str:
+    """The source with string literals and comments blanked out.
+
+    Reserved words are ordinary English -- `sample`, `new`, `this` -- so a guard
+    that read prose or a tooltip would refuse a file over its own comments.
+    Strings are blanked before comments for a reason: a `//` inside a literal
+    would otherwise be read as a comment and cut the literal short.
+    """
+    text = re.sub(r'"(?:[^"\\]|\\.)*"', '""', text)
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    return re.sub(r"//[^\n]*", "", text)
 
 
 def storages_in(text: str) -> set[str]:

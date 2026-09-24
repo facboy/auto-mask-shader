@@ -156,6 +156,8 @@ Follows from what each pass reads:
    from `BackBuffer` exceeds `AutoMaskEdge`. Reading the frame there is safe only because it is before
    every pass that writes it. `PS_Copy` stays a pixel pass in both variants — the accumulator is
    `RGBA16F` and the copy has no statistics to do — and `PS_CopyDrift` is its twin on the compute path.
+   The isolation gate rides in these two passes too, off their own target: it is a pixel-pass feature, so
+   it reads the same on both variants and has no compute spelling.
 4. `PS_Store`, keeping the mapped pixels.
 5. `PS_StoreFrame`, copying the untouched frame into the history target for the next frame.
 6. `PS_AntiBloom` — black the masked pixels in the live frame so a bloom pass downstream has no UI to
