@@ -102,7 +102,8 @@ histogram and auto-deadband, the `RGBA32F` drift channel, and the pass order ins
 - ReShade can only hide a whole **category** of settings at a time, via `ui_category_toggle` on the
   boolean that *opens* it, and it never hides that boolean itself. So a gated setting belongs in its own
   category with the gate first — never inside `AutoMask`, where unticking would hide every other slider.
-  There is no per-uniform visibility annotation. See `docs/editing-conventions.md`.
+  There is no per-uniform visibility annotation, and a category is a **contiguous run** of uniforms: the
+  same name used again further down the list draws a second heading. See `docs/editing-conventions.md`.
 - `BUFFER_WIDTH`/`BUFFER_HEIGHT` are injected by ReShade at runtime, not defined here. Anything
   buffer-relative stays correct across resolutions; absolute pixel numbers do not.
 - Every pixel shader keeps `float4 pos : SV_Position` as its **first** parameter, even though no body
@@ -119,6 +120,12 @@ histogram and auto-deadband, the `RGBA32F` drift channel, and the pass order ins
   declared target, so a target left outside its guard is memory paid for a feature that is compiled out.
   Values tuned by watching stay live sliders; adding a fourth definition for one of those would cost a
   recompile per adjustment for no elision worth having.
+- The **center deadzone is gated by a live checkbox, not a fourth definition.** It owns no pass, shader or
+  target of its own — it is a branch inside `PS_Accum`/`CS_Accum` and a ring in the restore — so a
+  `#if` would buy a handful of instructions in one entry point while costing a recompile per toggle.
+  `AutoMaskDeadzone` instead opens `Center deadzone` with `ui_category_toggle`, which is what makes the
+  four settings below it live and hideable at once. A feature with a pass, a shader or a target to its
+  name still gets a definition; a branch inside an existing pass does not.
 - `AutoMaskTargetFPS` is the one further definition, a setup number rather than a tuning one: it multiplies
   seconds into frames for the `ui_max` caps and for the drift horizon. See `docs/editing-conventions.md`.
 - The reset's wide step is `max(deadband, 8.0)` rather than a bare literal, so it can never collapse back

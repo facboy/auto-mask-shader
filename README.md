@@ -56,11 +56,12 @@ All of them live in the ReShade panel. The defaults are meant to be usable as-is
 they aren't. The tooltips in the panel give each setting in brief — this table is where the detail
 lives.
 
-The panel groups them under three headings: **AutoMask** for everything that is always in play,
+The panel groups them under headings: **AutoMask** for everything that is always in play,
 **Step detection** for the auto-detect toggle and the noise floor it governs — the floor is only shown
-while the toggle is ticked, since it is read by nothing otherwise — and **Diagnostics** for the
-overlay's two settings. The RGB step keeps its place in **AutoMask** even when auto-detect is on,
-because the shader still falls back to it on a frame where the measurement has nothing to read.
+while the toggle is ticked, since it is read by nothing otherwise — **Center deadzone** for the
+elliptical exclusion that keeps a camera-tethered character out of the mask, and **Diagnostics** for the
+overlay's settings. The RGB step keeps its place in **AutoMask** even when auto-detect is on, because
+the shader still falls back to it on a frame where the measurement has nothing to read.
 
 | Setting | What it does |
 | --- | --- |
@@ -76,8 +77,9 @@ because the shader still falls back to it on a frame where the measurement has n
 | **Luma step counted as a boundary** | Stops that growth at a real edge in the picture, so the mask snaps to the HUD's outline instead of spilling out into the scenery. |
 | **Feather radius in pixels** | Spreads the mask's edge over this many pixels just outside it, so the interface the restore puts back meets the effects-processed picture in a short ramp rather than a hard step. The ramp runs **outward only**: it never reaches full strength out past the mask, so a pixel outside the interface is never restored over, and the interface itself is never partly protected — the edge softens, the mask does not blur. `0` gives the hard edge back, and `1` (the default) halves the step; `2` spreads it over one more pixel. Bloom sees the unfeathered edge regardless, so anti-bloom is unchanged. |
 | **Motion needed to trust stillness (percent)** | How much of the screen has to be changing before the shader believes the world is being drawn. Above it, a pixel that holds still is taken for interface and the mask builds; below it, stillness earns nothing, because what holds still in a still scene is the scenery. This is the line that decides whether the screen is being drawn at all — the premise rather than a refinement, which is why its default is not zero. Raise it if scenery is still getting caught, lower it if a HUD fails to appear. |
-| **Center deadzone width (percent)** | Width of an elliptical center region where stillness does not accumulate into the mask. Keeps a third-person player character tethered to the camera from being captured as interface. `0` turns it off. |
-| **Center deadzone height (percent)** | Height of the elliptical center deadzone. `0` turns it off. |
+| **Enable center deadzone** | The master switch for the whole elliptical exclusion below it. It is off by default, so the deadzone is simply not in play and there is nothing extra to tune; tick it first, then set the sizes. Turning it off parks the region — the ellipse is off whatever the four settings still say, and they keep their values. The ring the overlay draws appears only while this is ticked and a width and height are set. |
+| **Center deadzone width (percent)** | Width of an elliptical center region where stillness does not accumulate into the mask. Keeps a third-person player character tethered to the camera from being captured as interface. |
+| **Center deadzone height (percent)** | Height of the elliptical center deadzone. |
 | **Center deadzone vertical position (percent)** | Vertical center of the deadzone (`50` is screen center; raise it to move down toward the character's feet). |
 | **Only suppress deadzone while world moves** | When checked, the deadzone only suppresses accumulation while the world is being drawn. When the scene is still, full-screen menus can accumulate even inside the deadzone. When unchecked, the deadzone is suppressed at all times. |
 | **Diagnostics: motion view** | Which reading the overlay draws when it is switched on. On, it is the motion view: red where the frame sees a change, nothing where it does not. Off, it is the verdict view: green where a pixel has earned its place in the mask — the shader's own verdict, without the closing radius — nothing where it has not. Both tint only the pixels they name and leave the rest of the picture exactly as the game drew it; the deadzone ring and the bottom-left corner marker show in both. |
@@ -139,8 +141,8 @@ shader has decided a pixel is interface, and nothing where neither applies.
   as the world takes it back. A stopped world adds nothing, so in a held frame (marker yellow) the green
   is the last state decided, and may only shrink, never grow.
 
-If you have configured a center deadzone (`Center deadzone width` and `height` above zero), a thin yellow
-ring marks the ellipse so you can see where it frames your character while adjusting the sliders.
+If **Enable center deadzone** is ticked and its width and height are above zero, a thin yellow ring marks
+the ellipse so you can see where it frames your character while adjusting the sliders.
 
 The small block in the bottom-left corner is always drawn, and its colour tells you what the whole screen
 is doing — which decides whether what you are looking at is a current judgement or a held one:
@@ -218,8 +220,8 @@ time:
 - **A player character tethered to the camera in third-person games.** When running forward in a
   third-person game, the camera moves with your character, so the background streams past while your
   character's back or torso stays locked at the same screen position — identical to a HUD element as far
-  as the comparison can tell. Use the **Center deadzone** settings to carve out an elliptical exclusion
-  zone around your character model.
+  as the comparison can tell. Tick **Enable center deadzone** and set its width and height to carve out an
+  elliptical exclusion zone around your character model.
 - **A HUD that flickers without moving, on the compute path.** Dithering and temporal anti-aliasing make
   a pixel that is standing still differ by a level or two from frame to frame — usually forgiven by the
   RGB step above, but the drift horizon reads it too, because a pixel that keeps wandering does end up

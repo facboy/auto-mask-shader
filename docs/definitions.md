@@ -210,6 +210,7 @@ switches and the setup constants listed below. Tuning guidance is in `README.md`
 | `AutoMaskEdge` | Luma step counted as a boundary | The luma difference, 0–255, past which that growth stops. |
 | `AutoMaskFeather` | Feather radius in pixels | How far past the mask's edge the restore's blend is ramped, so the boundary is not a hard step. |
 | `AutoMaskMotion` | Motion needed to trust stillness (percent) | Share of the screen that must change before stillness is credited. The premise. |
+| `AutoMaskDeadzone` | Enable center deadzone | The gate the other four deadzone settings sit behind; cleared, the ellipse is off however they are set. |
 | `AutoMaskDeadzoneWidth` / `Height` / `Y` | Center deadzone width / height / vertical position | The ellipse in which stillness does not accumulate, and where its centre sits. |
 | `AutoMaskDeadzoneMotionOnly` | Only suppress deadzone while world moves | Whether the deadzone applies while the world is stopped. |
 | `AutoMaskDrift` | Drift horizon (seconds) | The drift average's memory, in seconds; `0` turns the comparison off. |
@@ -229,7 +230,11 @@ switches and the setup constants listed below. Tuning guidance is in `README.md`
 - **category / `ui_category_toggle`** — a grouping in the ReShade panel. ReShade can only hide a whole
   category at a time, off a boolean's `ui_category_toggle`, and it never hides that boolean itself — so
   a gated setting belongs in its own category with the gate first, and there is no per-uniform
-  visibility annotation (`docs/editing-conventions.md`).
+  visibility annotation (`docs/editing-conventions.md`). A category is a contiguous run of uniforms, so
+  one named again further down the list draws a second heading with the same name; that is why
+  `Center deadzone` is declared as a block after the compute guard. The four names used are `AutoMask`,
+  `Center deadzone`, `Step detection` and `Diagnostics` — the last two inside switches, so neither is
+  drawn unless its switch is on.
 - **`AUTOMASK_STEP_MAX`** — `8`: the last level the walk measures in, and the end of the `AutoMaskEps`
   slider with it. Named because the histogram's width, the clear loop, the bin clamp and the walk's
   range must not drift apart.
@@ -272,7 +277,8 @@ switches and the setup constants listed below. Tuning guidance is in `README.md`
   luma the dilation reads from the frame.
 - **center deadzone** — the ellipse, sized and placed by the deadzone sliders, where stillness does not
   accumulate. For a player character tethered to the camera, which is indistinguishable from a HUD
-  element to the comparison.
+  element to the comparison. `AutoMaskDeadzone` gates it: cleared, the ellipse is off whatever the four
+  settings below say, and they keep their values.
 - **diagnostics overlay** — the `PS_DebugMap` pass, compiled only when `AutoMaskDiagnostics == 1`. It
   reads the accumulator directly, so it cannot report on itself instead of on the shader.
 - **motion view / verdict view** — the overlay's two readings, picked by the live `UIDebugMotion` toggle:
@@ -282,7 +288,8 @@ switches and the setup constants listed below. Tuning guidance is in `README.md`
   downstream can paint over it: magenta while the world is drawn, yellow while it is not. It reads the
   state about to govern the mask, one frame ahead of the decision.
 - **deadzone ring** — the thin yellow ellipse outline, drawn in the restore pass while a deadzone is
-  configured, so the region can be seen while the sliders are set.
+  enabled — `AutoMaskDeadzone` ticked and a size set — so the region can be seen while the sliders are
+  set.
 - **variant** — one compiled combination of the preprocessor switches; the offline check compiles eight
   (`AutoMaskAntiBloom` and `AutoMaskDiagnostics` each at 0 and 1, crossed with `AutoMaskCompute`).
 - **`BUFFER_WIDTH` / `BUFFER_HEIGHT`** — injected by ReShade at runtime, not defined here. Anything

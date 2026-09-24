@@ -129,42 +129,6 @@ uniform float AutoMaskMotion <
 	ui_step = 1.0;
 > = 50.0;
 
-//Elliptical center deadzone suppressing accumulation on camera-tethered characters, active only
-//while the world is drawn when AutoMaskDeadzoneMotionOnly is set.
-uniform float AutoMaskDeadzoneWidth <
-	__UNIFORM_SLIDER_FLOAT1
-	ui_label = "Center deadzone width (percent)";
-	ui_tooltip = "Width of the elliptical center region where stillness is not accumulated.\nSet above 0 to keep a third-person character from being captured as interface.\n0 disables the deadzone";
-	ui_category = "AutoMask";
-	ui_min = 0.0; ui_max = 100.0;
-	ui_step = 0.5;
-> = 0.0;
-
-uniform float AutoMaskDeadzoneHeight <
-	__UNIFORM_SLIDER_FLOAT1
-	ui_label = "Center deadzone height (percent)";
-	ui_tooltip = "Height of the elliptical center deadzone. 0 disables the deadzone";
-	ui_category = "AutoMask";
-	ui_min = 0.0; ui_max = 100.0;
-	ui_step = 0.5;
-> = 0.0;
-
-uniform float AutoMaskDeadzoneY <
-	__UNIFORM_SLIDER_FLOAT1
-	ui_label = "Center deadzone vertical position (percent)";
-	ui_tooltip = "Vertical center of the deadzone (50 is screen center, higher moves it down toward the character's feet, lower moves it up)";
-	ui_category = "AutoMask";
-	ui_min = 0.0; ui_max = 100.0;
-	ui_step = 0.5;
-> = 55.0;
-
-uniform bool AutoMaskDeadzoneMotionOnly <
-	__UNIFORM_SLIDER_BOOL1
-	ui_label = "Only suppress deadzone while world moves";
-	ui_tooltip = "On, the deadzone suppresses accumulation only while the world is being drawn,\nso full-screen menus can still build a mask over a stopped scene.\nOff, it suppresses at all times";
-	ui_category = "AutoMask";
-> = false;
-
 #if AutoMaskCompute == 1
 	//How long a colour lingers in the average the drift comparison reads, catching a shift too small
 	//to cross a level between two frames. 0 turns it off.
@@ -201,6 +165,51 @@ uniform bool AutoMaskDeadzoneMotionOnly <
 		ui_step = 0.05;
 	> = 0.5;
 #endif
+
+//Elliptical center deadzone suppressing accumulation on camera-tethered characters, active only
+//while the world is drawn when AutoMaskDeadzoneMotionOnly is set. Its own category, gated by the
+//checkbox first in it; one block at the end, since a category is a contiguous run.
+uniform bool AutoMaskDeadzone <
+	__UNIFORM_SLIDER_BOOL1
+	ui_label = "Enable center deadzone";
+	ui_tooltip = "On, the elliptical region below stops accumulating stillness, so a camera-tethered character is not captured as interface.\nOff, a configured deadzone is parked rather than zeroed";
+	ui_category = "Center deadzone";
+	ui_category_toggle = true;
+> = false;
+
+uniform float AutoMaskDeadzoneWidth <
+	__UNIFORM_SLIDER_FLOAT1
+	ui_label = "Center deadzone width (percent)";
+	ui_tooltip = "Width of the elliptical center region where stillness is not accumulated.\nSet above 0 to keep a third-person character from being captured as interface";
+	ui_category = "Center deadzone";
+	ui_min = 0.0; ui_max = 100.0;
+	ui_step = 0.5;
+> = 0.0;
+
+uniform float AutoMaskDeadzoneHeight <
+	__UNIFORM_SLIDER_FLOAT1
+	ui_label = "Center deadzone height (percent)";
+	ui_tooltip = "Height of the elliptical center deadzone";
+	ui_category = "Center deadzone";
+	ui_min = 0.0; ui_max = 100.0;
+	ui_step = 0.5;
+> = 0.0;
+
+uniform float AutoMaskDeadzoneY <
+	__UNIFORM_SLIDER_FLOAT1
+	ui_label = "Center deadzone vertical position (percent)";
+	ui_tooltip = "Vertical center of the deadzone (50 is screen center, higher moves it down toward the character's feet, lower moves it up)";
+	ui_category = "Center deadzone";
+	ui_min = 0.0; ui_max = 100.0;
+	ui_step = 0.5;
+> = 55.0;
+
+uniform bool AutoMaskDeadzoneMotionOnly <
+	__UNIFORM_SLIDER_BOOL1
+	ui_label = "Only suppress deadzone while world moves";
+	ui_tooltip = "On, the deadzone suppresses accumulation only while the world is being drawn,\nso full-screen menus can still build a mask over a stopped scene.\nOff, it suppresses at all times";
+	ui_category = "Center deadzone";
+> = false;
 
 //Targets
 //Accumulator ping-pong: .r=confidence/debt, .g=hold, .b=motion
@@ -331,7 +340,7 @@ sampler AutoMap { Texture = texAutoMap; };
 		bool drawn = live_share > AutoMaskMotion;
 
 		bool inDeadzone = false;
-		if (AutoMaskDeadzoneWidth > 0.0 && AutoMaskDeadzoneHeight > 0.0){
+		if (AutoMaskDeadzone && AutoMaskDeadzoneWidth > 0.0 && AutoMaskDeadzoneHeight > 0.0){
 			float rx = AutoMaskDeadzoneWidth * 0.005;
 			float ry = AutoMaskDeadzoneHeight * 0.005;
 			float2 offset = float2(texcoord.x - 0.5, texcoord.y - AutoMaskDeadzoneY * 0.01);
@@ -485,7 +494,7 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	bool drawn = live > AutoMaskMotion;
 
 	bool inDeadzone = false;
-	if (AutoMaskDeadzoneWidth > 0.0 && AutoMaskDeadzoneHeight > 0.0){
+	if (AutoMaskDeadzone && AutoMaskDeadzoneWidth > 0.0 && AutoMaskDeadzoneHeight > 0.0){
 		float rx = AutoMaskDeadzoneWidth * 0.005;
 		float ry = AutoMaskDeadzoneHeight * 0.005;
 		float2 offset = float2(texcoord.x - 0.5, texcoord.y - AutoMaskDeadzoneY * 0.01);
@@ -687,7 +696,7 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 		float3 mark = UIDebugMotion ? float3(1.0, 0.0, 0.0) : float3(0.0, 1.0, 0.0);
 		color = lerp(color, mark, tint * 0.7);
 
-		if (AutoMaskDeadzoneWidth > 0.0 && AutoMaskDeadzoneHeight > 0.0){
+		if (AutoMaskDeadzone && AutoMaskDeadzoneWidth > 0.0 && AutoMaskDeadzoneHeight > 0.0){
 			float rx = AutoMaskDeadzoneWidth * 0.005;
 			float ry = AutoMaskDeadzoneHeight * 0.005;
 			float2 offset = float2(texcoord.x - 0.5, texcoord.y - AutoMaskDeadzoneY * 0.01);
