@@ -32,24 +32,14 @@
 #endif
 
 //Uniforms
-//RGB change deadband in whole levels out of 255, the smallest change counted as motion. It decides
-//only whether a pixel moved; what moving then costs is set by the two sliders below.
-uniform float AutoMaskEps <
-	__UNIFORM_SLIDER_FLOAT1
-	ui_label = "RGB step counted as a change";
-	ui_tooltip = "The smallest change in levels out of 255 that counts as motion.\n1 is the most sensitive: any change at all is motion; 2 forgives a one-level difference, and so on.";
-	ui_category = "AutoMask";
-	ui_min = 1.0; ui_max = 8.0;
-	ui_step = 1.0;
-> = 1.0;
-
-//Still frames a pixel needs before it is taken for interface. A pixel seen moving repays its move
-//memory first, so that countdown passes before this one starts.
+//One of the four frame-count durations, kept together in the "Frame timing" section: still frames a
+//pixel needs before it is taken for interface. A pixel seen moving repays its move memory first, so
+//that countdown passes before this one starts.
 uniform float AutoMaskRise <
 	__UNIFORM_DRAG_FLOAT1
 	ui_label = "Frames still before marked as interface";
 	ui_tooltip = "Frames of stillness a pixel needs before it is added to the mask.\nRaise it if scenery is getting caught, lower it if a HUD that briefly holds still fails to appear.";
-	ui_category = "AutoMask";
+	ui_category = "Frame timing";
 	ui_min = 1.0; ui_max = 10.0 * AutoMaskTargetFPS;
 	ui_step = 1.0;
 > = 0.5 * AutoMaskTargetFPS;
@@ -60,7 +50,7 @@ uniform float AutoMaskFall <
 	__UNIFORM_DRAG_FLOAT1
 	ui_label = "Frames moving before unmarked as interface";
 	ui_tooltip = "Frames of change before a pixel is dropped from the mask.\nLower takes regions back faster, higher makes the mask linger.";
-	ui_category = "AutoMask";
+	ui_category = "Frame timing";
 	ui_min = 1.0; ui_max = AutoMaskTargetFPS;
 	ui_step = 1.0;
 > = 2.0;
@@ -71,7 +61,7 @@ uniform float AutoMaskForget <
 	__UNIFORM_DRAG_FLOAT1
 	ui_label = "Frames of absence before decay starts";
 	ui_tooltip = "Frames of change absorbed before decay starts, so a draining health bar or scrolling list keeps its mask.\nA still frame pays half a frame of the balance back; only applies while the world is being drawn";
-	ui_category = "AutoMask";
+	ui_category = "Frame timing";
 	ui_min = 0.0; ui_max = 5.0 * AutoMaskTargetFPS;
 	ui_step = 1.0;
 > = 0.25 * AutoMaskTargetFPS;
@@ -82,7 +72,7 @@ uniform float AutoMaskMoveMemory <
 	__UNIFORM_DRAG_FLOAT1
 	ui_label = "Frames a move is remembered";
 	ui_tooltip = "Still frames after a move before the pixel can be claimed as interface again.\n0 forgets a move the frame after it happens";
-	ui_category = "AutoMask";
+	ui_category = "Frame timing";
 	ui_min = 0.0; ui_max = 10.0 * AutoMaskTargetFPS;
 	ui_step = 5.0;
 > = 2.0 * AutoMaskTargetFPS;
@@ -140,7 +130,21 @@ uniform float AutoMaskMotion <
 		ui_min = 0.0; ui_max = 10.0;
 		ui_step = 0.25;
 	> = 2.0;
+#endif
 
+//RGB change deadband in whole levels out of 255, the smallest change counted as motion. It decides
+//only whether a pixel moved; what moving then costs is AutoMaskRise and AutoMaskFall's business. Last
+//row of "AutoMask", so it sits directly above the section that measures it.
+uniform float AutoMaskEps <
+	__UNIFORM_SLIDER_FLOAT1
+	ui_label = "RGB step counted as a change";
+	ui_tooltip = "The smallest change in levels out of 255 that counts as motion.\n1 is the most sensitive: any change at all is motion; 2 forgives a one-level difference, and so on.";
+	ui_category = "AutoMask";
+	ui_min = 1.0; ui_max = 8.0;
+	ui_step = 1.0;
+> = 1.0;
+
+#if AutoMaskCompute == 1
 	//Gates the floor below, so it must open its own category -- ReShade reads ui_category_toggle off
 	//the variable that opens one, and unticking it would hide the rest of "AutoMask" if it lived there.
 	//The step measured rather than tuned: on, it is the level the last frame's histogram found the
@@ -149,7 +153,7 @@ uniform float AutoMaskMotion <
 		__UNIFORM_SLIDER_BOOL1
 		ui_label = "Auto-detect RGB step";
 		ui_tooltip = "On, the RGB step is measured from the scene each frame rather than read from the slider.\nThe step is set where only a sliver of the screen still changes above it.";
-		ui_category = "Step detection";
+		ui_category = "RGB step detection";
 		ui_category_toggle = true;
 	> = false;
 
@@ -160,7 +164,7 @@ uniform float AutoMaskMotion <
 		__UNIFORM_SLIDER_FLOAT1
 		ui_label = "Noise floor (percent)";
 		ui_tooltip = "The measured step is the smallest change size 1-8 at which no more than this much of the screen is still changing by that much or more.\nLower forgives more: the step settles higher, so more small movement passes as still.\nHigher keeps the smaller movements, at the cost of admitting more noise as motion.";
-		ui_category = "Step detection";
+		ui_category = "RGB step detection";
 		ui_min = 0.0; ui_max = 5.0;
 		ui_step = 0.05;
 	> = 0.5;

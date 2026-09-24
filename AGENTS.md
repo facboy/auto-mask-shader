@@ -103,7 +103,9 @@ histogram and auto-deadband, the `RGBA32F` drift channel, and the pass order ins
   boolean that *opens* it, and it never hides that boolean itself. So a gated setting belongs in its own
   category with the gate first — never inside `AutoMask`, where unticking would hide every other slider.
   There is no per-uniform visibility annotation, and a category is a **contiguous run** of uniforms: the
-  same name used again further down the list draws a second heading. See `docs/editing-conventions.md`.
+  same name used again further down the list draws a second heading. A category can also carry no gate at
+  all, purely to name a group — `Frame timing` does that for the four frame-count durations, which are
+  never hidden. See `docs/editing-conventions.md`.
 - `BUFFER_WIDTH`/`BUFFER_HEIGHT` are injected by ReShade at runtime, not defined here. Anything
   buffer-relative stays correct across resolutions; absolute pixel numbers do not.
 - Every pixel shader keeps `float4 pos : SV_Position` as its **first** parameter, even though no body

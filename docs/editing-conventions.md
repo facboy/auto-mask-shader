@@ -29,11 +29,18 @@ annotation, the frame-count sliders' conversion, the prose budget, or the drift 
     ordinary always-open one, with nothing in the log to say so.
   This is also why the step settings are their own category rather than more rows under `AutoMask`:
   unticking the gate hides the rest of *its* category, so a gate placed among the main settings would
-  hide every slider in the shader. The categories are therefore `AutoMask` (everything always shown),
-  `Step detection` (the toggle, then the floor it gates) and `Center deadzone` (the gate, then the four
-  settings it governs). `ui_category` is not a way to hide one setting conditionally on another in
-  general — there is no annotation that does that, so a value that must stay visible whatever its
-  neighbours are set to stays in `AutoMask`.
+  hide every slider in the shader. The gated categories are therefore `RGB step detection` (the toggle,
+  then the floor it gates) and `Center deadzone` (the gate, then the four settings it governs), with the
+  ungated `AutoMask` and `Frame timing` staying visible whatever any gate says. `ui_category` is not a way
+  to hide one setting conditionally on another in general — there is no annotation that does that, so a
+  value that must stay visible whatever its neighbours are set to stays in an ungated category.
+- **An always-shown group can still be named for what it holds.** `Frame timing` splits the four
+  frame-count durations — `AutoMaskRise`, `AutoMaskFall`, `AutoMaskForget` and `AutoMaskMoveMemory` —
+  out of `AutoMask` purely to name them, with no gate on it: none of the four is ever hidden, and they
+  are already one contiguous run at the top of the uniform list, so the split costs nothing but a
+  heading. Nothing that must stay visible whatever its neighbours say can be gated, but it can still be
+  grouped, which is what this does — the durations are the settings a user tunes by watching, and the
+  heading says so.
 - **A feature with a pass of its own is a definition; a branch inside a pass is a gate.** The deadzone is
   the precedent for the second kind: it owns no pass, shader or target — it is a branch in
   `PS_Accum`/`CS_Accum` and a ring in the restore — so a `#if AutoMaskDeadzone` would save a few
@@ -46,6 +53,11 @@ annotation, the frame-count sliders' conversion, the prose budget, or the drift 
   with the same name. That is why the deadzone settings are declared as a block at the end of the
   uniform list rather than where they are read: gathered mid-list they would split `AutoMask` in two.
   Nothing else follows from the order — the panel is the only thing that sees it.
+- The compute group is named `RGB step detection`, after the `AutoMaskEps` slider it measures rather than
+  after the act of measuring, and `AutoMaskEps` is declared as the last uniform of `AutoMask` so its row
+  sits directly above that heading. The slider cannot move inside the group: it is read on the pixel path
+  with no measurement at all, and with auto-detect on it is still the fallback on a frame where the walk
+  finds no floor — both of which a gated, compute-only category would hide or drop.
 - `AutoMaskTargetFPS` is the one further definition, a setup number rather than a tuning one. The
   frame-count settings are durations, so their `ui_max` caps are seconds × `AutoMaskTargetFPS` (rise
   10 s, fall 1 s, grace 5 s, move memory 10 s) and grow with the frame rate a user plays at, which

@@ -197,11 +197,11 @@ are listed under it.
 
 Every tuning value the user adjusts is a live slider; the preprocessor definitions are the structural
 switches and the setup constants listed below. Tuning guidance is in `README.md`; what each setting is
-*for* is in the entry above it.
+*for* is in the entry above it. The rows are in panel order, and the first four — the frame-count
+durations — are the `Frame timing` section.
 
 | Uniform | Panel label | The term, in one line |
 | --- | --- | --- |
-| `AutoMaskEps` | RGB step counted as a change | The deadband in whole levels out of 255; decides only whether a pixel moved. |
 | `AutoMaskRise` | Frames still before marked as interface | Duration of stillness needed to mark; sets the gain. |
 | `AutoMaskFall` | Frames moving before unmarked as interface | Duration of change before unmarking; sets the cost. |
 | `AutoMaskForget` | Frames of absence before decay starts | The bridge's window; animation inside it is never banked. |
@@ -210,12 +210,13 @@ switches and the setup constants listed below. Tuning guidance is in `README.md`
 | `AutoMaskEdge` | Luma step counted as a boundary | The luma difference, 0–255, past which that growth stops. |
 | `AutoMaskFeather` | Feather radius in pixels | How far past the mask's edge the restore's blend is ramped, so the boundary is not a hard step. |
 | `AutoMaskMotion` | Motion needed to trust stillness (percent) | Share of the screen that must change before stillness is credited. The premise. |
+| `AutoMaskDrift` | Drift horizon (seconds) | The drift average's memory, in seconds; `0` turns the comparison off. |
+| `AutoMaskEps` | RGB step counted as a change | The deadband in whole levels out of 255; decides only whether a pixel moved. Last row of `AutoMask`, so it sits above the group that measures it. |
+| `AutoMaskAutoStep` | Auto-detect RGB step | Whether the deadband is measured rather than read from the slider. |
+| `AutoMaskNoiseFloor` | Noise floor (percent) | The share of the screen the walk's rule is set at; gated by the toggle above. |
 | `AutoMaskDeadzone` | Enable center deadzone | The gate the other four deadzone settings sit behind; cleared, the ellipse is off however they are set. |
 | `AutoMaskDeadzoneWidth` / `Height` / `Y` | Center deadzone width / height / vertical position | The ellipse in which stillness does not accumulate, and where its centre sits. |
 | `AutoMaskDeadzoneMotionOnly` | Only suppress deadzone while world moves | Whether the deadzone applies while the world is stopped. |
-| `AutoMaskDrift` | Drift horizon (seconds) | The drift average's memory, in seconds; `0` turns the comparison off. |
-| `AutoMaskAutoStep` | Auto-detect RGB step | Whether the deadband is measured rather than read from the slider. |
-| `AutoMaskNoiseFloor` | Noise floor (percent) | The share of the screen the walk's rule is set at; gated by the toggle above. |
 | `UIDebugMotion` | Diagnostics: motion view | Which reading the overlay draws: motion view (red) or verdict view (green). |
 | `UIDebugGain` | Diagnostics: motion gain | Multiplier making a small change visible in the overlay. |
 
@@ -232,9 +233,9 @@ switches and the setup constants listed below. Tuning guidance is in `README.md`
   a gated setting belongs in its own category with the gate first, and there is no per-uniform
   visibility annotation (`docs/editing-conventions.md`). A category is a contiguous run of uniforms, so
   one named again further down the list draws a second heading with the same name; that is why
-  `Center deadzone` is declared as a block after the compute guard. The four names used are `AutoMask`,
-  `Center deadzone`, `Step detection` and `Diagnostics` — the last two inside switches, so neither is
-  drawn unless its switch is on.
+  `Center deadzone` is declared as a block after the compute guard. The five names used are `Frame
+  timing`, `AutoMask`, `RGB step detection`, `Center deadzone` and `Diagnostics` — the last two inside
+  switches, so neither is drawn unless its switch is on.
 - **`AUTOMASK_STEP_MAX`** — `8`: the last level the walk measures in, and the end of the `AutoMaskEps`
   slider with it. Named because the histogram's width, the clear loop, the bin clamp and the walk's
   range must not drift apart.

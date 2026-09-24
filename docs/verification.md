@@ -196,9 +196,11 @@ whether the reading you are looking at is current.
   from where its own average had settled used to be locked out indefinitely, so put the overlay in its
   verdict view on a still HUD element and confirm the green is there and stays there over the horizon.
 - The panel's grouping, which the compile check cannot see at all: each heading must appear once, with
-  **Center deadzone** holding the four deadzone settings and nothing else. A category named twice in
-  the uniform list draws two headings of the same name, so a second **AutoMask** block is the failure
-  to look for after any move of a uniform.
+  **Frame timing** holding the four frame-count durations, **Center deadzone** holding the four deadzone
+  settings and nothing else, the compute path's group reading **RGB step detection** rather than the old
+  **Step detection**, and the RGB step slider drawn as the last row of **AutoMask** so it sits directly
+  above that group. A category named twice in the uniform list draws two headings of the same name, so a
+  second **AutoMask** block is the failure to look for after any move of a uniform.
 - The deadzone's gate, in the panel and in the mask: the checkbox ships off, so on first load the category
   must show the gate alone with the four settings hidden under it, and ticking it must reveal them — the
   gate is the one checkbox ReShade never hides, so a still-visible slider while it is clear is the

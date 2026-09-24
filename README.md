@@ -56,12 +56,15 @@ All of them live in the ReShade panel. The defaults are meant to be usable as-is
 they aren't. The tooltips in the panel give each setting in brief — this table is where the detail
 lives.
 
-The panel groups them under headings: **AutoMask** for everything that is always in play,
-**Step detection** for the auto-detect toggle and the noise floor it governs — the floor is only shown
-while the toggle is ticked, since it is read by nothing otherwise — **Center deadzone** for the
-elliptical exclusion that keeps a camera-tethered character out of the mask, and **Diagnostics** for the
-overlay's settings. The RGB step keeps its place in **AutoMask** even when auto-detect is on, because
-the shader still falls back to it on a frame where the measurement has nothing to read.
+The panel groups them under headings: **Frame timing** for the four frame-count durations — how long a
+pixel takes to earn its mask, to lose it, to bridge a brief pause, and to be forgiven a move — **AutoMask**
+for the remaining settings that are always in play, **RGB step detection** for the auto-detect toggle and
+the noise floor it governs — the floor is only shown while the toggle is ticked, since it is read by
+nothing otherwise — **Center deadzone** for the elliptical exclusion that keeps a camera-tethered character
+out of the mask, and **Diagnostics** for the overlay's settings. The RGB step slider is the last row of
+**AutoMask**, so it sits directly above the group that measures it; it cannot move inside that group,
+because the pixel path reads it with no measurement at all and with auto-detect ticked it is still the
+fallback on a frame where the walk finds no floor.
 
 | Setting | What it does |
 | --- | --- |
