@@ -22,7 +22,7 @@ for the concept, the store/restore pattern and the anti-bloom suppression belong
 | Path | Role |
 | --- | --- |
 | `Shaders/AutoMask.fx` | The shader: uniforms, render targets, pixel shaders, two techniques. |
-| `tools/verify_shaders.py` | Offline compile-and-cost check. The only automated verification there is. |
+| `tools/verify_shaders.py` | Offline compile-and-cost check, and the prose-budget check for the docs. |
 | `tools/pyproject.toml` | The `uv` project the check runs under. Deliberately inside `tools/` — this is a shader project, not a Python one. |
 | `README.md` | End-user guide: placement order, how to tune, what it cannot do. |
 | `LICENSE` | MIT, with the credit line for the concept, the store/restore pattern and the anti-bloom pass. |
@@ -92,7 +92,8 @@ histogram and auto-deadband, the `RGBA32F` drift channel, and the pass order ins
   credit to Kaiser's `UIDetectMulti` and Brussels1 — which follows the companion pack's style. Do not add
   per-function attribution below it.
 - The same prose budget covers the HLSL comments and the docs here; `docs/editing-conventions.md` holds
-  its reasoning and the worked example.
+  its reasoning and the worked example. `uv run tools/verify_shaders.py check-docs` refuses the framing
+  phrases, and `--list` prints them; a line that genuinely needs one carries `prose-ok`.
 - LF line endings.
 - A uniform annotation must match the declared type: `__UNIFORM_SLIDER_FLOAT1`/`_FLOAT3` for floats,
   `__UNIFORM_SLIDER_BOOL1` for bools. A mismatch is a silent ReShade UI bug. The widget family is chosen

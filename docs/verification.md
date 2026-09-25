@@ -88,6 +88,22 @@ check:
 - `pyproject.toml` lives in `tools/`, not at the repo root: this is a shader project, and `uv run`
   discovers the project by searching upward from the script, so the root-level command above works.
 
+## The prose budget, which the same tool refuses
+
+`uv run tools/verify_shaders.py check-docs` reads `README.md`, `AGENTS.md` and `docs/*.md` and exits
+non-zero on the framing the budget bans: phrases that describe the writing rather than its subject, or
+restate the sentence before them. `--list` prints each phrase with its reason.
+
+- It is the only rule here whose absence was silent: the compile check never opens a `.md`, so nothing
+  caught the framing until a review pass did. This is the mechanically detectable half of the rule, not
+  the whole of it — a pass means only "no phrase from the list", and judgement stays with the review.
+- The framing is matched by its verb, not by a noun alone: `this section explains X` is refused while
+  `this section calls the pair the cheap half` is an internal cross-reference and is left alone. A phrase
+  that is genuinely the subject of a line carries `prose-ok` to skip it.
+- It needs no `fxc`, so a docs-only run works without the Windows SDK.
+- Exercise it by hand before committing a change to the list: add a refused phrase to a doc and it must
+  exit non-zero naming the phrase, then add `prose-ok` on that line and it must pass.
+
 ## The toolchain, which is not obvious
 
 The compile check needs `fxc.exe`, which is a Windows binary run under WSL:

@@ -17,8 +17,9 @@ The check is dual-host: it runs from WSL and natively on Windows alike, because
 it needs fxc.exe, which is a Windows binary. Under WSL the paths cross the
 boundary through wslpath; natively everything already speaks Windows.
 
-    uv run tools/verify_shaders.py init    # fetch the pinned headers
-    uv run tools/verify_shaders.py check   # compile every entry point
+    uv run tools/verify_shaders.py init         # fetch the pinned headers
+    uv run tools/verify_shaders.py check        # compile every entry point
+    uv run tools/verify_shaders.py check-docs    # refuse prose framing in the docs
 
 There is no baseline to compare against: this project has no shipped behaviour
 to preserve, so the point is only "it compiles, here is the pass list, and here
@@ -406,6 +407,100 @@ def first_error(log: str) -> str:
 
 def source_files() -> list[Path]:
     return sorted(SHADERS.glob("*.fx"))
+
+
+# ---------------------------------------------------------------------- check-docs
+# The prose budget every `.md` here and the README keep: state the fact and stop,
+# without framing that describes the writing rather than its subject. It is the one
+# rule with no other consequence -- the compile check never opens a `.md` -- so the
+# mechanically detectable half of it is refused here rather than left to memory.
+# docs/editing-conventions.md holds the reasoning; `--list` prints the entries.
+#
+# The framing is matched by its *verb*, not by a noun alone: "this section explains
+# X" is the banned construction, while "this section calls the cheapest half the
+# pair" is an internal cross-reference. So the noun alone is not refused.
+#
+# Deliberately NOT here, because each is usually a real claim: `which is why` and
+# `that is why` (a causal link is information), `load-bearing` (a fact about the
+# design), and `should`/`must` (an instruction, which is what a convention is).
+PROSE_PHRASES = (
+    (r"this (?:section|document|review|file|page|chapter)\s+(?:explains?|describes?|shows?|outlines?|"
+     r"lists?|covers?|presents?|states?|sets out|summarises|summarizes|examines)",
+     "names the writing and its verb rather than the subject"),
+    (r"(?:the|this) (?:section|document|review|file|page|chapter) (?:above|below)",
+     "points at reading order instead of the fact; use a section number"),
+    (r"as (?:we|i) (?:saw|noted|said|have seen|have said)",
+     "points at the reading order rather than the fact"),
+    (r"as (?:noted|described|stated|explained) (?:above|below|earlier)",
+     "points at the reading order rather than the fact"),
+    (r"worth (?:stating|recording|noting|saying|mentioning|pointing out)\b",
+     "announces that a statement is valuable instead of making it"),
+    (r"it is (?:important|worth) (?:to )?(?:note|mention|say)",
+     "announces that a statement is valuable instead of making it"),
+    (r"it should be (?:noted|said|mentioned|observed)",
+     "announces that a statement is valuable instead of making it"),
+    (r"in other words", "restatement by construction"),
+    (r"as if it were (?:cheap|free|neutral|trivial|obvious)",
+     "a rhetorical frame rather than a measurement"),
+    (r"(?:that|this) is the (?:strongest|best|main) argument",
+     "a worth-label rather than the argument itself"),
+    (r"the purpose of this|the goal (?:here )?is to (?:explain|describe|show)",
+     "describes the writing's intent rather than its subject"),
+)
+PROSE = tuple((re.compile(r"(?<![\w-])(?:%s)(?![\w-])" % pattern, re.I), why)
+              for pattern, why in PROSE_PHRASES)
+# A line carrying this marker is skipped -- the escape hatch for a phrase that is
+# genuinely the subject rather than framing, e.g. quoting the rule itself.
+PROSE_ALLOW = "prose-ok"
+PROSE_FENCE = re.compile(r"^\s*(?:```|~~~)")
+PROSE_FILES = (REPO / "README.md", REPO / "AGENTS.md", *(REPO / "docs").glob("*.md"))
+
+
+def prose_lines(text: str) -> list[tuple[int, str]]:
+    """The lines with fenced code and inline code spans blanked out.
+
+    A phrase inside code is not prose, and this file's own list quotes the
+    phrases, so the span is dropped rather than reported.
+    """
+    kept: list[tuple[int, str]] = []
+    in_fence = False
+    for number, line in enumerate(text.splitlines(), 1):
+        if PROSE_FENCE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        kept.append((number, re.sub(r"`[^`]*`", "", line)))
+    return kept
+
+
+def cmd_check_docs(args) -> int:
+    if args.list:
+        for pattern, why in PROSE_PHRASES:
+            print("%-72s %s" % (pattern, why))
+        return 0
+    files = [path for path in PROSE_FILES if path.is_file()]
+    if not files:
+        # Nothing to check is not a pass; say so rather than reporting a clean run.
+        sys.exit("FAIL -- no prose files found; nothing was read")
+    hits: list[str] = []
+    for path in files:
+        for number, line in prose_lines(path.read_text(encoding="utf-8", errors="replace")):
+            if PROSE_ALLOW in line:
+                continue
+            for pattern, why in PROSE:
+                match = pattern.search(line)
+                if match:
+                    hits.append("%s:%d: %r -- %s"
+                                % (path.relative_to(REPO), number, match.group(0), why))
+    if hits:
+        print("FAIL -- %d prose-budget hit(s):" % len(hits))
+        for hit in hits:
+            print("  " + hit)
+        print("\nState the fact and stop. See: uv run tools/verify_shaders.py check-docs --list")
+        return 1
+    print("PASS -- %d prose file(s), no framing from the list" % len(files))
+    return 0
 
 
 # --------------------------------------------------------------------------- init
@@ -942,9 +1037,18 @@ def main() -> int:
                        help="print each technique's passes before compiling")
     check.set_defaults(func=cmd_check)
 
+    docs = sub.add_parser("check-docs",
+                          help="refuse prose framing in README.md, AGENTS.md and docs/*.md")
+    docs.add_argument("--list", action="store_true",
+                      help="print the refused phrases and why each is refused")
+    docs.set_defaults(func=cmd_check_docs)
+
     args = parser.parse_args()
-    global FXC
-    FXC = find_fxc()
+    if args.func is not cmd_check_docs:
+        # Only the shader check needs the Windows compiler; a docs-only run must
+        # not fail for the want of it.
+        global FXC
+        FXC = find_fxc()
     return args.func(args)
 
 
