@@ -102,23 +102,57 @@ speck's neighbourhood is whatever the scene happens to be.
 
 So the gate rides in the two closing passes, in the channels they leave unused. `PS_DilateH` counts the still
 pixels in each output pixel's row and writes the count into `.g` of `texAutoDilate` scaled by
-`AUTOMASK_COUNT_SCALE`, so a whole count lands on a whole byte; `PS_DilateV` sums those rows and blanks the
-pixel when the box's still share — the pixel itself counted — is under `AutoMaskDensity`. The box is the
-isolation radius (`AutoMaskIsolation`), not the closing's: the closing is how far the mask is grown, which
-is about shape, while the box is how much corroboration a pixel needs, which is about evidence, and tying
-them would move the gate's meaning whenever the closing is retuned. It is read as one pixel at the bottom
-so the setting cannot silently switch the filter off, and it is applied to every masked pixel rather than
-only the ones the verdict claimed, so what the closing grew around a speck goes with it. Only the growth
-keeps the luma bound: a contour inside a HUD must not cost the pixel support.
+`AUTOMASK_COUNT_SCALE`, so a whole count lands on a whole byte, and writes the centre's own verdict into
+`.b`; `PS_DilateV` sums those rows into the box's still total and reads `.b` down the column, across the
+two diagonals, for the line test below. The box is the isolation radius (`AutoMaskIsolation`), not the
+closing's: the closing is how far the mask is grown, which is about shape, while the box is how much
+corroboration a pixel needs, which is about evidence, and tying them would move the gate's meaning
+whenever the closing is retuned. It is read as one pixel at the bottom so the setting cannot silently
+switch the filter off, and it is applied to every masked pixel rather than only the ones the verdict
+claimed, so what the closing grew around a speck goes with it. Only the growth keeps the luma bound: a
+contour inside a HUD must not cost the pixel support.
 
 The test is a **share** of that box, not a count of pixels: `AutoMaskDensity` percent of its area, the
 pixel itself counted. A count would be capped by the smallest box's area, so the same slider value would
 mean a solid box at one radius and a sparse one at another — 100% at a 3×3 and 18% at 7×7. As a share it
 means one thing wherever the radius is set: `0` keeps every pixel, `100` wants a fully solid box. The one
 consequence to know is that a line of width `n` fills only `n / side` of the box, so a wider isolation
-radius erodes thin strokes at a fixed density. The gate is a live checkbox rather than a fourth structural
-switch, by the same rule as the deadzone: it owns no pass, shader or target, riding in the two the closing
-already has. With it off the mask is byte-identical to the closing alone.
+radius erodes thin strokes at a fixed density.
+
+**A second door answers that consequence: one line through the pixel is enough.** Along one of the four
+lines through a masked pixel — its row, its column, its two diagonals, each within the same isolation
+radius — a stroke holds its whole length, where the box asks it to fill a share of an area it is too thin
+to fill. The pixel is kept while its box clears the density *or* its best line clears
+`max(reach + 1, AUTOMASK_AXIS_MIN)`: `reach + 1` is more than half the 2·reach+1 line, and
+`AUTOMASK_AXIS_MIN` is 3, the whole of the smallest line, so a lone pixel, an adjacent pair and a short
+run stay specks. The row count is `PS_DilateH`'s own `.g`; the column and the two diagonals come off the
+centre verdict `.b` that pass now publishes, read at the taps `PS_DilateV` already takes, so the door costs
+no new pass, no new target and no extra uniform — a handful of taps in a pass that already runs, and only
+while the gate is ticked, because they are skipped with it. The door keeps the property the count does: it
+is on the verdict, not on colour. And because the box share stays as a first door rather than being
+replaced, the gate can only **rescue** a pixel the box dropped and never newly drops one, so with the
+checkbox clear the mask is byte-identical to the closing alone.
+
+What the door reaches, measured rather than assumed: a horizontal, vertical or either diagonal one-pixel
+stroke lies along one of the four lines, so it is rescued at every radius — which is the §3.1 case, since
+a line of width `n` fills only `n / side` of the box and the box share alone drops *every* one-pixel
+stroke from radius 2 up. A stroke between those slopes lies along no single line, and is rescued only
+while the pixels it lays in a row or a column clear the floor; where that lapses depends on its slope and
+on the radius, which raises the floor with it. At the default radius 2 the one slope still dropped is 2 px
+across per 1 px down; by radius 3 the floor is 4, so the run-2 and run-3 slopes lapse too. It is a live
+checkbox rather than a fourth structural switch, by the same rule as the deadzone: it owns no pass, shader
+or target, riding in the two the closing already has.
+
+**The closing radius sets how much there is left to rescue.** The gate runs on the mask the closing
+produced, and the luma bound stops the closing growing *across* a contour but not *along* it: a one-pixel
+hairline is thickened along its own length into a band the closing's width, and that band is wide enough
+for the box share to clear on its own. Measured on flat-luma-free scenery, a 1-px hairline against a
+180-level step is kept by the box share alone at closing radius `1` and up, and only dropped when the
+closing is `0` — the pass-through position, where the gate is looking at the verdict itself. So the door
+earns its keep where a stroke stays thinner than the closing made it: with the closing at `0` a 1-px
+hairline goes from 0% kept to 100%, and at any closing the 2-px bar and a solid block's interior are
+rescued at isolation `3`. Tuning the door therefore means setting the closing low enough that the gate has
+a thin stroke to judge, which is the opposite of tuning the closing for shape.
 
 The heal is one frame of the unmarking countdown per still frame, part of the same credit as the rise, so
 it happens while the world is drawn and stops while it is not — a stopped world is not evidence.

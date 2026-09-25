@@ -129,11 +129,16 @@ histogram and auto-deadband, the `RGBA32F` drift channel, and the pass order ins
   `AutoMaskDeadzone` instead opens `Center deadzone` with `ui_category_toggle`, which is what makes the
   four settings below it live and hideable at once. A feature with a pass, a shader or a target to its
   name still gets a definition; a branch inside an existing pass does not.
-- The **isolation gate follows the deadzone's rule** rather than getting a definition of its own: it owns
-  no pass, shader or target, the still count riding in the channel `texAutoDilate` leaves unused on the two
+- **The isolation gate follows the deadzone's rule** rather than getting a definition of its own: it owns
+  no pass, shader or target, its counts riding in the two channels `texAutoDilate` leaves unused on the two
   closing passes. `AutoMaskIsolated` opens `Isolated pixels` with `ui_category_toggle`, and the test it
   gates is a share of the box (`AutoMaskDensity`), the pixel itself counted, so one number means the same
-  thing at every radius.
+  thing at every radius — **or** one line through the pixel (`max(reach + 1, AUTOMASK_AXIS_MIN)`), which is
+  what keeps a one-pixel stroke the box share would erode. The line count is the horizontal pass's `.g` and
+  the centre verdict it publishes in `.b`, read down the column and the two diagonals at taps the vertical
+  pass already takes, so the door costs no extra tap, target or uniform and is skipped while the gate is
+  off. Both doors sit on the verdict, not on colour. The box share stays a first door, so the gate can only
+  rescue a pixel it would have dropped and never newly drops one.
 - The **isolation radius is its own setting** (`AutoMaskIsolation`), not the closing radius: shape and
   evidence are different questions, and tying them would move what `AutoMaskDensity` means whenever the
   closing is retuned. It is a share rather than a count, so it means one thing at every radius; a count

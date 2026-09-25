@@ -3,8 +3,9 @@
 ## 1. Scope and standing
 
 What element-level isolation could do better, given that the depth buffer is not available. This is a
-list of **options, not a plan**: nothing here is scoped, approved or implemented, and nothing here is
-verified. §6's instrument is what decides between them, and it does not exist yet either.
+list of **options, not a plan**: nothing here is scoped or approved, and none of it is verified. §5.1's
+directional densities **have since been implemented** — the four-axis form, described in that section and
+in `docs/core-model.md` — while the rest stands as written, and §6's instrument does not exist yet.
 
 Companions: `docs/core-model.md` (the verdict the isolation rides on), `docs/compute-path.md` (the
 compute path most of this would live in), `docs/optical-flow.md` (the one instrument already built,
@@ -86,24 +87,43 @@ and every column it crosses, so both its shares are `1/side` and it fails the sa
 Axis-aligned lines are fixed; diagonals are not — and a shallow diagonal only partly so, since it fills more
 of a row than of a column. That is why this is the cheap half of the pair rather than the answer.
 
-**Connected-component area.** Keep a masked pixel while its connected component on the verdict holds at
-least a minimum area. That is the criterion `docs/definitions.md` describes wanting — it already notes the
-gate is *not* a plain morphology — and it is line-preserving by construction, in any orientation, because
-a line is connected and a speck is not. Full-resolution labelling in HLSL is awkward, so scope it:
+**Shipped, with the diagonals added.** The version implemented in `PS_DilateH`/`PS_DilateV` counts four
+lines rather than two — row, column, and both diagonals — which covers the 45° case this section calls
+decisive, and keeps the box share as a first door so the change can only rescue a pixel the box dropped.
+A straight, vertical or diagonal one-pixel stroke is rescued at every radius; a stroke between those slopes
+only while the pixels it lays in an axis clear `max(reach + 1, 3)`, so the mid-slopes lapse as the radius
+raises that floor. The floor's own minimum of 3 is what keeps a lone pixel, an adjacent pair and a short
+run out. `docs/core-model.md` carries the design and `README.md` the user-facing limits; the measurements
+are in a scratch probe under `tools/.work/` (not committed).
 
-- **Quarter resolution**, where components are large by definition. The reduction must be a **max** over
-  the block, not an average, or a 1-px line vanishes into it on the way down.
-- **8-connectivity**, so a one-pixel-wide diagonal survives as a connected run rather than a broken one.
-- **A bounded reconstruction** — a fixed-iteration dilation of the low-res "belongs to a large component"
-  mask, capped by a named constant in the `AUTOMASK_DILATE_MAX` style, erring toward keeping. 8 iterations
-  at quarter resolution is ~32 screen px of reach.
-- **The area floor as a share of the low-res frame**, so it means one screen area at every resolution — a
-  low-res texel is 16 screen px², so the floor is expressed in tens of pixels.
-- Growth stays at full resolution; only the *decision* is made coarse. A coarse decision dilated back up
-  is conservative in the good direction: a thin element is kept, and a speck is still not one.
+One interaction the section above does not anticipate, and it decides how much the fix is worth: the gate
+judges the mask **after the closing**, so a stroke the closing has already thickened along its own length
+is no longer thin to the box share and the door has nothing to rescue. Measured with the contour's luma
+step in place, a 1-px hairline is kept by the box share alone at **Closing radius `1`** and up, and only
+dropped at `0` — so the door earns its keep where the closing is low, and the visible difference at the
+default closing is a 2-px bar or a block's interior at a wide **Isolation radius** instead.
 
-Cost: a reduction, a handful of bounded low-res passes and a lookup — well under a full-resolution pass in
-taps. It is compute-only in practice, and belongs behind the compute guard beside the tile map of §5.6.
+**Connected-component area.** Measured and not affordable. The criterion is right — a component's area is
+line-preserving in any orientation, where four axes cover only four directions — but the labelling is a
+propagation, and its round count is not bounded by anything the shader can name. Built over adversarial
+shapes, a comb (a spine with a bar at each end, diameter 165 low-res texels) needs **50** rounds where
+`log2` of the diameter is 8: pointer jumping accelerates a label only while it is still moving toward its
+own index, and the path that carries the minimum up the far bar runs against that order. The cap cannot be
+lowered to a fixed small number, because a cap that stops a long component converging leaves its far texels
+uncertified — dropped, which is the thin-interface erosion the filter exists to fix. Distance-doubling
+converges in a true `log2` of rounds but costs thousands of taps per texel per round. So the bounded-pass
+rule this repo keeps is not satisfiable for exact component area, and the four-axis door is what fixes the
+named case instead. Recorded because the section above still describes the mechanism as if it were cheap.
+
+*What the two share, and where it stops.* Neither separates a one-pixel stroke at an in-between slope from
+a short run of pixels: a bounded local count sees the same evidence, and an exact connected component would
+keep the stroke but needs an unbounded propagation to compute. A stroke of run 1 is therefore never rescued
+by any bounded test here.
+
+Cost was scoped as a reduction, a handful of bounded low-res passes and a lookup — well under a
+full-resolution pass in taps, compute-only behind the compute guard beside the tile map of §5.6. The
+measurement above removes the premise: the "handful of bounded passes" is not bounded, and the bound is
+what the claim rested on.
 
 ### 5.2 Fill interiors bounded by a persistent contour
 
@@ -232,17 +252,19 @@ build and the thing that decides the rest.
 
 | | option | closes | cost | gate |
 | --- | --- | --- | --- | --- |
-| 5.1 | directional densities | §3.1, axis-aligned only | no new taps, riding the existing passes | live checkbox |
-| 5.1 | connected-component area | §3.1 in any orientation | reduction + bounded low-res passes | live checkbox, compute-only |
+| 5.1 | directional densities | §3.1 for axis and diagonal strokes; mid-slopes lapse as the radius rises | no new taps, riding the existing passes | live checkbox — **shipped, four-axis** |
+| 5.1 | connected-component area | §3.1 in any orientation | the passes are not boundable, measured | live checkbox, compute-only — **measured out** |
 | 5.2 | contour-bounded fill | §3.2 | fill + a small contour history | live checkbox |
 | 5.3 | non-isolated admission | speck seeding | one test at admission | live checkbox |
 | 5.4 | arrival detection | §3.3 | tile map + a patch test | live checkbox, compute-only |
 | 5.5 | weighted count / exact-still weighting | tuning sharpness | none | none, unless it proves out |
-| 5.6 | tile map | enables §5.1's components, §5.4 and §5.7 | a groupshared index and a small target | compute-only |
+| 5.6 | tile map | enables §5.4 and §5.7 | a groupshared index and a small target | compute-only |
 | 5.7 | auto-placed deadzone | §3.4's manual tuning | off the tile map | override sliders stay |
 | 5.8 | alpha-composite ratio | reading only | off the tile map | diagnostics, compute-only |
 
-If two were to be taken first: **the connected-component area filter of §5.1** is the highest-value
-change, because it fixes a limitation the docs currently call inherent and gives every later option a
-region to work with; and **the arrival detection of §5.4** is the only one that closes a case the docs
-currently list as unfixable without eyes on a real game. Both are gated on §6's readings.
+Of the two it recommended taking first: **the directional densities are shipped**, in the four-axis form
+that covers the diagonals too; and **the arrival detection of §5.4** is still the only option that closes
+a case the docs list as unfixable without eyes on a real game. **The connected-component area filter §5.1
+ranked highest was measured and is not affordable** — the round count its labelling needs is set by the
+picture, not by a named bound — so it is recorded in that section rather than built, and the four-axis door
+is what answers §3.1 in its place.

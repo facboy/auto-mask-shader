@@ -237,8 +237,8 @@ durations — are the `Frame timing` section.
 | `AutoMaskDeadzoneWidth` / `Height` / `Y` | Center deadzone width / height / vertical position | The ellipse in which stillness does not accumulate, and where its centre sits. |
 | `AutoMaskDeadzoneMotionOnly` | Only suppress deadzone while world moves | Whether the deadzone applies while the world is stopped. |
 | `AutoMaskIsolated` | Enable isolated pixel removal | The gate the isolation count sits behind; off, the mask is the closing radius alone. |
-| `AutoMaskDensity` | Still neighbourhood density (percent) | Share of the box that must be still, itself counted; a text box, stepped by 1. |
-| `AutoMaskIsolation` | Isolation radius in pixels | How far that density is measured; its own radius rather than the closing's. |
+| `AutoMaskDensity` | Still neighbourhood density (percent) | Share of the box that must be still, itself counted; a text box, stepped by 1. The other way to stay in is the line door. |
+| `AutoMaskIsolation` | Isolation radius in pixels | How far that density and the line door are measured; its own radius rather than the closing's. |
 | `UIDebugMotion` | Diagnostics: motion view | Which reading the overlay draws: motion view (red) or verdict view (green). |
 | `UIDebugGain` | Diagnostics: motion gain | Multiplier making a small change visible in the overlay. |
 
@@ -293,6 +293,15 @@ durations — are the `Frame timing` section.
   over thin neighbourhood goes, and a pixel inside a solid panel stays whatever its own verdict was. It
   rides in the closing's own two passes, in the channels `texAutoDilate` leaves unused, and not on
   `AutoMaskEdge`: a contour inside a HUD must not cost the pixel its support.
+- **line door (the isolation gate's second test)** — after the box share, the gate's other way to keep a
+  pixel: one of the four lines through it — row, column, either diagonal, out to the isolation radius —
+  holding `max(reach + 1, AUTOMASK_AXIS_MIN)` still pixels. It exists because a one-pixel stroke fills
+  only `n / side` of the box and the share alone erodes it. The row count is the horizontal pass's `.g`;
+  the other three are read off `.b`, the centre verdict that pass publishes, at taps the vertical pass
+  already takes: no new pass, target or uniform, and skipped while the gate is off.
+- **`AUTOMASK_AXIS_MIN`** — `3`: the floor under the line door, so the smallest line (3 across) is its
+  whole length and a lone pixel, a pair or a short run stay specks. The door's floor is
+  `max(reach + 1, AUTOMASK_AXIS_MIN)`.
 - **luma step** — `AutoMaskEdge` compared against `dot(colour, float3(0.299, 0.587, 0.114))`, the Rec.601
   luma the dilation reads from the frame.
 - **center deadzone** — the ellipse, sized and placed by the deadzone sliders, where stillness does not

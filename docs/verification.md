@@ -214,11 +214,28 @@ whether the reading you are looking at is current.
   dropped, and the gate must work with the closing at `0`. Both are checkable off-GPU, and the probe does
   exactly that: it sweeps the two radii and the density, and holds every pixel of the two passes to the
   closed-form rule — keep what the closing grew, unless the still share of the box (itself counted) is
-  under the density. The count is of the shader's own still/moving reading, so
-  the check that it is not a colour test is a still element with a hard internal edge — a boxed health
-  bar, text on a plate — which must survive: it must not be eaten for changing colour across the box, only
-  for lacking still pixels around it. Clearing the checkbox must give back exactly the mask the closing
-  radius alone produces; that equivalence is checkable off-GPU too, as the probe's second check does.
+  under the density *and* no line through the pixel clears the line door. The count is of the shader's own
+  still/moving reading, so the check that it is not a colour test is a still element with a hard internal
+  edge — a boxed health bar, text on a plate — which must survive: it must not be eaten for changing colour
+  across the box, only for lacking still pixels around it. Clearing the checkbox must give back exactly the
+  mask the closing radius alone produces; that equivalence is checkable off-GPU too, as the probe's second
+  check does. The line door's own two properties are off-GPU too: **it can only rescue**, because the box
+  share is still a first door, so over random screens every pixel the old gate kept is kept; and **no
+  speck clears it**, since the floor never drops under 3, so a lone pixel, an adjacent pair and an L of
+  three are dropped at every radius while a straight run of three is rescued at the radii where the floor
+  is still 3. Its reach by stroke orientation is measured as well rather than assumed, because the README
+  makes a claim about it: a one-pixel stroke along a row, a column or either diagonal is rescued at every
+  radius, and the slopes between them only at the radii where the pixels they lay in an axis clear the
+  rising floor.
+- **The isolation filter's sliders interact with the closing, which a test run has to account for:** the
+  gate judges the mask *after* the closing, and the luma bound stops the closing growing across a contour
+  but not along it, so a one-pixel hairline is thickened along its own length into a band the closing's
+  width. Measured: a 1-px hairline against a 180-level step is kept by the box share alone at closing
+  radius `1` and up, and only dropped at `0`. A test that wants to see the line door work therefore has to
+  put **Closing radius** at `0` — at the default it changes nothing on a hairline, and the visible
+  difference is a 2-px bar or a block's interior at a wide **Isolation radius** instead. The scenarios above
+  are worth running at both closing settings for that reason, and the checkbox cleared at each must give
+  back exactly the pre-change mask.
 - The deadzone's gate, in the panel and in the mask: the checkbox ships off, so on first load the category
   must show the gate alone with the four settings hidden under it, and ticking it must reveal them — the
   gate is the one checkbox ReShade never hides, so a still-visible slider while it is clear is the

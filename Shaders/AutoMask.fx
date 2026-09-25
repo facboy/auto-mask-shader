@@ -78,9 +78,12 @@ uniform float AutoMaskMoveMemory <
 > = 2.0 * AutoMaskTargetFPS;
 
 #define AUTOMASK_DILATE_MAX 3
-//The isolation gate's row count rides in texAutoDilate's 8-bit .g, so the whole number is scaled by
+//The isolation gate's counts ride in texAutoDilate's 8-bit channels, so a whole number is scaled by
 //this on the way in and back out, landing it on the same byte at either end.
 #define AUTOMASK_COUNT_SCALE 255.0
+//The isolation gate's line test: a line through a pixel must hold more than half its length, and the
+//smallest window is 3 across, so 3 is its whole length and a two-pixel cluster still reads as a speck.
+#define AUTOMASK_AXIS_MIN 3.0
 uniform float AutoMaskDilate <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Closing radius in pixels";
@@ -255,8 +258,9 @@ sampler AutoHistory { Texture = texAutoHistory; };
 texture texAutoFrame { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
 sampler AutoFrame { Texture = texAutoFrame; };
 
-//Intermediate target for separable dilation. .g carries the isolation gate's row count, the channel
-//the closing radius leaves unused.
+//Intermediate target for separable dilation. .g carries the isolation gate's row count and .b the
+//centre verdict, the channels the closing radius leaves unused, so the vertical pass can count a
+//column and a diagonal out of taps it already takes.
 texture texAutoDilate { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
 sampler AutoDilate { Texture = texAutoDilate; };
 
@@ -596,7 +600,8 @@ float4 PS_Copy(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	return tex2D(AutoAccumB, texcoord);
 }
 
-//Horizontal closing bounded by luma edge, plus the row's still count for the isolation gate.
+//Horizontal closing bounded by luma edge, plus the row's still count for the isolation gate and the
+//centre verdict the vertical pass reads the column and the diagonals off.
 float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float2 texel = BUFFER_PIXEL_SIZE;
@@ -619,10 +624,13 @@ float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 		nearby += abs(float(i)) <= reach ? step(0.5, neighbour) : 0.0;
 		mask = max(mask, neighbour * keep);
 	}
-	return float4(mask, nearby / AUTOMASK_COUNT_SCALE, mask, 1.0);
+	//.b is the centre's own verdict, which the vertical pass needs to count a column or a diagonal:
+	//those runs cross this pass rather than lying along it, so a row count cannot supply them.
+	float still = step(0.5, centre);
+	return float4(mask, nearby / AUTOMASK_COUNT_SCALE, still, 1.0);
 }
 
-//Vertical closing bounded by luma edge, plus the box's still count and the isolation gate.
+//Vertical closing bounded by luma edge, plus the box's still count and the isolation gate's line test.
 float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float2 texel = BUFFER_PIXEL_SIZE;
@@ -632,6 +640,12 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	float mask = centre.r;
 	float lumaCentre = dot(tex2D(ReShade::BackBuffer, texcoord).rgb, float3(0.299, 0.587, 0.114));
 	float nearby = 0.0;
+	//The four runs through this pixel: its column, and its two diagonals. Its row is the centre's own
+	//count, already in .g, and the diagonals read the centre verdict .b so a contour inside a HUD
+	//cannot cost them, exactly as the row count is unbounded by luma.
+	float column = 0.0;
+	float diagDown = 0.0;
+	float diagUp = 0.0;
 
 	for (int i = -AUTOMASK_DILATE_MAX; i <= AUTOMASK_DILATE_MAX; i++){
 		float2 uv = texcoord + float2(0.0, i * texel.y);
@@ -640,15 +654,32 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 		float edge = abs(luma - lumaCentre) * 255.0;
 		float keep = (inRange && edge <= AutoMaskEdge) ? 1.0 : 0.0;
 		float4 row = tex2D(AutoDilate, uv);
-		nearby += abs(float(i)) <= reach ? row.g * AUTOMASK_COUNT_SCALE : 0.0;
+		//The gate's extra taps sit behind its own checkbox, which ships off, so the default path does
+		//not take them: the column and the diagonals cost nothing while nothing reads them.
+		if (AutoMaskIsolated && abs(float(i)) <= reach){
+			nearby += row.g * AUTOMASK_COUNT_SCALE;
+			column += row.b;
+			//A diagonal leaves the column by i: the tap one column over at that row offset is its
+			//pixel. An off-frame tap clamps, and reads the same verdict a pixel on the edge would.
+			diagDown += tex2D(AutoDilate, uv + float2(i * texel.x, 0.0)).b;
+			diagUp += tex2D(AutoDilate, uv - float2(i * texel.x, 0.0)).b;
+		}
 		mask = max(mask, row.r * keep);
 	}
 
+	//The row count came from the horizontal pass, at the centre, and is in .g.
+	float rowCount = centre.g * AUTOMASK_COUNT_SCALE;
+
 	//Every masked pixel is tested, not only the ones the verdict claimed: what the closing radius grew
 	//around a speck has that speck's thin neighbourhood and goes with it. The box is the isolation
-	//radius, so the share is the same test at every position of it.
+	//radius, so the share is the same test at every position of it. A line through the pixel is the
+	//second door: a stroke holds more than half of its own length along one axis, where the box share
+	//asks it to fill a share of a box it is too thin to fill. Both doors keep -- the box was there
+	//first, so nothing it kept is lost, and the line only ever rescues what the box dropped.
 	float side = 2.0 * reach + 1.0;
-	if (AutoMaskIsolated && nearby < AutoMaskDensity * 0.01 * side * side)
+	float floorLine = max(reach + 1.0, AUTOMASK_AXIS_MIN);
+	float best = max(rowCount, max(column, max(diagDown, diagUp)));
+	if (AutoMaskIsolated && nearby < AutoMaskDensity * 0.01 * side * side && best < floorLine)
 		mask = 0.0;
 
 	return float4(mask.xxx, 1.0);
