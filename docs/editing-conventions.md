@@ -43,8 +43,7 @@ annotation, the frame-count sliders' conversion, the prose budget, or the drift 
   out of `AutoMask` purely to name them, with no gate on it: none of the four is ever hidden, and they
   are already one contiguous run at the top of the uniform list, so the split costs nothing but a
   heading. Nothing that must stay visible whatever its neighbours say can be gated, but it can still be
-  grouped, which is what this does — the durations are the settings a user tunes by watching, and the
-  heading says so.
+  grouped — the durations are the settings a user tunes by watching, and the heading says so.
 - **A feature with a pass of its own is a definition; a branch inside a pass is a gate.** The deadzone is
   the precedent for the second kind: it owns no pass, shader or target — it is a branch in
   `PS_Accum`/`CS_Accum` and a ring in the restore — so a `#if AutoMaskDeadzone` would save a few

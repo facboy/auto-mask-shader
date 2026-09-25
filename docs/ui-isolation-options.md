@@ -2,10 +2,10 @@
 
 ## 1. Scope and standing
 
-What element-level isolation could do better, given that the depth buffer is not available. This is a
-list of **options, not a plan**: nothing here is scoped or approved, and none of it is verified. §5.1's
-directional densities **have since been implemented** — the four-axis form, described in that section and
-in `docs/core-model.md` — while the rest stands as written, and §6's instrument does not exist yet.
+What element-level isolation could do better, given that the depth buffer is not available. **Options, not
+a plan**: nothing here is scoped or approved, and none of it is verified. §5.1's directional densities
+**have since been implemented** — the four-axis form, described in that section and in
+`docs/core-model.md` — while the rest stands as written, and §6's instrument does not exist yet.
 
 Companions: `docs/core-model.md` (the verdict the isolation rides on), `docs/compute-path.md` (the
 compute path most of this would live in), `docs/optical-flow.md` (the one instrument already built,
@@ -24,20 +24,19 @@ spent:
 | image structure | the luma step in `PS_DilateH`/`PS_DilateV` (`AutoMaskEdge`) | only where the growth stops |
 | spatial coherence on the verdict | the isolation gate, riding in `texAutoDilate` | whether a claimed pixel is kept |
 
-The unused axis is the fourth: **coherence of change events over space**. The verdict judges a pixel;
-nothing judges a *region*. That is where element-level isolation lags, and every proposal below that is
-worth its cost is an attempt to give the shader a region to reason about.
+The unused axis is the fourth: **coherence of change events over space** — the verdict judges a pixel,
+nothing judges a *region* — and every proposal below worth its cost gives the shader a region to reason
+about.
 
 ## 3. Where isolation actually fails today
 
-Named against the code, because a proposal is only worth its cost if it closes one of these. Referred to
-below as §3.1 to §3.4.
+Named against the code, as §3.1 to §3.4 below.
 
 1. **Thin interface is eroded by the gate's box count.** `PS_DilateV` keeps a pixel while
    `nearby >= AutoMaskDensity * 0.01 * side * side`. A line of width `n` fills `n / side` of the box, so
    a wider `AutoMaskIsolation` costs exactly the elements with the least evidence. `README.md` lists it
-   under what the shader cannot do, and `docs/core-model.md` calls it the one consequence to know. It is
-   a consequence of the *square box*, not of the idea.
+   under what the shader cannot do, and `docs/core-model.md` calls it a consequence of the *square box*,
+   not of the idea.
 2. **Interior holes.** An element whose insides animate — a draining bar, a spinner, scrolling text —
    loses those pixels from the verdict, so bloom and every effect in the middle see them. The outside
    contour is protected; the interior is not.
@@ -96,12 +95,12 @@ raises that floor. The floor's own minimum of 3 is what keeps a lone pixel, an a
 run out. `docs/core-model.md` carries the design and `README.md` the user-facing limits; the measurements
 are in a scratch probe under `tools/.work/` (not committed).
 
-One interaction the section above does not anticipate, and it decides how much the fix is worth: the gate
-judges the mask **after the closing**, so a stroke the closing has already thickened along its own length
-is no longer thin to the box share and the door has nothing to rescue. Measured with the contour's luma
-step in place, a 1-px hairline is kept by the box share alone at **Closing radius `1`** and up, and only
-dropped at `0` — so the door earns its keep where the closing is low, and the visible difference at the
-default closing is a 2-px bar or a block's interior at a wide **Isolation radius** instead.
+One interaction decides how much the fix is worth: the gate judges the mask **after the closing**, so a
+stroke the closing has already thickened along its own length is no longer thin to the box share and the
+door has nothing to rescue. Measured with the contour's luma step in place, a 1-px hairline is kept by the
+box share alone at **Closing radius `1`** and up, and only dropped at `0` — so the door earns its keep
+where the closing is low, and the visible difference at the default closing is a 2-px bar or a block's
+interior at a wide **Isolation radius** instead.
 
 **Connected-component area.** Measured and not affordable. The criterion is right — a component's area is
 line-preserving in any orientation, where four axes cover only four directions — but the labelling is a
@@ -113,7 +112,7 @@ lowered to a fixed small number, because a cap that stops a long component conve
 uncertified — dropped, which is the thin-interface erosion the filter exists to fix. Distance-doubling
 converges in a true `log2` of rounds but costs thousands of taps per texel per round. So the bounded-pass
 rule this repo keeps is not satisfiable for exact component area, and the four-axis door is what fixes the
-named case instead. Recorded because the section above still describes the mechanism as if it were cheap.
+named case instead.
 
 *What the two share, and where it stops.* Neither separates a one-pixel stroke at an in-between slope from
 a short run of pixels: a bounded local count sees the same evidence, and an exact connected component would
@@ -122,8 +121,7 @@ by any bounded test here.
 
 Cost was scoped as a reduction, a handful of bounded low-res passes and a lookup — well under a
 full-resolution pass in taps, compute-only behind the compute guard beside the tile map of §5.6. The
-measurement above removes the premise: the "handful of bounded passes" is not bounded, and the bound is
-what the claim rested on.
+measurement above removes the premise: the "handful of bounded passes" is not bounded.
 
 ### 5.2 Fill interiors bounded by a persistent contour
 
@@ -162,7 +160,7 @@ verifiable; a localised premise is none of those.
 
 ### 5.5 Two one-line signal upgrades
 
-Both are worth an overlay reading before either is worth a rule.
+Both need an overlay reading before either becomes a rule.
 
 - **Confidence-weighted count.** The gate counts `step(0.5, neighbour)`. Summing the neighbour's
   `confidence` instead removes the cliff at exactly `0.5` and turns `AutoMaskDensity` into "share of
@@ -213,13 +211,13 @@ an instrument first, a mechanism only if a real game says so.
 
 ## 6. Measure first: the instrument
 
-The repo's own method is that a claim is measured before it is mechanised — no noise floor without the
+The repo's method is that a claim is measured before it is mechanised — no noise floor without the
 histogram, no vector without the probe. The instrument here is small: a third reading on the diagnostics
 overlay, beside the motion and verdict views.
 
 - **Region coherence:** the connected-component count of the current mask, and the largest component's
   share of it. If today's mask is one or two large components, §5.1's component test is not worth its
-  cost. If it is a long tail of specks, it is worth everything — and the tail itself is the measure of
+  cost. If it is a long tail of specks, it is worth everything — and the tail's size is the measure of
   how much the isolation gate is being asked to clean up.
 - **Holes:** the share of the screen that is mask-enclosed but unmasked. That is §3.2's size in the
   user's own game, which is the only thing that says whether §5.2 earns its history.
@@ -227,8 +225,8 @@ overlay, beside the motion and verdict views.
   during a stopped scene. A panel opening that produces no such patch at the threshold being tested is
   the answer "no", and the case stays a documented cost.
 
-All three are low-resolution readings off the tile map of §5.6, which is why that is the first thing to
-build and the thing that decides the rest.
+All three are low-resolution readings off the tile map of §5.6, so that map is the first thing to build,
+and it decides the rest.
 
 ## 7. Conventions any of this must keep
 
@@ -245,8 +243,7 @@ build and the thing that decides the rest.
   README says so in those words.
 - **Verification stays a review pass plus the offline check** — `uv run tools/verify_shaders.py check`
   across all eight variants, pixel-path hashes unchanged, and no new warnings, since a warning is a
-  failure here. None of this is verifiable without a game, and §6's readings are what a game gets used
-  for.
+  failure here. None of this is verifiable without a game; §6's readings are what a game gets used for.
 
 ## 8. Summary of options
 
@@ -262,9 +259,8 @@ build and the thing that decides the rest.
 | 5.7 | auto-placed deadzone | §3.4's manual tuning | off the tile map | override sliders stay |
 | 5.8 | alpha-composite ratio | reading only | off the tile map | diagnostics, compute-only |
 
-Of the two it recommended taking first: **the directional densities are shipped**, in the four-axis form
-that covers the diagonals too; and **the arrival detection of §5.4** is still the only option that closes
-a case the docs list as unfixable without eyes on a real game. **The connected-component area filter §5.1
-ranked highest was measured and is not affordable** — the round count its labelling needs is set by the
-picture, not by a named bound — so it is recorded in that section rather than built, and the four-axis door
-is what answers §3.1 in its place.
+**The directional densities are shipped**, in the four-axis form that covers the diagonals too; **the
+arrival detection of §5.4** is still the only option that closes a case the docs list as unfixable
+without eyes on a real game. **The connected-component area filter §5.1 ranked highest was measured and is
+not affordable** — the round count its labelling needs is set by the picture, not by a named bound — so it
+is recorded rather than built, and the four-axis door answers §3.1 in its place.

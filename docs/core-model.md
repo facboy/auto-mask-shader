@@ -115,9 +115,9 @@ contour inside a HUD must not cost the pixel support.
 The test is a **share** of that box, not a count of pixels: `AutoMaskDensity` percent of its area, the
 pixel itself counted. A count would be capped by the smallest box's area, so the same slider value would
 mean a solid box at one radius and a sparse one at another — 100% at a 3×3 and 18% at 7×7. As a share it
-means one thing wherever the radius is set: `0` keeps every pixel, `100` wants a fully solid box. The one
-consequence to know is that a line of width `n` fills only `n / side` of the box, so a wider isolation
-radius erodes thin strokes at a fixed density.
+means one thing wherever the radius is set: `0` keeps every pixel, `100` wants a fully solid box. A line
+of width `n` fills only `n / side` of the box, so a wider isolation radius erodes thin strokes at a fixed
+density.
 
 **A second door answers that consequence: one line through the pixel is enough.** Along one of the four
 lines through a masked pixel — its row, its column, its two diagonals, each within the same isolation
@@ -133,15 +133,15 @@ is on the verdict, not on colour. And because the box share stays as a first doo
 replaced, the gate can only **rescue** a pixel the box dropped and never newly drops one, so with the
 checkbox clear the mask is byte-identical to the closing alone.
 
-What the door reaches, measured rather than assumed: a horizontal, vertical or either diagonal one-pixel
-stroke lies along one of the four lines, so it is rescued at every radius — which is the §3.1 case, since
-a line of width `n` fills only `n / side` of the box and the box share alone drops *every* one-pixel
-stroke from radius 2 up. A stroke between those slopes lies along no single line, and is rescued only
-while the pixels it lays in a row or a column clear the floor; where that lapses depends on its slope and
-on the radius, which raises the floor with it. At the default radius 2 the one slope still dropped is 2 px
-across per 1 px down; by radius 3 the floor is 4, so the run-2 and run-3 slopes lapse too. It is a live
-checkbox rather than a fourth structural switch, by the same rule as the deadzone: it owns no pass, shader
-or target, riding in the two the closing already has.
+What the door reaches: a horizontal, vertical or either diagonal one-pixel stroke lies along one of the
+four lines, so it is rescued at every radius — which is the §3.1 case, since a line of width `n` fills
+only `n / side` of the box and the box share alone drops *every* one-pixel stroke from radius 2 up. A
+stroke between those slopes lies along no single line, and is rescued only while the pixels it lays in a
+row or a column clear the floor; where that lapses depends on its slope and on the radius, which raises
+the floor with it. At the default radius 2 the one slope still dropped is 2 px across per 1 px down; by
+radius 3 the floor is 4, so the run-2 and run-3 slopes lapse too. It is a live checkbox rather than a
+fourth structural switch, by the same rule as the deadzone: it owns no pass, shader or target, riding in
+the two the closing already has.
 
 **The closing radius sets how much there is left to rescue.** The gate runs on the mask the closing
 produced, and the luma bound stops the closing growing *across* a contour but not *along* it: a one-pixel
@@ -184,8 +184,7 @@ agree on what 'all 0' and 'all 255' mean.
 
 ## What the signal cannot do
 
-These are inherent to the signal, not tuning problems, and belong in the README rather than being
-discovered:
+These are inherent to the signal, not tuning problems, and belong in the README:
 
 - **Semi-transparent UI is never protected.** Where the world shows through, the pixel is not stable and
   never accumulates. Those elements stay with `UIDetectMulti`, which uses authored masks.

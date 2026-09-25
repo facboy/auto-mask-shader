@@ -223,7 +223,7 @@ whether the reading you are looking at is current.
   share is still a first door, so over random screens every pixel the old gate kept is kept; and **no
   speck clears it**, since the floor never drops under 3, so a lone pixel, an adjacent pair and an L of
   three are dropped at every radius while a straight run of three is rescued at the radii where the floor
-  is still 3. Its reach by stroke orientation is measured as well rather than assumed, because the README
+  is still 3. Its reach by stroke orientation is measured rather than assumed, because the README
   makes a claim about it: a one-pixel stroke along a row, a column or either diagonal is rescued at every
   radius, and the slopes between them only at the radii where the pixels they lay in an axis clear the
   rising floor.

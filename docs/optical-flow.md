@@ -21,7 +21,7 @@ Constraints taken as given:
   `.junie/plans/automask-compute-gate-and-drift-channel.md`). Anything added here is a further
   addition, not a replacement.
 
-**Adopted, in the smallest form, and then removed — the decision recorded here.** The reversal §6 asks
+**Adopted, in the smallest form, and then removed.** The reversal §6 asks
 for was recorded in `.junie/plans/automask-compute-gate-and-drift-channel.md`, whose *Out of scope* entry
 for block matching said it was reopened rather than silently dropped; what was built was **§6.1's
 experiment and nothing else**, behind the fourth structural switch `AutoMaskOpticalFlow` and wired into no
@@ -95,7 +95,7 @@ The shape of the motion decides whether image-only matching is even applicable:
 | Plane with in-place animation (flowing haze) | no translation at all | no vector to find (but see §5) |
 
 A coherent translation is the one signature a matcher handles well, so the flat-plane assumption
-turns the hostile case into the tractable one. That is the strongest argument for this approach.
+turns the hostile case into the tractable one.
 
 Measured, on a synthetic sky (vertical gradient plus soft cloud detail) translated by a known
 amount, then searched with a 9×9 patch over ±6 px:
@@ -112,7 +112,7 @@ actually exist and whether they can be trusted at the speeds involved.
 
 ## 3. Obstacle: sub-pixel per frame needs a long baseline
 
-This is the arithmetic that also limits the drift channel, and it is the crux.
+This is the arithmetic that also limits the drift channel.
 
 Per-pixel 8-bit change for a sky translating at various speeds, over a 48×48 synthetic frame:
 
@@ -251,12 +251,12 @@ integer SAD. Two configurations produced the tables, which differ:
   would behave. §6.1 is the experiment that would answer those — and it has since been run and
   answered them (§6.2), negatively.
 - The "SAD min / median" column is a crude confidence measure; a real implementation would need a
-  proper ratio test or a variance floor to detect the degenerate (flat) case of §4. Note that for
-  the pure-gradient row it is `0.00 / 1.18` yet the offset found is wrong: the min is zero at
+  proper ratio test or a variance floor to detect the degenerate (flat) case of §4. For the
+  pure-gradient row it is `0.00 / 1.18` yet the offset found is wrong: the min is zero at
   *every* horizontal offset there, which is exactly why the ratio, not the minimum, is the reading.
 - The 16-frame row of §3 diverging at 0.5 px/frame is a small-patch artefact as much as a
-  baseline one — a 7×7 patch has left the ±3 px window at 8 px. It is included because the
-  failure direction (a long baseline matching worse, not better) is the point.
+  baseline one — a 7×7 patch has left the ±3 px window at 8 px. It is included for its failure
+  direction (a long baseline matching worse, not better).
 
 ---
 
@@ -281,7 +281,7 @@ integer SAD. Two configurations produced the tables, which differ:
 **All five items were acted on, and the outcome closes the line.** The reversal was recorded and the
 §6.1 experiment was built; it then returned "no at this scale" against the real sky it was asked about
 (§6.2), so items 1–4 describe a path whose decisive test failed rather than a plan still to be taken,
-and item 5's reversal has been reversed back. Nothing here should be read as work outstanding.
+and item 5's reversal has been reversed back.
 
 ---
 
