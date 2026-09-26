@@ -160,8 +160,16 @@ are listed under it.
   own bin as it passes it, and stops at the first level leaving no more than `AutoMaskNoiseFloor` percent
   of the screen changing by that much or more. That level is the measured step. The walk covers levels
   1–8 only (`AUTOMASK_STEP_MAX`), and running out of the range means the slider's own value stands.
+- **commit / dwell / `AUTOMASK_STEP_DWELL`** — the run of frames a measured step must stand for before
+  the walk's answer is adopted, and the constant that bounds it — a second, derived from
+  `AutoMaskTargetFPS`. The walk is fed by motion measured against the step it sets, and the level its
+  answer lands on moves with whatever is moving: a patch of grass or water covering more than the floor
+  holds the step above the size of its own change. A scene change answers a level and holds it; a mover
+  that comes and goes in the floor's tail does not. The step is still measured fresh every frame and
+  still never written back into the slider, one frame behind as before.
 - **auto-deadband / measured step / auto-detect** — the same feature named three ways: the deadband the
-  walk measures each frame, held in a 1×1 `r32f` target, clamped to 1–8, used only while
+  walk measures each frame, held in a 1×1 `RGBA32F` target that carries the committed step, the answer
+  being compared against it and the frames that answer has stood for, clamped to 1–8, used only while
   `AutoMaskAutoStep` is ticked, and never written back into the slider. The clamp also keeps an unwritten
   target off the slider's own scale.
 - **tally** — the per-group `groupshared` count. The histogram is tallied in groupshared rather than in
@@ -269,11 +277,15 @@ durations — are the `Frame timing` section.
 - **`AUTOMASK_STEP_MAX`** — `8`: the last level the walk measures in, and the end of the `AutoMaskEps`
   slider with it. Named because the histogram's width, the clear loop, the bin clamp and the walk's
   range must not drift apart.
+- **`AUTOMASK_STEP_DWELL`** — a second in frames (`AutoMaskTargetFPS`): how long a measured step must
+  stand before it is committed. A bound on how long a held reading lasts rather than on a loop or a
+  value anyone tunes.
 - **`AUTOMASK_DILATE_MAX`** — `3`: the fixed half-width of the dilation loops, and the cap of
   `AutoMaskDilate`. The precedent for a definition that bounds a fixed loop rather than eliding a pass.
 - **`AUTOMASK_DRIFT_LAG`** — `2`: how far the drift average is held from the frame, in deadbands, and the
   top of the drift ramp. A bound on a value rather than on a loop, and the reason the horizon no longer
-  sets how long a pan lingers.
+  sets how long a pan lingers. The clamp divides it onto the value's own scale: `now` is normalized and
+  the reach is a level count, so left in levels it names 255 times what it means and holds nothing.
 - **the reset's wide step** — `max(deadband, 8.0)`, in the drift average's reset. Deliberately not a
   slider: it has to stay at or above the deadband so the two thresholds cannot collapse into one, and
   the `max` means it cannot if either cap is ever raised.

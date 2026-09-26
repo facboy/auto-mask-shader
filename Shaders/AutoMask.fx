@@ -283,14 +283,18 @@ sampler AutoMap { Texture = texAutoMap; };
 	texture texAutoStat { Width = 1; Height = 1; Format = r32f; };
 	storage2D<float> AutoStatStore { Texture = texAutoStat; };
 	sampler MotionStat { Texture = texAutoStat; };
-	//The step measured off that histogram, one frame behind exactly as the share is.
-	texture texAutoStep { Width = 1; Height = 1; Format = r32f; };
-	storage2D<float> AutoStepStore { Texture = texAutoStep; };
+	//The step measured off that histogram, one frame behind exactly as the share is: .r the committed
+	//step, .g the answer it is being compared against and .b the frames that answer has stood for.
+	texture texAutoStep { Width = 1; Height = 1; Format = RGBA32F; };
+	storage2D<float4> AutoStepStore { Texture = texAutoStep; };
 	sampler AutoStep { Texture = texAutoStep; };
 	storage2D<float4> AutoAccumStore { Texture = texAutoAccumB; };
 	//How far the average sits from the frame, in deadbands: the drift ramp's top and the bound the
 	//average is held inside, so a lag the ramp cannot read is never stored.
 	#define AUTOMASK_DRIFT_LAG 2.0
+	//Frames a measured step must stand before it is committed. Named, not a slider: it bounds how long
+	//a held reading lasts rather than naming a value anyone tunes.
+	#define AUTOMASK_STEP_DWELL (1.0 * AutoMaskTargetFPS)
 	//The drift ping-pong: the long-baseline average needs its own pair -- the accumulator has one
 	//spare channel, the average three -- and cannot be half precision, or the creep toward a
 	//one-level gap would sit frozen under an RGBA16F ulp.
@@ -366,8 +370,11 @@ sampler AutoMap { Texture = texAutoMap; };
 		float horizon = max(AutoMaskDrift * AutoMaskTargetFPS, 1.0);
 		float3 next = (maxDiff < max(deadband, 8.0)) ? lerp(now, drift, 1.0 - 1.0 / horizon) : now;
 		//Held inside that reach: a sustained move otherwise leaves the average a rate x horizon levels
-		//behind, and the screen goes on reading as drawn for a horizon after the view stops.
-		next = max(now - deadband * AUTOMASK_DRIFT_LAG, min(now + deadband * AUTOMASK_DRIFT_LAG, next));
+		//behind, and the screen goes on reading as drawn for a horizon after the view stops. The reach
+		//is in level counts and `now` is normalized, so it is divided back onto that scale: left in
+		//levels it is 255 times the reach it names, and holds nothing.
+		float3 reach = deadband * AUTOMASK_DRIFT_LAG / 255.0;
+		next = max(now - reach, min(now + reach, next));
 
 		float gain = 0.504 / max(AutoMaskRise, 1.0);
 		float cost = 0.504 / max(AutoMaskFall, 1.0);
@@ -482,7 +489,25 @@ sampler AutoMap { Texture = texAutoMap; };
 				}
 				above -= tex2Dfetch(AutoMotionHist, int2(level - 1, 0));
 			}
-			tex2Dstore(AutoStepStore, int2(0, 0), step);
+			//A step is committed only once AUTOMASK_STEP_DWELL frames have answered the same level: the
+			//walk is fed by motion measured against the step it sets, so a mover covering more than the
+			//floor holds it above that mover's own size and the red goes off screen-wide. A scene change
+			//answers one level and holds it; movement in and out of the floor's tail does not.
+			float4 prevStep = tex2Dfetch(AutoStepStore, int2(0, 0));
+			float committed = prevStep.r;
+			float candidate = prevStep.g;
+			float held = prevStep.b;
+			if (committed < 1.0){
+				committed = step; candidate = step; held = 0.0;
+			} else if (step == committed){
+				candidate = step; held = 0.0;
+			} else if (step == candidate){
+				held += 1.0;
+				if (held >= AUTOMASK_STEP_DWELL){ committed = step; held = 0.0; }
+			} else {
+				candidate = step; held = 1.0;
+			}
+			tex2Dstore(AutoStepStore, int2(0, 0), float4(committed, candidate, held, 1.0));
 		}
 
 		//Cleared whether or not the step is being measured, so the bins start every frame empty and

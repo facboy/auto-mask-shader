@@ -84,11 +84,15 @@ changing the verdict, the hold, the move memory, the clip exclusion or the accum
 
 `docs/compute-path.md` holds what `AutoMaskCompute=1` swaps in — the exact motion count, the change-size
 histogram and auto-deadband, the `RGBA32F` drift channel, and the pass order inside `AutoMask`. The drift
-average is held within `AUTOMASK_DRIFT_LAG` deadbands of the frame, and the ramp that reads it runs from
+average is held within `AUTOMASK_DRIFT_LAG` deadbands of the frame — the reach divided onto the value's
+own scale, since `now` is normalized and the bound is a level count — and the ramp that reads it runs from
 the deadband to that same bound: a ramp can only say how far the frame has got from its average, so an
 average allowed to creep further behind says nothing extra — while an unbounded one is left tens of levels
 behind by a camera pan and takes a horizon to walk back, which is what keeps the whole screen reading as
-being drawn after the view has stopped.
+being drawn after the view has stopped. The measured step is committed only after
+`AUTOMASK_STEP_DWELL` frames answer the same level, because the walk is fed by motion measured against
+that same step: a mover covering more than the floor holds it above the mover's own size, and the red
+graded against it goes off screen-wide.
 
 ## Editing conventions
 

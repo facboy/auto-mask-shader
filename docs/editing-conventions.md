@@ -98,10 +98,14 @@ annotation, the frame-count sliders' conversion, the prose budget, or the drift 
   rather than holding data or eliding a pass.
 - `AUTOMASK_DRIFT_LAG` is named for the same reason as `AUTOMASK_STEP_MAX`: it is the drift ramp's top
   and the clamp on the average, two expressions that must not drift apart, and naming it is what keeps a
-  lag the ramp cannot read from ever being stored. It is **not** a slider — it is the extent of a
+  lag the ramp cannot read from ever being stored. The clamp divides it back onto the value's own scale,
+  because `now` is normalized and the reach is a level count: left in levels it names 255 times what it
+  means. It is **not** a slider — it is the extent of a
   comparison rather than a duration anyone watches, and exposing it would offer a second knob for what
   `AutoMaskDrift` already sets. Nor can it be `1`: the ramp is `smoothstep(deadband, deadband × LAG, …)`,
   whose edges collapse at that value. Being a whole number of deadbands is what lets it hold its meaning
-  at every `AutoMaskEps` position.
+  at every `AutoMaskEps` position. `AUTOMASK_STEP_DWELL` joins the two names under the same rule: it
+  bounds how long a measured reading is held rather than naming a value anyone tries, so it is a constant
+  and not a slider.
 - The credit lives in both `LICENSE` and the header block on purpose: someone copying just the `.fx`
   into their ReShade folder takes the attribution with it.

@@ -34,8 +34,10 @@ cannot take at all, because 1,024 taps cannot tell a level of dithering from a l
   the above-share read off the histogram at a level *the same count* the verdict would act on — same
   units, same boundary, no second convention to keep in step. `CS_Finish` walks the bins from level 1 up,
   subtracting each level's own bin as it passes it, and stops at the first that satisfies the rule; that
-  level goes into a second 1×1 `r32f` target the next frame's `CS_Accum` reads through a sampler named
-  `AutoStep`, one frame behind exactly as the share is. The measurement is per frame and never writes
+  level goes into the committed step, the `RGBA32F` 1×1 target the next frame's `CS_Accum` reads through a
+  sampler named `AutoStep`, one frame behind exactly as the share is. The target's other two channels
+  carry the answer being compared against the committed one and the frames it has stood for, so the
+  commit below costs no second target. The measurement is per frame and never writes
   back into the slider. The walk covers levels 1 to 8 only, because 8 is where the `AutoMaskEps` slider
   ends and a step outside that range is not a position the manual path could take either. Running out of
   the range means no level separated the frame's noise from its content — what a fully live frame looks
@@ -43,6 +45,19 @@ cannot take at all, because 1,024 taps cannot tell a level of dithering from a l
   measurement guessing, so a fast camera movement cannot talk the shader into forgiving real motion.
   Because the threshold is a share of the *screen* and not a count of levels, it means the same thing at
   every resolution: at 1440p the `0.5` default is 18,432 pixels.
+- **A step is committed only after a run of frames agree on it.** The walk is fed by motion measured
+  against the same step it sets, and the share it reads moves with whatever is moving — a patch of grass
+  or a stretch of water covering more than `AutoMaskNoiseFloor` of the screen holds the step above the
+  size of its own movement, and the red is then graded against that step. The red and the verdict both
+  read the number, so the coupling is not cosmetic: a step held too high for a still scene has counted
+  nothing changed, which drives the share toward zero and can close the premise over scenery. A reading
+  is therefore held until `AUTOMASK_STEP_DWELL` consecutive frames have answered the same level. A scene
+  change is a whole new distribution and still crosses it; what the hold filters is the same scene's
+  frame-to-frame movement in and out of the floor's tail. The dwell bounds how long a held reading
+  stands rather than naming a value anyone tunes, so it is a named constant by the same rule as
+  `AUTOMASK_STEP_MAX`, and it is derived from `AutoMaskTargetFPS` so the hold is a second rather than a
+  frame count. The length is a judgement with no GPU to check it against; the motion view over a steady
+  mover is where it is judged.
 - **The histogram is tallied in groupshared, not in the global bins.** The first version wrote one
   `atomicAdd` per pixel straight into a 256×1 `r32u` target, and that is the whole of what the toggle
   cost: ~3.7M global atomics a frame at 1440p, nearly all of them aimed at the same bin in a still scene,
@@ -95,6 +110,12 @@ cannot take at all, because 1,024 taps cannot tell a level of dithering from a l
   constant-rate pan of 1 s then stopped (deadband 1), the premise cleared in 7.7 s before and 1.4 s now at
   the 2 s horizon, and 40.4 s against 6.9 s at 10 s. `deadband / K` still sets how slow a drift the channel
   reaches; "how long a pan lingers" is no longer one of the horizon's jobs.
+- **The reach has to be expressed on the value's own scale.** `now` and `drift` are normalized
+  (`nowLevels / 255.0`) while the reach is a level count, so a clamp written `now ± deadband ×
+  AUTOMASK_DRIFT_LAG` names a threshold 255 times the bound it means, which a 0..1 value can never reach.
+  Inert, the bound leaves the tail in seconds: measured from a capture of a real pan, the motion view's
+  red and the still verdict lasted 5–10 s at the 2 s horizon against about one second once the reach is
+  divided onto that scale. The paragraph above describes a bound that holds, which this is what makes it.
 - **An abrupt change follows at once, and only drift waits.** The average takes a horizon's worth of the
   frame a frame while the short comparison reads still — that is what lets a sub-level shift accumulate —
   but where the frame changes by a *wide* step it *becomes* the frame instead: a scene cut or a load is

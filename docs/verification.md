@@ -194,18 +194,26 @@ whether the reading you are looking at is current.
 - **The move's tail, which is what the bounded reach is for.** Pan — hold a turn, or walk forward — then
   stop dead, and the corner marker must go yellow (the world no longer being drawn) promptly rather than
   seconds later, and the motion view's red must clear at the same moment instead of covering the screen
-  and fading. Before the fix any real pan left the average tens of levels behind and it took a horizon to
-  walk back, so the screen reported as drawn for 12–17 s at the 2 s default and over a minute at 10 s;
-  measured now at 1.4 s against 7.7 s, and 6.9 s against 40.4 s. The fall is still proportional to the
-  horizon, so a shorter one is still the lever on it. This is the one scenario here a user reported from
-  playing, so it is the first to re-check after a change to the drift arithmetic; at `AutoMaskDrift = 0`
-  there must be no tail at all.
+  and fading. The average is held inside `AUTOMASK_DRIFT_LAG` deadbands for this, but that clamp was
+  written in level counts against a normalized value, so it named 255 times the bound it meant and held
+  nothing: the tail was the unbounded one, 7–10 s at the 2 s horizon against about a second once the
+  reach is divided onto the value's own scale. The fall is still proportional to the horizon, so a
+  shorter one is still the lever on it, and at `AutoMaskDrift = 0` there must be no tail at all. This is
+  one of the two scenarios a user reported from playing, so it is the first to re-check after a change
+  to the drift arithmetic.
 - The auto-deadband's pair, both on the compute path: the same scene with the toggle on and off, and
   the step the measurement settles on should sit above the dithering the overlay shows as red without
   losing movement you can see — with the toggle off it must match the manual slider exactly, slider
   value and all. The third is a fully live frame — pan across detailed scenery with auto-detect on —
   where there is no quiet majority to measure and the slider's own value is what must govern, so the
   mask cannot start forgiving real motion just because the camera is moving.
+  **The measured step must not flap with the share that set it.** This is the second thing a user
+  reported from playing: the motion view's red went off over scenery that could be seen moving, across
+  the whole screen at once and for a fraction of a second at a time. The red is graded against the
+  measured step, so a step following the share up forgives the very motion that raised it. Watch the
+  motion view over a steady mover — grass in wind, a waterfall — for a minute: the red must stay on it,
+  and a red that blinks off and back across everything at once is the step moving rather than the scene.
+  The step's own value is not drawn anywhere, so the failure to look for is the red, not a number.
   Two of this feature's properties are checkable off-GPU and should be re-checked that way after any
   change to the histogram, rather than looked for on screen. **The reading must be unchanged by how the
   bins are counted**: the walk's answer for the reduced 8-bin groupshared tally must be identical to the

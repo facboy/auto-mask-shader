@@ -149,6 +149,14 @@ shader has decided a pixel is interface, and nothing where neither applies.
   and it is the frame-to-frame reading rather than anything overflowing: movement under a level a frame
   sits perfectly still on most frames and steps once on the rest, so the shading blinks at the rate the
   picture crosses levels. Raising the drift horizon is what fills those gaps in, which is what it is for.
+
+  With **Auto-detect RGB step** on, that setting is not allowed to change the moment a frame suggests it
+  should: it has to be asked for the same thing for a while first. The measurement follows how much of the
+  picture is moving, and the red is graded against it, so a setting that chased the measurement would
+  forgive the very movement that raised it — the red would switch off over something you can see moving,
+  everywhere at once. A whole scene change still reaches it; what it filters out is one scene's own
+  movement drifting in and out of the measurement. Nothing except the motion view is graded against it,
+  so the mask behaves as before.
 - **Green** — the verdict view: the shader's judgement right now, that this pixel has earned its place in
   the mask. It is on or off, never a shade, because it is a decision — and it is the verdict *without*
   the closing radius, so an element shows exactly its own area and nothing grown around it. This is the
