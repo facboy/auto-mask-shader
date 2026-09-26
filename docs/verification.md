@@ -182,6 +182,15 @@ whether the reading you are looking at is current.
   flicker — a static element with temporal anti-aliasing on it — which must not be evicted by the
   channel at the default horizon; if it is, the horizon is what to shorten, and a step of a couple of
   levels is the shape of flicker that needs the horizon shortened rather than the RGB step raised.
+- **The move's tail, which is what the bounded reach is for.** Pan — hold a turn, or walk forward — then
+  stop dead, and the corner marker must go yellow (the world no longer being drawn) promptly rather than
+  seconds later, and the motion view's red must clear at the same moment instead of covering the screen
+  and fading. Before the fix any real pan left the average tens of levels behind and it took a horizon to
+  walk back, so the screen reported as drawn for 12–17 s at the 2 s default and over a minute at 10 s;
+  measured now at 1.4 s against 7.7 s, and 6.9 s against 40.4 s. The fall is still proportional to the
+  horizon, so a shorter one is still the lever on it. This is the one scenario here a user reported from
+  playing, so it is the first to re-check after a change to the drift arithmetic; at `AutoMaskDrift = 0`
+  there must be no tail at all.
 - The auto-deadband's pair, both on the compute path: the same scene with the toggle on and off, and
   the step the measurement settles on should sit above the dithering the overlay shows as red without
   losing movement you can see — with the toggle off it must match the manual slider exactly, slider

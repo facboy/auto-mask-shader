@@ -83,7 +83,12 @@ changing the verdict, the hold, the move memory, the clip exclusion or the accum
   closing radius. It is the only thing that removes a pixel the verdict claimed, so it ships off.
 
 `docs/compute-path.md` holds what `AutoMaskCompute=1` swaps in — the exact motion count, the change-size
-histogram and auto-deadband, the `RGBA32F` drift channel, and the pass order inside `AutoMask`.
+histogram and auto-deadband, the `RGBA32F` drift channel, and the pass order inside `AutoMask`. The drift
+average is held within `AUTOMASK_DRIFT_LAG` deadbands of the frame, and the ramp that reads it runs from
+the deadband to that same bound: a ramp can only say how far the frame has got from its average, so an
+average allowed to creep further behind says nothing extra — while an unbounded one is left tens of levels
+behind by a camera pan and takes a horizon to walk back, which is what keeps the whole screen reading as
+being drawn after the view has stopped.
 
 ## Editing conventions
 

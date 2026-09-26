@@ -45,6 +45,18 @@ repeat detector remains unimplemented and its case — a pixel that *sways* with
 creeping one way — is still the one the channel does not answer, which is the limitation that survives
 this fix rather than being closed by it.
 
+**A fourth defect was found later, from an in-game report rather than from this analysis.** The average
+was still unbounded, and the ramp reading it still saturated: through a sustained move it crept `horizon`
+levels behind, the ramp's three-level span could not see the part of that lag that mattered to the
+*premise* (a reading of three levels and a reading of three hundred are the same number to a count that
+only asks whether a pixel changed), so the whole screen went on reporting as being drawn for seconds after
+the view had stopped — and red over the graded ramp for as long as that lasted. The average is now held
+within `AUTOMASK_DRIFT_LAG` deadbands of the frame and the ramp runs from the deadband to that same bound,
+so the lag is graded rather than clipped and the fall behind it is an exponential walk of a bounded lag —
+about `ln(AUTOMASK_DRIFT_LAG)` horizons, against a whole horizon off a lag that grew without limit.
+§2.1's floor is untouched: what an unbounded average bought that this gives up is a reading
+proportional to the total displacement, which nothing consumes.
+
 ---
 
 ## 2. Both channels measure displacement, and a skybox returns

@@ -288,6 +288,9 @@ sampler AutoMap { Texture = texAutoMap; };
 	storage2D<float> AutoStepStore { Texture = texAutoStep; };
 	sampler AutoStep { Texture = texAutoStep; };
 	storage2D<float4> AutoAccumStore { Texture = texAutoAccumB; };
+	//How far the average sits from the frame, in deadbands: the drift ramp's top and the bound the
+	//average is held inside, so a lag the ramp cannot read is never stored.
+	#define AUTOMASK_DRIFT_LAG 2.0
 	//The drift ping-pong: the long-baseline average needs its own pair -- the accumulator has one
 	//spare channel, the average three -- and cannot be half precision, or the creep toward a
 	//one-level gap would sit frozen under an RGBA16F ulp.
@@ -343,7 +346,8 @@ sampler AutoMap { Texture = texAutoMap; };
 		              + all(drift == 0.0.xxx) + all(drift == 1.0.xxx);
 		float3 diff = abs(nowLevels - beforeLevels);
 		//The long-baseline reading against the same deadband: how far the frame has got from where
-		//its colour has been. Either comparison calling it motion is motion.
+		//its colour has been. Either comparison calling it motion is motion. Its ramp is footed at the
+		//deadband and tops out at AUTOMASK_DRIFT_LAG deadbands, the bound the average is held in below.
 		float3 driftDiff = abs(now - drift) * 255.0;
 		float maxDiff = max(diff.r, max(diff.g, diff.b));
 		float maxDrift = max(driftDiff.r, max(driftDiff.g, driftDiff.b));
@@ -353,7 +357,7 @@ sampler AutoMap { Texture = texAutoMap; };
 			? clamp(tex2Dlod(AutoStep, float4(0.5, 0.5, 0.0, 0.0)).r, 1.0, 8.0)
 			: max(ceil(AutoMaskEps), 1.0);
 		float motion = max(smoothstep(deadband - 1.0, deadband + 2.0, maxDiff),
-		                   smoothstep(deadband - 1.0, deadband + 2.0, maxDrift));
+		                   smoothstep(deadband, deadband * AUTOMASK_DRIFT_LAG, maxDrift));
 		float stable = (maxDiff < deadband && maxDrift < deadband && clipped == 0.0) ? 1.0 : 0.0;
 
 		//The average follows the frame a horizon's worth a frame, and snaps to it where the frame is a
@@ -361,6 +365,9 @@ sampler AutoMap { Texture = texAutoMap; };
 		//the two thresholds from collapsing into one.
 		float horizon = max(AutoMaskDrift * AutoMaskTargetFPS, 1.0);
 		float3 next = (maxDiff < max(deadband, 8.0)) ? lerp(now, drift, 1.0 - 1.0 / horizon) : now;
+		//Held inside that reach: a sustained move otherwise leaves the average a rate x horizon levels
+		//behind, and the screen goes on reading as drawn for a horizon after the view stops.
+		next = max(now - deadband * AUTOMASK_DRIFT_LAG, min(now + deadband * AUTOMASK_DRIFT_LAG, next));
 
 		float gain = 0.504 / max(AutoMaskRise, 1.0);
 		float cost = 0.504 / max(AutoMaskFall, 1.0);

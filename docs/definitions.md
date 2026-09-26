@@ -64,7 +64,9 @@ are listed under it.
   the two verdicts are complements of one number rather than two tests that meet (`docs/core-model.md`).
 - **ramp** — `smoothstep(deadband - 1, deadband + 2, maxDiff)`: the graded motion reading over a fixed
   three-level span footed one level under the deadband, so the most sensitive setting sees any change at
-  all and the setting's own level reads a quarter of full strength.
+  all and the setting's own level reads a quarter of full strength. The drift side has its own ramp, from
+  the deadband to `AUTOMASK_DRIFT_LAG` deadbands: it grades the average's lag over the whole range the
+  average is allowed to reach, and tops out exactly where that bound clamps.
 - **still / stable** — a pixel whose `maxDiff` is under the deadband (on the compute path, under it on
   both comparisons) and whose colour is not pinned. **Moving** is the complement.
 - **clip exclusion / pinned colour / rails** — a frame at all `0` or all `255` is saturated rather than
@@ -184,13 +186,19 @@ are listed under it.
 ## The drift channel
 
 - **drift channel / drift average** — the compute path's second reading: a long-baseline average of each
-  pixel's colour, compared against the same deadband as the frame-to-frame difference. A pixel is moving
-  when *either* comparison says so, and the drift side also feeds the world-drawn count and the premise.
+  pixel's colour, footed at the same deadband as the frame-to-frame difference and read over its own
+  longer ramp. A pixel is moving when *either* comparison says so, and the drift side also feeds the
+  world-drawn count and the premise.
 - **EMA** — exponentially weighted moving average: what the drift average is, `drift' = lerp(now, drift,
   1 - 1/K)`.
 - **drift horizon / K** — `AutoMaskDrift` seconds × `AutoMaskTargetFPS` = `K` frames, the length of the
   average's memory. Longer catches slower drift; shorter brings the mask back sooner after an abrupt
-  change.
+  change. It no longer decides how long a camera pan keeps the screen reading as drawn: that is the
+  bound below.
+- **drift reach / `AUTOMASK_DRIFT_LAG`** — how far the average may sit from the frame, in deadbands, and
+  so the top of the drift ramp: the average is clamped inside it, so the lag is graded rather than
+  clipped. Unclamped it creeps a rate × horizon levels behind a sustained move, and that lag — a move's
+  tail, which is how long a stopped view still reads as drawn — then takes a horizon to walk back.
 - **creep** — the average following the frame by a fraction of a level a frame while the short
   comparison reads still. The one-level gap the channel exists to close creeps at 0.0083 levels a frame
   at the 2 s default, which is why the store cannot be half precision (`docs/drift-snap-review.md`).
@@ -263,6 +271,9 @@ durations — are the `Frame timing` section.
   range must not drift apart.
 - **`AUTOMASK_DILATE_MAX`** — `3`: the fixed half-width of the dilation loops, and the cap of
   `AutoMaskDilate`. The precedent for a definition that bounds a fixed loop rather than eliding a pass.
+- **`AUTOMASK_DRIFT_LAG`** — `2`: how far the drift average is held from the frame, in deadbands, and the
+  top of the drift ramp. A bound on a value rather than on a loop, and the reason the horizon no longer
+  sets how long a pan lingers.
 - **the reset's wide step** — `max(deadband, 8.0)`, in the drift average's reset. Deliberately not a
   slider: it has to stay at or above the deadband so the two thresholds cannot collapse into one, and
   the `max` means it cannot if either cap is ever raised.

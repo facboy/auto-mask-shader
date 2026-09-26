@@ -65,25 +65,36 @@ cannot take at all, because 1,024 taps cannot tell a level of dithering from a l
   targets stay allocated while it is off — the convention is that a value tuned by watching stays a slider
   and costs nothing but the memory its guard already owns, and 1 KB is not worth a recompile per
   comparison.
-- The **drift channel** rides in the same pass and is guarded with it. Two full-res `RGBA32F` ping-pong
-  targets hold a long-baseline average of each pixel's colour (`drift' = lerp(now, drift, 1 - 1/K)`,
-  `K = AutoMaskDrift × AutoMaskTargetFPS` frames), and a pixel is marked moving when **either** the
-  frame-to-frame difference or its distance from that average crosses the same deadband; the graded
-  overlay carries the max, so red is still the reading the verdict comes from. It exists because the
-  frame-to-frame comparison speaks in whole levels: a backdrop shifting by a fraction of one a frame — a
-  skybox panning slowly — reads as exactly still there and would be banked as interface, while the
-  average accumulates the shift until the pixel sits visibly away from where it has been. The clip-rail
-  exclusion applies to the average symmetrically, and stillness now requires both comparisons to read
-  still, so the drift channel also feeds the world-drawn count and the premise with it: a slowly panning
-  sky can hold the premise up on its own. `PS_CopyDrift`, a pixel pass beside `PS_Copy`, brings the
-  average back to the side the next frame reads. The store is the one that cannot be half precision: the
-  creep toward a one-level gap is a fraction of a level a frame — at the 2 s default, 0.0083 levels — which
-  is under an `RGBA16F` half-ulp above level 31 (0.0156 there, against 0.0078 in the band below), so the
-  average sat frozen rather than following the pixel while the short comparison read still. A frozen
-  average fails both ways: it cannot accumulate a sub-level shift (so the channel does nothing on the bright
-  half of a sky) and it cannot close on a static pixel either, so a pixel left a level away from it read as
-  moving for as long as it held. `RGBA32F` is what lets the creep step move the store at every level, and
-  its cost is that the two drift targets double, ~59 MB to ~118 MB at 1440p.
+- The **drift channel** rides in the same pass and is guarded with it. Two full-res `RGBA32F` ping-
+  pong targets hold a long-baseline average of each pixel's colour (`drift' = lerp(now, drift, 1 -
+  1/K)`, `K = AutoMaskDrift × AutoMaskTargetFPS` frames), and a pixel is marked moving when
+  **either** the frame-to-frame difference or its distance from that average crosses its own ramp —
+  footed at the same deadband the verdict uses, topping out at `AUTOMASK_DRIFT_LAG` deadbands, which
+  is the bound the average is held inside below; the graded overlay carries the max, so red is still
+  the reading the verdict comes from. It exists because the frame-to-frame comparison speaks in
+  whole levels: a backdrop shifting by a fraction of one a frame — a skybox panning slowly — reads
+  as exactly still there and would be banked as interface, while the average accumulates the shift —
+  up to the bound below — until the pixel sits visibly away from where it has been. The clip-rail
+  exclusion applies to the average symmetrically, and stillness now requires both comparisons to
+  read still, so the drift channel also feeds the world-drawn count and the premise with it: a
+  slowly panning sky can hold the premise up on its own. `PS_CopyDrift`, a pixel pass beside
+  `PS_Copy`, brings the average back to the side the next frame reads. The store is the one that
+  cannot be half precision: the creep toward a one-level gap is a fraction of a level a frame — at
+  the 2 s default, 0.0083 levels — which is under an `RGBA16F` half-ulp above level 31 (0.0156
+  there, against 0.0078 in the band below), so the average sat frozen rather than following the
+  pixel while the short comparison read still. A frozen average fails both ways: it cannot
+  accumulate a sub-level shift (so the channel does nothing on the bright half of a sky) and it
+  cannot close on a static pixel either, so a pixel left a level away from it read as moving for as
+  long as it held. `RGBA32F` is what lets the creep step move the store at every level, and its cost
+  is that the two drift targets double, ~59 MB to ~118 MB at 1440p.
+- **The average is held inside its own reach, and that is what bounds a move's tail.** A bounded ramp can
+  only report the lag it can reach, so an average allowed past it stores lag that changes nothing but how
+  long the tail lasts — and a *creeping* one lags by the rate times the horizon in levels, tens of them
+  through a camera pan. Walking that back under the deadband takes a horizon, so the whole screen went on
+  reading as drawn — and, over the graded ramp, red — for seconds after the picture stopped: measured on a
+  constant-rate pan of 1 s then stopped (deadband 1), the premise cleared in 7.7 s before and 1.4 s now at
+  the 2 s horizon, and 40.4 s against 6.9 s at 10 s. `deadband / K` still sets how slow a drift the channel
+  reaches; "how long a pan lingers" is no longer one of the horizon's jobs.
 - **An abrupt change follows at once, and only drift waits.** The average takes a horizon's worth of the
   frame a frame while the short comparison reads still — that is what lets a sub-level shift accumulate —
   but where the frame changes by a *wide* step it *becomes* the frame instead: a scene cut or a load is
@@ -100,11 +111,12 @@ cannot take at all, because 1,024 taps cannot tell a level of dithering from a l
   belongs on the reset, which is why the rule is `maxDiff < max(deadband, 8.0)` rather than `maxDiff <
   deadband`. The floor the reset sets is deliberately low against a cut (8 levels is a fast pan at 60
   fps), so `AutoMaskDrift` stays the only lever on how slow a drift the channel reaches and raising it
-  now catches slower movement instead of changing nothing. The cost is that a move the short comparison
-  reads at a few levels — a camera pan — no longer resets the average, so it stays in the drift reading
-  for the horizon rather than being wiped by it; that is the memory working as intended, and it is why
-  pan-then-stop recovery rests on `AutoMaskMoveMemory` rather than on the average snapping (a pan is
-  still rejected either way, by the accumulating lag it builds once it no longer resets).
+  now catches slower movement instead of changing nothing. A move the short comparison reads at a few
+  levels — a camera pan — still does not reset the average, so it stays in the drift reading while it
+  lasts; that is the memory working as intended. It no longer lingers past the move, though, because the
+  average is held inside its own reach: the tail after a pan stops is the lag's own exponential walk back —
+  about `ln(AUTOMASK_DRIFT_LAG)` horizons off a *bounded* lag, against one horizon off a lag the pan grew
+  without limit.
 
 ## Four constraints the dialect imposes on any compute pass here
 
