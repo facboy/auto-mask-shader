@@ -98,7 +98,8 @@ being drawn after the view has stopped.
   per-function attribution below it.
 - The same prose budget covers the HLSL comments and the docs here; `docs/editing-conventions.md` holds
   its reasoning and the worked example. `uv run tools/verify_shaders.py check-docs` refuses the framing
-  phrases, and `--list` prints them; a line that genuinely needs one carries `prose-ok`.
+  phrases and a `//` block longer than `COMMENT_BLOCK_MAX` (4 lines), and `--list` prints both; a line or
+  block that genuinely needs the room carries `prose-ok`. The credit block's `////...` fence is exempt.
 - LF line endings.
 - A uniform annotation must match the declared type: `__UNIFORM_SLIDER_FLOAT1`/`_FLOAT3` for floats,
   `__UNIFORM_SLIDER_BOOL1` for bools. A mismatch is a silent ReShade UI bug. The widget family is chosen

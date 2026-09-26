@@ -455,6 +455,18 @@ PROSE_ALLOW = "prose-ok"
 PROSE_FENCE = re.compile(r"^\s*(?:```|~~~)")
 PROSE_FILES = (REPO / "README.md", REPO / "AGENTS.md", *(REPO / "docs").glob("*.md"))
 
+# The budget's second half, which only the shader breaks: a comment block longer than
+# this is refused, the same way a banned phrase is. `AGENTS.md` calls the HLSL comments
+# short and sparse, and this is what "short" is worth in lines -- a number, so a block
+# that outgrows the file's own register is a decision rather than a drift. It is not a
+# ratio of comments to code: commit history has comment-only commits and one-line fixes
+# with a paragraph of reasoning, so that number says nothing about whether a comment
+# earns its place. Length is the half a machine can see.
+COMMENT_BLOCK_MAX = 4
+# The credit block at the head of the shader is fenced with this, and is exempt: it is
+# the one ruled block the file's conventions name as an exception.
+COMMENT_FENCE = re.compile(r"^\s*//\+{8,}\s*$")
+
 
 def prose_lines(text: str) -> list[tuple[int, str]]:
     """The lines with fenced code and inline code spans blanked out.
@@ -474,10 +486,45 @@ def prose_lines(text: str) -> list[tuple[int, str]]:
     return kept
 
 
+def comment_block_hits() -> list[str]:
+    """Every `//` block in the shaders longer than COMMENT_BLOCK_MAX, as report lines.
+
+    A run of adjacent `//` lines is one block, so wrapping a comment further down
+    counts as lengthening it rather than spreading it. The credit header is fenced
+    with `////...` and is skipped, fence and body both, since it is the file's one
+    named exception.
+    """
+    hits: list[str] = []
+    for path in source_files():
+        text = path.read_text(encoding="utf-8", errors="replace")
+        lines = text.splitlines()
+        first, last = 0, 0
+        for number, line in enumerate(lines + [""], 1):
+            fenced = COMMENT_FENCE.match(line)
+            commented = line.strip().startswith("//") and not fenced
+            if commented and first == 0:
+                first = number
+            if commented:
+                last = number
+                continue
+            if first and not fenced:
+                length = last - first + 1
+                block = "\n".join(lines[first - 1:last])
+                if length > COMMENT_BLOCK_MAX and PROSE_ALLOW not in block:
+                    hits.append("%s:%d-%d: %d-line comment block"
+                                % (path.relative_to(REPO), first, last, length))
+            # The fence sits just above the header it closes, so entering or leaving
+            # the fenced run also ends any block in progress.
+            first = last = 0
+    return hits
+
+
 def cmd_check_docs(args) -> int:
     if args.list:
         for pattern, why in PROSE_PHRASES:
             print("%-72s %s" % (pattern, why))
+        print("%-72s %s" % ("// block longer than %d lines" % COMMENT_BLOCK_MAX,
+                            "the HLSL half of the budget: short and sparse, or marked prose-ok"))
         return 0
     files = [path for path in PROSE_FILES if path.is_file()]
     if not files:
@@ -498,6 +545,14 @@ def cmd_check_docs(args) -> int:
         for hit in hits:
             print("  " + hit)
         print("\nState the fact and stop. See: uv run tools/verify_shaders.py check-docs --list")
+        return 1
+    long_blocks = comment_block_hits()
+    if long_blocks:
+        print("FAIL -- %d comment block(s) over %d lines:" % (len(long_blocks), COMMENT_BLOCK_MAX))
+        for hit in long_blocks:
+            print("  " + hit)
+        print("\nSplit the block or say it in fewer lines. See: "
+              "uv run tools/verify_shaders.py check-docs --list")
         return 1
     print("PASS -- %d prose file(s), no framing from the list" % len(files))
     return 0

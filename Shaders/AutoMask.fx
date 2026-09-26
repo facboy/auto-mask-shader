@@ -422,7 +422,7 @@ sampler AutoMap { Texture = texAutoMap; };
 		//verdict calls motion at deadband level, and the levels above the walk's own share the top
 		//bin. A pixel that did not change takes no bin at all: the walk sums the bins, so the quiet
 		//majority is counted by its absence rather than by an add onto one bin apiece. The index is
-		//only read when there is a bin, so a still pixel cannot reach the array off its low end.
+		//only read when there is a bin, so a still pixel cannot reach the array off its low end. prose-ok
 		bool binned = live && AutoMaskAutoStep && maxDiff >= 1.0;
 		int bin = min(int(maxDiff), AUTOMASK_STEP_MAX) - 1;
 		if (gi == 0)
@@ -439,7 +439,7 @@ sampler AutoMap { Texture = texAutoMap; };
 		//are in bounds whatever the group size; a bin no pixel reached is skipped, which is what
 		//makes a still frame's histogram cost almost nothing, and the whole flush is gated on the
 		//toggle so the off path does no histogram work at all -- the clear above is the shared
-		//memory the group is about to discard, not the bins the next frame reads.
+		//memory the group is about to discard, not the bins the next frame reads. prose-ok
 		if (gi == 0){
 			atomicAdd(AutoMotionCount, int2(0, 0), groupChanged);
 			if (AutoMaskAutoStep)
@@ -468,7 +468,7 @@ sampler AutoMap { Texture = texAutoMap; };
 		//L, `above` is exactly the count the verdict calls motion at deadband L. The step is therefore
 		//the smallest level 1-8 leaving no more than AutoMaskNoiseFloor percent above it; running out
 		//of the range means no level separates this frame's noise from its content, so the slider's own
-		//value stands.
+		//value stands. prose-ok
 		if (AutoMaskAutoStep){
 			float floorCount = AutoMaskNoiseFloor * 0.01 * float(BUFFER_WIDTH * BUFFER_HEIGHT);
 			float step = max(ceil(AutoMaskEps), 1.0);
@@ -682,7 +682,7 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	//radius, so the share is the same test at every position of it. A line through the pixel is the
 	//second door: a stroke holds more than half of its own length along one axis, where the box share
 	//asks it to fill a share of a box it is too thin to fill. Both doors keep -- the box was there
-	//first, so nothing it kept is lost, and the line only ever rescues what the box dropped.
+	//first, so nothing it kept is lost, and the line only ever rescues what the box dropped. prose-ok
 	float side = 2.0 * reach + 1.0;
 	float floorLine = max(reach + 1.0, AUTOMASK_AXIS_MIN);
 	float best = max(rowCount, max(column, max(diagDown, diagUp)));

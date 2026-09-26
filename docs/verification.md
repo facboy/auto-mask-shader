@@ -103,6 +103,15 @@ restate the sentence before them. `--list` prints each phrase with its reason.
 - It needs no `fxc`, so a docs-only run works without the Windows SDK.
 - Exercise it by hand before committing a change to the list: add a refused phrase to a doc and it must
   exit non-zero naming the phrase, then add `prose-ok` on that line and it must pass.
+- **The same run covers the HLSL half of the budget**, which the phrase list cannot: a `//` comment block
+  in any `Shaders/*.fx` longer than `COMMENT_BLOCK_MAX` (4 lines) is refused the same way, because for the
+  shader "short and sparse" is a number of lines and nothing else about it is machine-readable. Adjacent
+  `//` lines are one block, so wrapping a comment lengthens it rather than spreading it; the credit block
+  at the head of the shader is exempt by its `////...` fence, and `prose-ok` inside a block skips it.
+- The four blocks that predate the rule carry `prose-ok` rather than being cut: each was reviewed and
+  earns its length, and a rule that demanded rewriting them would have been the wrong rule. The same four
+  are exercised by hand as the rule's own tests — 5 lines must fail naming the range, 4 must pass, and
+  `prose-ok` must clear it — before any change to the limit.
 
 ## The toolchain, which is not obvious
 
