@@ -23,6 +23,18 @@ cannot take at all, because 1,024 taps cannot tell a level of dithering from a l
   share into a 1×1 `r32f` target and zeroes the counter. The pixel passes read that float target through
   a sampler named `MotionStat`, the same name the pixel path gives its RGBA8 statistic, so no guarded
   line is needed at the read sites — only the declaration differs per variant.
+- **The share is over the pixels that can change, not the whole buffer.** A pixel pinned at all 0 or all
+  255 can never show a difference, so each one lowers the ceiling the share can reach: at 44% of a frame
+  inert, no movement reads above 56%, and an `AutoMaskMotion` above that can never be crossed — the world
+  is never seen as drawn and stillness is never credited. That was a reported bug, and not a tuning
+  problem: the threshold was reachable only while the frame happened not to have much black in it. The
+  tally is therefore of the pixels the verdict could speak about, the same flag the clip exclusion already
+  computes: `CS_Accum` counts them in a second `groupshared` tally, `CS_Finish` divides the changed count
+  by it, and the histogram's floor share is read against it too, so both rules mean the same thing on a
+  frame with a large inert region. On the pixel path the accumulator carries the flag in its spare `.a`
+  channel and `PS_Motion`/`PS_MotionAvg` reduce the two shares separately — sums first, then divided, so
+  the ratio is of the screen and not an average of per-block ratios. A fully inert frame divides by a
+  floor of one, which reads as stopped — the side to be wrong on.
 - The count replaces `PS_Motion`/`PS_MotionAvg` and the 16×16 coarse target. The gate was 1,024 taps
   standing in for every pixel; it is now exact.
 - The **tile map** rides in its own pass, `CS_Tile`, guarded by the compute switch *and* the diagnostics
@@ -44,7 +56,10 @@ cannot take at all, because 1,024 taps cannot tell a level of dithering from a l
   `CS_Finish` publishes for the premise, because a panel appearing over an already-stopped world is the
   only case the reading is for and a camera pan is a screen-wide *drawing*, not an arrival. Taken as
   "everything wide that has no mask" it was every cell of the grid on a pan, which is the screen-wide
-  orange wash the tile view first shipped with. Nothing in the mask reads any of it.
+  orange wash the tile view first shipped with. That gate inherits the premise's denominator, so the
+  reported failure recurred whenever the share could not cross the threshold — a large black or
+  letterboxed region capped it below the setting, the world read stopped while it was moving, and every
+  wide cell then became an arrival. Nothing in the mask reads any of it.
 - The **change-size histogram** rides in the same pass and is guarded with it, and it counts the whole
   distribution of the frame's movement rather than only the pixels above a threshold — which is why an
   auto-deadband is possible at all. The walk's rule: **the measured step is the smallest change size 1–8

@@ -47,8 +47,9 @@ are listed under it.
 ## The signal
 
 - **premise / world-drawn / drawn** — above `AutoMaskMotion` percent of the screen changing, the world is
-  taken as being drawn, and only then may stillness be credited as interface. A premise rather than a
-  safety net under the verdict, so its default is not `0` (`docs/core-model.md`).
+  taken as being drawn, and only then may stillness be credited as interface. The percent is of the
+  pixels that *could* change, not of every pixel: a pinned region is counted out of it. A premise rather
+  than a safety net under the verdict, so its default is not `0` (`docs/core-model.md`).
 - **coverage** — the share of a block whose pixels changed at all. The statistic, deliberately not the
   magnitude: averaging magnitude let one small bright object in fast motion declare the whole view live.
 - **motion** — two senses. The *flag*: this pixel changed at all, which is what the gate counts. The
@@ -91,7 +92,7 @@ are listed under it.
 ## The accumulator
 
 - **accumulator** — the per-pixel state machine, in a ping-pong `RGBA16F` pair: `.r` confidence, `.g`
-  hold, `.b` motion.
+  hold, `.b` motion, `.a` whether the pixel could speak (it was not pinned).
 - **confidence** — `.r`: positive credit toward interface, negative the move debt. The verdict is
   `step(0.5, confidence)`.
 - **verdict step** — `0.5`, fixed. The frame sliders are converted into a step per frame against it, so
@@ -136,12 +137,17 @@ are listed under it.
 - **live_share / the share** — the gate's answer as a percentage. `drawn = live_share > AutoMaskMotion`,
   strict: not `step`, which is true at the threshold itself and would disagree on exactly the boundary
   frame (`docs/compute-path.md`).
-- **coarse grid** — the pixel path's reduction: `PS_Motion` writes a 16×16 `RGBA8` target and
-  `PS_MotionAvg` collapses its 256 texels to a 1×1 statistic. Replaced, not skipped, when compute is on.
+- **active / eligible** — the pixels that could show a change, i.e. those not pinned at a rail. The share
+  is `changed / active` rather than `changed / every pixel`, so a large inert region cannot lower the
+  ceiling below what movement can reach (`docs/compute-path.md`).
+- **coarse grid** — the pixel path's reduction: `PS_Motion` writes a 16×16 `RGBA8` target, `.r` the
+  changed share per block and `.g` the active share, and `PS_MotionAvg` sums both and divides once.
+  Replaced, not skipped, when compute is on.
 - **tap** — one texture fetch. `PS_Motion` takes four taps per coarse texel, so 1,024 taps stand in for
   every pixel on screen (`docs/review.md`).
 - **exact count** — the compute path's replacement for the taps: every pixel the accumulator calls
-  changed adds to a per-group tally, and one thread per group adds that tally to a 1×1 counter.
+  changed adds to a per-group tally, and one thread per group adds that tally to a 1×1 counter — with the
+  active pixels tallied beside it, since the share divides by those.
 - **one frame behind** — the gate's timing, true in both variants: the frame being judged never sets its
   own threshold. It is why the share, and the measured step with it, are read from the previous frame.
 

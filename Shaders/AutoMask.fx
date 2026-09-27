@@ -244,7 +244,9 @@ uniform float AutoMaskIsolation <
 > = 1.0;
 
 //Targets
-//Accumulator ping-pong: .r=confidence/debt, .g=hold, .b=motion
+//Accumulator ping-pong: .r=confidence/debt, .g=hold, .b=motion, .a=whether the verdict could speak
+//(the pixel was not pinned), which the motion reduce divides the changed share by on the pixel path
+//and which the compute path's own tally carries instead.
 texture texAutoAccumA { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA16F; };
 texture texAutoAccumB { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA16F; };
 sampler AutoAccumA { Texture = texAutoAccumA; };
@@ -276,6 +278,11 @@ sampler AutoMap { Texture = texAutoMap; };
 	#define AUTOMASK_STEP_MAX 8
 	texture texAutoMotionCount { Width = 1; Height = 1; Format = r32u; };
 	storage2D<uint> AutoMotionCount { Texture = texAutoMotionCount; };
+	//The pixels that could show a change at all. The share is taken over these rather than over the whole
+	//buffer, because a black or clipped region can never move and every pixel of it lowers the ceiling:
+	//at 44% of the screen inert, no camera movement can read above 56%.
+	texture texAutoMotionActive { Width = 1; Height = 1; Format = r32u; };
+	storage2D<uint> AutoMotionActive { Texture = texAutoMotionActive; };
 	//The change-size histogram: one bin per level the walk speaks in, so the scene itself says where
 	//its noise floor is. A pixel that did not change takes no bin at all.
 	texture texAutoMotionHist { Width = AUTOMASK_STEP_MAX; Height = 1; Format = r32u; };
@@ -306,7 +313,9 @@ sampler AutoMap { Texture = texAutoMap; };
 	sampler AutoDriftB { Texture = texAutoDriftB; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
 	storage2D<float4> AutoDriftStore { Texture = texAutoDriftB; };
 #else
-	//Motion reduction targets: coarse downscale and 1x1 global coverage statistic.
+	//Motion reduction targets: coarse downscale and 1x1 global coverage statistic. The coarse target is
+	//two readings, .r the share of the block that changed and .g the share that could have, so the
+	//reduce below divides the sums rather than averaging a ratio of them.
 	texture texMotionCoarse { Width = 16; Height = 16; Format = RGBA8; };
 	sampler MotionCoarse { Texture = texMotionCoarse; };
 	texture texMotionStat { Width = 1; Height = 1; Format = RGBA8; };
@@ -375,6 +384,7 @@ sampler AutoMap { Texture = texAutoMap; };
 	//Per-group tallies, so the counter and the histogram take a handful of adds per group rather
 	//than one per pixel. Every group zeroes them before any of them counts.
 	groupshared uint groupChanged;
+	groupshared uint groupActive;
 	groupshared uint groupHist[AUTOMASK_STEP_MAX];
 
 	//The accumulator as compute, plus the moved-pixel count the gate reads. The bounds guard is a
@@ -484,13 +494,19 @@ sampler AutoMap { Texture = texAutoMap; };
 		//only read when there is a bin, so a still pixel cannot reach the array off its low end. prose-ok
 		bool binned = live && AutoMaskAutoStep && maxDiff >= 1.0;
 		int bin = min(int(maxDiff), AUTOMASK_STEP_MAX) - 1;
-		if (gi == 0)
+		if (gi == 0){
 			groupChanged = 0u;
+			groupActive = 0u;
+		}
 		if (gi < AUTOMASK_STEP_MAX)
 			groupHist[gi] = 0u;
 		barrier();
 		if (changed)
 			atomicAdd(groupChanged, 1u);
+		//`live` gates this one too: the dispatch rounds up, and an out-of-frame thread's samples are
+		//undefined, so counting them as active would dilute the share.
+		if (live && (clipped == 0.0 || changed))
+			atomicAdd(groupActive, 1u);
 		if (binned)
 			atomicAdd(groupHist[bin], 1u);
 		barrier();
@@ -501,6 +517,7 @@ sampler AutoMap { Texture = texAutoMap; };
 		//memory the group is about to discard, not the bins the next frame reads. prose-ok
 		if (gi == 0){
 			atomicAdd(AutoMotionCount, int2(0, 0), groupChanged);
+			atomicAdd(AutoMotionActive, int2(0, 0), groupActive);
 			if (AutoMaskAutoStep)
 				for (int i = 0; i < AUTOMASK_STEP_MAX; i++)
 					if (groupHist[i] > 0u)
@@ -518,8 +535,14 @@ sampler AutoMap { Texture = texAutoMap; };
 	[numthreads(1, 1, 1)]
 	void CS_Finish(uint3 tid : SV_DispatchThreadID)
 	{
-		float share = float(tex2Dfetch(AutoMotionCount, int2(0, 0))) / (BUFFER_WIDTH * BUFFER_HEIGHT);
+		//Over the pixels that can move, not the whole buffer. A black or clipped region is evidence
+		//neither way, and counting it holds the share below the threshold on a screen with enough of it,
+		//so the premise never sees the world drawn however hard the camera moves.
+		uint changedCount = tex2Dfetch(AutoMotionCount, int2(0, 0));
+		uint activeCount = tex2Dfetch(AutoMotionActive, int2(0, 0));
 		tex2Dstore(AutoMotionCount, int2(0, 0), 0u);
+		tex2Dstore(AutoMotionActive, int2(0, 0), 0u);
+		float share = float(changedCount) / max(float(activeCount), 1.0);
 		tex2Dstore(AutoStatStore, int2(0, 0), share);
 
 		//A pixel that did not change has no bin, so the bins sum to the count changing at the first
@@ -528,8 +551,10 @@ sampler AutoMap { Texture = texAutoMap; };
 		//the smallest level 1-8 leaving no more than AutoMaskNoiseFloor percent above it; running out
 		//of the range means no level separates this frame's noise from its content, so the slider's own
 		//value stands. prose-ok
+		//The floor is read against the pixels that could move, as the premise is: an inert region cannot
+		//change and would otherwise tighten the rule in proportion to how much of the screen it covers.
 		if (AutoMaskAutoStep){
-			float floorCount = AutoMaskNoiseFloor * 0.01 * float(BUFFER_WIDTH * BUFFER_HEIGHT);
+			float floorCount = AutoMaskNoiseFloor * 0.01 * max(float(activeCount), 1.0);
 			float step = max(ceil(AutoMaskEps), 1.0);
 			uint above = 0u;
 			for (int i = 0; i < AUTOMASK_STEP_MAX; i++)
@@ -805,34 +830,45 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 		held = 0.0;
 	}
 
-	return float4(clamp(conf, -cost * AutoMaskMoveMemory, 1.0), held, motion, 1.0);
+	//.a carries whether the verdict could speak at all, which the two reduce passes below read: the
+	//share is taken over the pixels that flag, so a black or clipped region cannot dilute it.
+	return float4(clamp(conf, -cost * AutoMaskMoveMemory, 1.0), held, motion, clipped == 0.0 ? 1.0 : 0.0);
 }
 
-//Downsamples motion flags into coarse block coverage.
+//Downsamples motion flags into coarse block coverage: .r the changed share, .g the share that could
+//change, which the reduce below divides.
 float4 PS_Motion(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float blockStep = 1.0 / 16.0;
 	float sum = 0.0;
+	float eligible = 0.0;
 	for (int y = 0; y < 2; y++){
 		for (int x = 0; x < 2; x++){
 			float2 uv = texcoord + (float2(x, y) - 0.5) * blockStep * 0.5;
-			sum += step(0.001, tex2D(AutoAccumB, uv).b);
+			float4 accum = tex2D(AutoAccumB, uv);
+			float changed = step(0.001, accum.b);
+			sum += changed;
+			eligible += max(accum.a, changed);
 		}
 	}
-	return float4((sum * 0.25).xxx, 1.0);
+	return float4(sum * 0.25, eligible * 0.25, 0.0, 1.0);
 }
 
-//Reduces coarse blocks to global screen motion coverage (1x1).
+//Reduces coarse blocks to global screen motion coverage (1x1): the changed share over the share that
+//could change, the sums taken first so the ratio is of the screen rather than of an average of ratios.
 float4 PS_MotionAvg(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float sum = 0.0;
+	float eligible = 0.0;
 	for (int y = 0; y < 16; y++){
 		for (int x = 0; x < 16; x++){
 			float2 uv = (float2(x, y) + 0.5) / 16.0;
-			sum += tex2D(MotionCoarse, uv).r;
+			float2 block = tex2D(MotionCoarse, uv).rg;
+			sum += block.r;
+			eligible += block.g;
 		}
 	}
-	return float4((sum / 256.0).xxx, 1.0);
+	return float4((sum / max(eligible, 1e-5)).xxx, 1.0);
 }
 #endif
 

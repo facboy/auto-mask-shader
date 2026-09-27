@@ -68,7 +68,11 @@ changing the verdict, the hold, the move memory, the clip exclusion or the accum
   should. Keep `AutoMaskFall`'s frames at or under `AutoMaskRise`'s, or the mask lingers over moving
   scenery.
 - **`AutoMaskMotion` is the premise, not a refinement.** Stillness alone proves nothing, so a still pixel
-  is taken for interface only while the world around it animates; its default is not 0.
+  is taken for interface only while the world around it animates; its default is not 0. The share is over
+  the pixels that **could** change, not every pixel: a pinned one is counted out, so a black or letterboxed
+  region cannot hold the reading below the threshold however much is moving elsewhere. That covers pixels
+  at a rail, not merely dark ones — a static black backdrop is not pinned and still counts, so a very dark
+  view can still put the threshold out of reach.
 - **`AutoMaskEps` counts whole levels out of 255** and decides one thing only: whether the frame moved a
   pixel. What a change *costs* is `AutoMaskFall` and `AutoMaskMoveMemory`'s business. Its minimum is 1;
   the deadband is `max(ceil(AutoMaskEps), 1)`.

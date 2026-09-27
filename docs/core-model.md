@@ -30,6 +30,16 @@ it. Stillness alone proves nothing, since a wall holds still too, so a still pix
 only while the world around it animates. `AutoMaskMotion` is that share of the screen, and its default is
 not 0: at 0 the map held on every frame and the mask never formed.
 
+The share is taken over **the pixels that could change, not the whole buffer.** A pixel pinned at all 0 or
+at all 255 can never show a difference — 'staying at all 0' is saturation, not stillness, as the clip
+exclusion below says — so every such pixel permanently lowers the ceiling the
+share can reach. A letterbox, a hard fade or a mostly black view is not a little of that: at 44% of the
+frame inert no camera movement can read above 56%, so at the `70` that setting used to be given the world
+was never seen as drawn and the mask could not form. Dividing by the pixels that can move makes the
+premise mean what it says — *of the pixels that could change, how many did* — and stops it depending on
+how much of the picture happens to be black. It is the same flag the verdict already computes, so nothing
+new is measured; the excluded pixels are counted instead of silently damping the result.
+
 **The statistic is coverage, not magnitude.** The question is "is the game re-drawing the view", so
 `PS_Motion` counts the share of each block whose pixels changed at all, thresholding the graded
 magnitude just above zero (a still pixel scores exactly zero, so the flag comes from the same channel).
@@ -56,7 +66,7 @@ pixel is carried over untouched — no rise, no fall, no heal — while a moving
 scene can therefore only lose mask, because a stopped world cannot tell a held HUD from its own backdrop,
 so stillness is not credited as interface there. The windows that used to express that (`AutoMaskTrust`,
 `AutoMaskSettle`) and their still-frame counter are gone; the cost is a panel that opens into an
-already-paused scene, caught only if its arrival lifts the screen-wide reading over `AutoMaskMotion`.
+already-paused scene, caught only if its arrival lifts the reading over `AutoMaskMotion`.
 Holding rather than adding also closes the old freeze's failure: a still frame used to repay move debt
 either way, so a camera pan that left the whole backdrop in debt cleared in lockstep, the entire screen
 crossing into the mask ~`AutoMaskMoveMemory` frames after the motion stopped. Now the heal is part of
@@ -194,7 +204,7 @@ These are inherent to the signal, not tuning problems, and belong in the README:
   nothing to tune a window around. Since stillness also cannot repay move debt while the world is stopped,
   a stopped scene is a one-way door — whatever it held when it stopped, it keeps or loses. What remains is
   the deliberate cost: a panel that opens over an already-paused world, whose opening is the only evidence
-  in frame, caught only if it lifts the screen-wide reading over `AutoMaskMotion`. A small panel in a
+  in frame, caught only if it lifts the reading over `AutoMaskMotion`. A small panel in a
   large still scene may not, and then nothing separates it from the backdrop, because a paused world and a
   quiet room look identical to this shader. Neither the move memory nor the drift channel helps, and for
   the same reason: a wall the player has been facing throughout never moved in the picture and never

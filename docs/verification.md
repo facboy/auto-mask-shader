@@ -226,6 +226,18 @@ whether the reading you are looking at is current.
   `groupshared uint V__groupHist[8];` and `InterlockedAdd(V__groupHist[bin], 1u, _res)`. Both are the
   same probes the storage-keyword failures needed, and the same rule applies: a construct this check
   cannot judge has to be verified against ReShade's source, not inferred from a passing compile.
+- **The premise's denominator, which a large dark region used to break.** The share is
+  `changed / pixels that could change`; it used to be `changed / every pixel`, so a frame with a big
+  black or letterboxed region had a ceiling no movement could reach, and a high **Motion needed to trust
+  stillness** then read the world as stopped while it was plainly moving — the corner marker yellow during
+  a walk, and on the tile view the whole screen red because a stopped world makes every wide cell an
+  arrival. Reported from playing with the setting at `70`, gone at `50`. Watch the corner marker over a
+  scene with a large permanent black area: it must be magenta while moving, at any setting the movement can
+  actually reach. Two properties are checkable off-GPU and were: the corrected share agrees with a direct
+  `changed / active` count over 300 random frames on *both* paths (0 mismatches), and a fully inert frame
+  divides by a floor of one rather than zero. Note the limit of the fix — it excludes pixels pinned at a
+  rail, not merely dark ones, since a static black backdrop is indistinguishable from a wall; a very dark
+  view can still put a high setting out of reach, and that is a slider question rather than a bug.
 - The exact comparison, at `AutoMaskEps = 1`, where it is a visible change rather than an arithmetic
   one: the motion view over a large smooth gradient — a sky, a wall lit by a lamp — must now show a
   red rim wherever the ramp crosses a level, since every one-level change trips the verdict where only
