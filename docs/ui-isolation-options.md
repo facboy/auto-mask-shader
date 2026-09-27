@@ -3,10 +3,11 @@
 ## 1. Scope and standing
 
 What element-level isolation could do better, given that the depth buffer is not available. **Options, not
-a plan**: nothing here is scoped or approved, and none of it is verified in a game. §5.1's directional
-densities **have since been implemented** — the four-axis form, described in that section and in
-`docs/core-model.md` — and §5.6's tile map with §6's readings on it **has since been built**, as the
-instrument that decides the rest; the other options stand as written.
+a plan**: nothing here is scoped or approved. §5.1's directional densities **have since been implemented**
+— the four-axis form, described in that section and in `docs/core-model.md` — and §5.6's tile map with
+§6's readings on it **has since been built**, as the instrument that decides the rest. What building and
+watching that instrument settled is in §5.2, §5.4 and §6: the arrival reading fires and §5.4 is buildable,
+and §5.2's per-pixel fill was measured out. The other options stand as written.
 
 Companions: `docs/core-model.md` (the verdict the isolation rides on), `docs/compute-path.md` (the
 compute path most of this would live in), `docs/optical-flow.md` (the one instrument already built,
@@ -135,6 +136,33 @@ plus one small per-pixel history, and it distinguishes a panel's own outline fro
 still pixels around a gap. This is the single change that most improves "the element as a whole is
 protected" over "the still parts of it are".
 
+**Measured out: the bounded fill was built as a probe and watched in a game.** The per-pixel question the
+tile map's hole reading cannot reach was asked directly, with a **morphological closing** of the published
+mask on a grid eight times coarser than the screen, drawn blue in the overlay. A closing is bounded where
+§5.1's labelling was not — it fills pockets narrower than its structuring element, cannot cross a wider
+gap, and only ever adds — so it was the right shape for the question and cheap to build. It does not answer
+it. On the frames watched at the slider's minimum (one cell, an 8-px reach) **every marked pixel was
+reachable from the border**: none was enclosed, so it marked the gaps between elements and open scenery
+rather than an interior. Three reasons, all measured off-GPU:
+
+- **A closing is a local rule, and a hole and a gap give it the same evidence.** At any background pixel
+  its whole decision is "is there mask within a square of my reach?". Two layouts that differ only in
+  topology — one element with a slot cut through it, and two elements the same distance apart — present a
+  byte-identical window at the band's centre, yet one is enclosed and the other is not. The difference is
+  whether the two walls are the *same connected region*, which is exactly the unbounded question §5.1
+  measured out.
+- **The reach that fills an interior is the reach that bridges the gaps.** Gaps between interface run
+  14–30 px; a menu interior is 130 px and up. A closing spans about twice its reach, so filling an
+  interior takes a reach that also swallows the surrounding layout.
+- **The reduced grid breaks the contour before the rule runs.** Sampling the mask once per cell leaves a
+  thin rim a dashed path, so a *closed* outline arrives open and there is nothing enclosed to fill.
+
+The persistence test above does not rescue it, which is why the section's own contribution stays a
+proposal: a border broken into dashes is perfectly stable, so a history would certify it as a trusted
+contour and the fill would still find nothing closed. A persistence store separates *coincidental
+stillness* from *an authored line*; it cannot separate *an authored line* from *an authored line with
+breaks in it*.
+
 ### 5.3 Admit only non-isolated entrants
 
 The cheapest spatial prior there is: a pixel may enter the mask only if it already has a masked neighbour.
@@ -192,7 +220,7 @@ verdict ever be pooled spatially — the change most likely to reduce speck nois
 per-pixel tuning.
 
 **Built, with §6's readings rather than on its own.** The map is `CS_Tile` and the readings are §6's three:
-it is a fixed 16×16 grid, four sample points per cell, and each cell is a *share* of itself rather than a
+it is a fixed 16×16 grid, 8 sample points per axis, and each cell is a *share* of itself rather than a
 tally of its pixels — which is what makes it resolution-independent without the per-pixel atomic the tally
 shape would need. The two design points this section left open are settled as: the readings are relaxations
 over that fixed grid, so their round count is `G × G`, a property of the grid rather than of the picture
@@ -230,7 +258,10 @@ overlay, beside the motion and verdict views.
   cost. If it is a long tail of specks, it is worth everything — and the tail's size is the measure of
   how much the isolation gate is being asked to clean up.
 - **Holes:** the share of the screen that is mask-enclosed but unmasked. That is §3.2's size in the
-  user's own game, which is the only thing that says whether §5.2 earns its history.
+  user's own game, which is the only thing that says whether §5.2 earns its history. Its floor is
+  structural: a hole must miss the mask on about two cells in each direction before it registers, so a
+  reading of zero is evidence of no *menu-sized* hole rather than of no holes. Asking the per-pixel
+  question directly is what §5.2's bounded fill was built for, and it was then measured out.
 - **Arrival candidates:** for §5.4, the count and total area of contiguous wide-change patches per frame
   during a stopped scene. A panel opening that produces no such patch at the threshold being tested is
   the answer "no", and the case stays a documented cost.
@@ -297,7 +328,7 @@ open are settled against the code:
 | --- | --- | --- | --- | --- |
 | 5.1 | directional densities | §3.1 for axis and diagonal strokes; mid-slopes lapse as the radius rises | no new taps, riding the existing passes | live checkbox — **shipped, four-axis** |
 | 5.1 | connected-component area | §3.1 in any orientation | the passes are not boundable, measured | live checkbox, compute-only — **measured out** |
-| 5.2 | contour-bounded fill | §3.2 | fill + a small contour history | live checkbox |
+| 5.2 | contour-bounded fill | §3.2 | fill + a small contour history | live checkbox — **bounded form built as a probe and measured out** |
 | 5.3 | non-isolated admission | speck seeding | one test at admission | live checkbox |
 | 5.4 | arrival detection | §3.3 | tile map + a patch test | live checkbox, compute-only |
 | 5.5 | weighted count / exact-still weighting | tuning sharpness | none | none, unless it proves out |
@@ -307,10 +338,10 @@ open are settled against the code:
 
 **The directional densities are shipped**, in the four-axis form that covers the diagonals too.
 **§5.6's tile map and §6's readings are shipped as one instrument step**, which is the order §6 asks for:
-nothing is wired into the mask, and the readings are what decide whether §5.2 or §5.4 is worth building
-next. **The arrival detection of §5.4** remains the only option that closes a case the docs list
-as unfixable without eyes on a real game, and the readings are the evidence a game now provides for it.
-**The connected-component area filter §5.1 ranked highest was measured and is not affordable** — the round
-count a full-resolution labelling needs is set by the picture, not by a named bound, and the tile map's
-bounded count is a coarse reading rather than that filter — so it is recorded rather than built, and the
+nothing is wired into the mask. **§5.4's arrival detection is the option the readings picked** — it closes a
+case the docs list as unfixable without eyes on a real game, and the reading fires on exactly that case.
+**§5.2's fill was measured out**: built as a bounded probe, watched in a game, and found to mark the gaps
+between elements rather than an interior, which the persistence test does not repair and no reach
+separates. The connected-component area filter §5.1 ranked highest is measured out for the same reason at
+full resolution — the round count a labelling needs is set by the picture, not by a named bound — so the
 four-axis door answers §3.1 in its place.
