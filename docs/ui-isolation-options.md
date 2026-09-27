@@ -6,8 +6,10 @@ What element-level isolation could do better, given that the depth buffer is not
 a plan**: nothing here is scoped or approved. §5.1's directional densities **have since been implemented**
 — the four-axis form, described in that section and in `docs/core-model.md` — and §5.6's tile map with
 §6's readings on it **has since been built**, as the instrument that decides the rest. What building and
-watching that instrument settled is in §5.2, §5.4 and §6: the arrival reading fires and §5.4 is buildable,
-and §5.2's per-pixel fill was measured out. The other options stand as written.
+watching that instrument settled is in §5.2, §5.4 and §6: the arrival reading fires, but neither it nor
+§5.2's per-pixel fill is worth what building on it would cost — §5.2's was built as a probe and watched
+in a game, §5.4's is judged against the premise it would have to break. The other options stand as
+written.
 
 Companions: `docs/core-model.md` (the verdict the isolation rides on), `docs/compute-path.md` (the
 compute path most of this would live in), `docs/optical-flow.md` (the one instrument already built,
@@ -187,6 +189,27 @@ the premise exactly where the premise is the only defence: a still patch of worl
 world is what a distant static ridge looks like too. An arrival event is bounded, singular and
 verifiable; a localised premise is none of those.
 
+**Measured out: the window is narrower than the rise it would have to unlock.** The map certifies a wide
+change as an arrival; the per-pixel verdict still grows the mask, at `0.504 / AutoMaskRise` a frame. A
+cell is 160×90 px, so the map could not paint a panel even if it were read that way, and a panel pixel
+whose own change is under the deadband gets nothing from any of it.
+
+How narrow: a stopped world is unchanging and still counted, so at the `50` default the arrival fails to
+clear the share only for a panel covering under half the screen — and a frame later the panel is still,
+the share collapses to near zero, and the premise locks out. Thirty frames of rise against a window of
+one or two is the whole feature. Contrast decides which form the event takes: above the drift store's
+fixed eight-level reset the average snaps and the panel is one frame of change then still, the clean
+signature; between the deadband and eight levels it creeps in over about `AutoMaskDrift ×
+AutoMaskTargetFPS` frames, neither simultaneous nor finished; under the deadband nothing registers, and
+the screen-wide premise is as blind to that panel as the reading is.
+
+Three costs stack against it. The map would have to leave the diagnostics guard, since the mask would
+read it: a pass, a 16×16 target and the small reading target, allocated for every `AutoMaskCompute = 1`
+user. The arrival has to latch for the whole rise rather than the frame it fires. And the rule it breaks
+is the one the model is built on — *a stopped scene can only lose mask* — so a certification error holds
+scenery as interface, the worst outcome this shader can produce, and the reading certifying it is one this
+repo has already got wrong three times.
+
 ### 5.5 Two one-line signal upgrades
 
 Both need an overlay reading before either becomes a rule.
@@ -330,7 +353,7 @@ open are settled against the code:
 | 5.1 | connected-component area | §3.1 in any orientation | the passes are not boundable, measured | live checkbox, compute-only — **measured out** |
 | 5.2 | contour-bounded fill | §3.2 | fill + a small contour history | live checkbox — **bounded form built as a probe and measured out** |
 | 5.3 | non-isolated admission | speck seeding | one test at admission | live checkbox |
-| 5.4 | arrival detection | §3.3 | tile map + a patch test | live checkbox, compute-only |
+| 5.4 | arrival detection | §3.3 | tile map + a patch test | live checkbox, compute-only — **measured out: the window is narrower than the rise it would unlock** |
 | 5.5 | weighted count / exact-still weighting | tuning sharpness | none | none, unless it proves out |
 | 5.6 | tile map | enables §5.4 and §5.7 | a pass, a 16×16 target and a 2×1 reading target | compute-only — **shipped with §6** |
 | 5.7 | auto-placed deadzone | §3.4's manual tuning | off the tile map | override sliders stay |
@@ -338,10 +361,18 @@ open are settled against the code:
 
 **The directional densities are shipped**, in the four-axis form that covers the diagonals too.
 **§5.6's tile map and §6's readings are shipped as one instrument step**, which is the order §6 asks for:
-nothing is wired into the mask. **§5.4's arrival detection is the option the readings picked** — it closes a
-case the docs list as unfixable without eyes on a real game, and the reading fires on exactly that case.
+nothing is wired into the mask.
+
+**§5.4's arrival reading is measured out too.** It fires, but the case it closes is a panel small enough to
+stay under the screen share, opened abruptly into a world that stopped silently, and the unlock would have
+to hold for the whole rise across a window of one or two frames — while crediting a rise to a stopped world
+is the one thing the premise exists to forbid.
+
 **§5.2's fill was measured out**: built as a bounded probe, watched in a game, and found to mark the gaps
 between elements rather than an interior, which the persistence test does not repair and no reach
 separates. The connected-component area filter §5.1 ranked highest is measured out for the same reason at
 full resolution — the round count a labelling needs is set by the picture, not by a named bound — so the
 four-axis door answers §3.1 in its place.
+
+Of the rest, §5.3 is the cheapest and the only one that shrinks what the gate has to clean up; §5.5 needs
+a reading before it is a rule, and §5.7 and §5.8 ride the map.
