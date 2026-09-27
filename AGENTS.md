@@ -140,6 +140,20 @@ graded against it goes off screen-wide.
   `AutoMaskDeadzone` instead opens `Center deadzone` with `ui_category_toggle`, which is what makes the
   four settings below it live and hideable at once. A feature with a pass, a shader or a target to its
   name still gets a definition; a branch inside an existing pass does not.
+- The **tile map is an instrument, not a filter**: `CS_Tile` reads the picture as a fixed 16×16 grid,
+  reduces it to a component count, an enclosed share and the wide-change patches, and nothing in the mask
+  reads any of it. Three readings decide whether it means anything, and each was got wrong once: a cell is
+  interface when the mask **touches** it rather than fills it (a footprint reading; a share made thin UI
+  read black), **wide is read off the accumulator's own graded motion** rather than a raw difference (the
+  map's own test called a held UI edge red), and the enclosure growth is **conducted by every non-mask
+  cell** with only world cells counted (letting the mask absorb it let a pan's wide cells read the screen
+  as enclosed). A fourth is the premise: **an arrival candidate exists only while the world is not being
+  drawn**, read off the share the verdict's own gate uses, because a camera pan is a screen-wide drawing
+  and reading it as arrivals turned every cell of the grid red. The two *count* readings are stored against
+  `AUTOMASK_TILE_COUNT_MAX`, not as a share of
+  the grid: a count of a few regions against 256 cells would move a bar by one percent of its length. It rides both the compute and diagnostics guards, since it exists only to be watched,
+  and it is the first thing to build of `docs/ui-isolation-options.md` §6's readings, because the other
+  two need it.
 - **The isolation gate follows the deadzone's rule** rather than getting a definition of its own: it owns
   no pass, shader or target, its counts riding in the two channels `texAutoDilate` leaves unused on the two
   closing passes. `AutoMaskIsolated` opens `Isolated pixels` with `ui_category_toggle`, and the test it

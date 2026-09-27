@@ -256,6 +256,7 @@ durations — are the `Frame timing` section.
 | `AutoMaskDensity` | Still neighbourhood density (percent) | Share of the box that must be still, itself counted; a text box, stepped by 1. The other way to stay in is the line door. |
 | `AutoMaskIsolation` | Isolation radius in pixels | How far that density and the line door are measured; its own radius rather than the closing's. |
 | `UIDebugMotion` | Diagnostics: motion view | Which reading the overlay draws: motion view (red) or verdict view (green). |
+| `UIDebugTile` | Diagnostics: tile view | Whether the overlay draws the tile map instead: a cell in its class, with the region readings as bars. Compute-only, since the map is. |
 | `UIDebugGain` | Diagnostics: motion gain | Multiplier making a small change visible in the overlay. |
 
 - **structural switch** — a preprocessor definition that removes a feature from the compile: each is
@@ -336,6 +337,14 @@ durations — are the `Frame timing` section.
 - **motion view / verdict view** — the overlay's two readings, picked by the live `UIDebugMotion` toggle:
   red where the frame sees a change, or green where the pixel has earned protection *without* the
   closing radius.
+- **tile map / tile view** — the picture as a fixed 16×16 grid, each cell sampled at `AUTOMASK_TILE_TAPS`²
+  points, reduced to region readings: the mask's component count and largest share, the enclosed share,
+  and the count and area of contiguous wide-change patches *while the world is stopped* — a wide change
+  during a camera move is that move, not an arrival. A cell is mask as soon as the mask touches it
+  — a footprint reading, not a filled one. An instrument only, nothing in the
+  mask reads it; `UIDebugTile` draws it, and the five readings as bars are filled against
+  `AUTOMASK_TILE_COUNT_MAX` for the two counts and their own share for the three. Compute-only, riding
+  both the compute and diagnostics guards.
 - **corner marker** — the bottom-left block drawn by `AutoMask_Restore`, not the overlay, so nothing
   downstream can paint over it: magenta while the world is drawn, yellow while it is not. It reads the
   state about to govern the mask, one frame ahead of the decision.

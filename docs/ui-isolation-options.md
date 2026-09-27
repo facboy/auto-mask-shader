@@ -3,9 +3,10 @@
 ## 1. Scope and standing
 
 What element-level isolation could do better, given that the depth buffer is not available. **Options, not
-a plan**: nothing here is scoped or approved, and none of it is verified. §5.1's directional densities
-**have since been implemented** — the four-axis form, described in that section and in
-`docs/core-model.md` — while the rest stands as written, and §6's instrument does not exist yet.
+a plan**: nothing here is scoped or approved, and none of it is verified in a game. §5.1's directional
+densities **have since been implemented** — the four-axis form, described in that section and in
+`docs/core-model.md` — and §5.6's tile map with §6's readings on it **has since been built**, as the
+instrument that decides the rest; the other options stand as written.
 
 Companions: `docs/core-model.md` (the verdict the isolation rides on), `docs/compute-path.md` (the
 compute path most of this would live in), `docs/optical-flow.md` (the one instrument already built,
@@ -190,6 +191,15 @@ costs almost nothing, and it is also the natural home for a future *regional* ac
 verdict ever be pooled spatially — the change most likely to reduce speck noise without touching the
 per-pixel tuning.
 
+**Built, with §6's readings rather than on its own.** The map is `CS_Tile` and the readings are §6's three:
+it is a fixed 16×16 grid, four sample points per cell, and each cell is a *share* of itself rather than a
+tally of its pixels — which is what makes it resolution-independent without the per-pixel atomic the tally
+shape would need. The two design points this section left open are settled as: the readings are relaxations
+over that fixed grid, so their round count is `G × G`, a property of the grid rather than of the picture
+(§5.1's component filter had no such bound at full resolution — see the correction below); and the map is
+gated by the compute *and* diagnostics switches, because it is an instrument and exists only where it can
+be seen. It is read by nothing in the mask.
+
 ### 5.7 Auto-place the center deadzone
 
 The deadzone is the shader's one *authored* region, and it exists because a camera-tethered character is
@@ -228,6 +238,39 @@ overlay, beside the motion and verdict views.
 All three are low-resolution readings off the tile map of §5.6, so that map is the first thing to build,
 and it decides the rest.
 
+**Built, as one step with §5.6.** `CS_Tile` writes both, and the tile view (`UIDebugTile`) draws the map
+behind them so a reading can be seen against the picture that produced it. The decisions the section left
+open are settled against the code:
+
+- **The readings are relaxations over the grid, and the round count is its size.** A label only ever
+  decreases toward the least index in its own region, so `G × G` sweeps — 256 at 16×16, the longest a
+  connected region of that grid can be — settle any shape exactly. This is the bound §5.1 could not name
+  at full resolution, and it is available only because the readings are taken at tile resolution: it
+  counts cells of a 256-cell grid, which is a floor on the region it names rather than the region itself.
+  §5.1's component-area filter is therefore still measured out as written — this is a coarse instrument,
+  not a revival of that filter.
+- **Enclosure is a border-seeded growth, with the mask its only wall**: every cell but the mask conducts
+  the growth, and only world cells are counted, so a wide-change cell cannot wall the world off from the
+  border. Whatever the growth never reaches is enclosed. At 16 cells across a hole has to be a real hole
+  to register, which makes the reading a *lower* bound on §3.2's size.
+- **Holes are counted off the mask the shader published**, i.e. after the closing, so a speck the closing
+  grew around is not an enclosed region. That is the region a fill would act on.
+- **A cell is interface when the mask touches it**, not when it fills it: a footprint reading. Most
+  interface is thin against a 160×90 cell, so a share threshold made every partial UI cell read black.
+- **An arrival is gated by the premise, not only by the width of the change.** A wide-change cell with no
+  mask on it is an arrival candidate only while the world is *not* being drawn, read off the same share the
+  verdict's premise uses. §5.4's signature is a panel opening over an already-stopped world; a camera pan
+  is a screen-wide drawing and every moving cell of it is that drawing. Without the gate the reading was
+  simply "what moved", which on a pan is the whole grid — the screen-wide orange the tile view shipped
+  with, and a reminder that §5.4 must keep the premise rather than replace it.
+- **Wide is read off the accumulator's own graded motion channel**, not a raw frame difference the map
+  measures for itself: measuring its own let the map call a held UI edge red, since a sub-pixel shift of a
+  hard contour is tens of raw levels yet still inside the verdict's deadband. Reading the verdict's own
+  number is what stops the two disagreeing.
+- **It is gated by compute and diagnostics together**, and read by nothing in the mask. The two count
+  readings are stored against `AUTOMASK_TILE_COUNT_MAX` so a bar means something: a count of a few
+  regions against the grid's 256 cells would fill one percent of a bar.
+
 ## 7. Conventions any of this must keep
 
 - **Compute-only where the tile map is needed**, following the drift channel and the histogram: guarded by
@@ -235,7 +278,10 @@ and it decides the rest.
   byte-identical.
 - **A live checkbox, not a fourth structural switch**, for anything that owns no pass, shader or target of
   its own — the deadzone and isolation precedent — with the gate first in its own category. Anything with
-  a pass or a target of its own gets a definition, per the same rule read the other way.
+  a pass or a target of its own gets a definition, per the same rule read the other way: so the tile view
+  is the live toggle `UIDebugTile`, while the pass and targets behind it are the compute definition. This
+  one is the first feature here to need **two** definitions at once, since the instrument is only usable
+  where it can be seen.
 - **A named bound** (`AUTOMASK_..._MAX`) for any capped iteration, as `AUTOMASK_DILATE_MAX` does, so the
   cap cannot drift from the loop that reads it.
 - **Cost honesty in `README.md`.** The drift channel's cost claim and the flow probe's both had to be
@@ -255,12 +301,16 @@ and it decides the rest.
 | 5.3 | non-isolated admission | speck seeding | one test at admission | live checkbox |
 | 5.4 | arrival detection | §3.3 | tile map + a patch test | live checkbox, compute-only |
 | 5.5 | weighted count / exact-still weighting | tuning sharpness | none | none, unless it proves out |
-| 5.6 | tile map | enables §5.4 and §5.7 | a groupshared index and a small target | compute-only |
+| 5.6 | tile map | enables §5.4 and §5.7 | a pass, a 16×16 target and a 2×1 reading target | compute-only — **shipped with §6** |
 | 5.7 | auto-placed deadzone | §3.4's manual tuning | off the tile map | override sliders stay |
 | 5.8 | alpha-composite ratio | reading only | off the tile map | diagnostics, compute-only |
 
-**The directional densities are shipped**, in the four-axis form that covers the diagonals too; **the
-arrival detection of §5.4** is still the only option that closes a case the docs list as unfixable
-without eyes on a real game. **The connected-component area filter §5.1 ranked highest was measured and is
-not affordable** — the round count its labelling needs is set by the picture, not by a named bound — so it
-is recorded rather than built, and the four-axis door answers §3.1 in its place.
+**The directional densities are shipped**, in the four-axis form that covers the diagonals too.
+**§5.6's tile map and §6's readings are shipped as one instrument step**, which is the order §6 asks for:
+nothing is wired into the mask, and the readings are what decide whether §5.2 or §5.4 is worth building
+next. **The arrival detection of §5.4** remains the only option that closes a case the docs list
+as unfixable without eyes on a real game, and the readings are the evidence a game now provides for it.
+**The connected-component area filter §5.1 ranked highest was measured and is not affordable** — the round
+count a full-resolution labelling needs is set by the picture, not by a named bound, and the tile map's
+bounded count is a coarse reading rather than that filter — so it is recorded rather than built, and the
+four-axis door answers §3.1 in its place.

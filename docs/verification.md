@@ -278,6 +278,35 @@ whether the reading you are looking at is current.
   difference is a 2-px bar or a block's interior at a wide **Isolation radius** instead. The scenarios above
   are worth running at both closing settings for that reason, and the checkbox cleared at each must give
   back exactly the pre-change mask.
+- **The tile map, which is the instrument rather than a filter.** It exists only with the compute path
+  and the diagnostics overlay both on, so the first check is that the tile view (and its five bars) is
+  absent, not merely inert, with either switch off. With it on: the map must show green over interface,
+  black over world, red over a change with no mask on it, and orange around a hole sealed inside a
+  protected element — those four colours are the legend in `README.md`, and a map whose greens and blacks
+  are swapped, or whose red and orange are the wrong way round, is what a mis-wired class test looks like.
+  **Interface must read green as soon as the mask touches the square**, so a bar or a line of text crossing
+  one shows green along its length rather than black with a red flicker: a UI square that alternates
+  unshaded and red is the three failures this feature was landed with — the share threshold, the map
+  measuring wide for itself, and the mask absorbing the enclosure growth — and each is described where it
+  is fixed in `docs/compute-path.md`. **Panning must not turn the screen orange, and must not turn it
+  red either**: movement cannot seal anything off from the screen edge, and it is not an arrival — the
+  corner marker is magenta during a pan, so the red bar must stay empty and the orange bar near zero while
+  the camera moves. A screen-wide orange wash on a pan is the enclosure growth reading the movement itself,
+  and a screen-wide red one is the arrival class doing without the premise; the first is fixed by counting
+  only world cells, the second by gating the class on the world being stopped. The bars must move as the
+  picture does: the component count
+  falling when a panel opens and rising when the mask breaks into specks, the enclosed share rising while a
+  hole is open inside a protected element, and the arrival patches appearing exactly when something wide
+  changes that the mask has not claimed. A count bar that stays empty over a mask visibly broken into a
+  dozen specks is the scale — `AUTOMASK_TILE_COUNT_MAX` — being read wrong. The bars are the reading that decides whether
+  §5.2's fill and §5.4's arrival detection of `docs/ui-isolation-options.md` are worth building, so a bar
+  that never moves is the failure to look for rather than a quiet picture. None of it may touch the mask:
+  toggling the tile view on and off must leave the final image and the mask identical, which is the check
+  that the instrument is read-only. Two of its properties are checkable off-GPU and were: the component,
+  arrival-patch and enclosure readings were mirrored statement for statement in a scratch probe
+  (`tools/.work/`, not committed) and compared against an independent BFS labelling and flood over 300
+  grids — 0 mismatches, after the probe caught a real bug in the first cut, a label spreading through
+  cells that are not mask and collapsing every region into one.
 - The deadzone's gate, in the panel and in the mask: the checkbox ships off, so on first load the category
   must show the gate alone with the four settings hidden under it, and ticking it must reveal them — the
   gate is the one checkbox ReShade never hides, so a still-visible slider while it is clear is the

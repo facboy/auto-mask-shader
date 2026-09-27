@@ -89,6 +89,7 @@ fallback on a frame where the walk finds no floor.
 | **Still neighbourhood density (percent)** | What share of a masked pixel's neighbourhood must be still — the pixel itself counted — for it to stay in the mask. It is a share rather than a count of pixels so that it means the same thing at every **Isolation radius**: at the `33` default about a third of the box must be still, which drops a lone pixel and an adjacent pair while keeping anything with real substance. `0` keeps every pixel, so turning the filter off is the same thing as unticking **Enable isolated pixel removal**; `100` demands a completely solid neighbourhood and will erode thin strokes unless a line through them saves them. Raise it to drop sparser specks, lower it if something with real substance comes back with holes. |
 | **Isolation radius in pixels** | How far the neighbourhood above reaches, as a square `2 × this + 1` across. It is deliberately separate from **Closing radius**: the closing is how far the mask is grown to bridge rough edges, which is about how the mask looks, while this is how much agreement a pixel needs, which is about how much evidence a speck has to produce. Tying them together would move what the density means every time you retune the closing. `1` is the default and the smallest useful box; `0` is treated as `1`, so the setting never silently switches the filter off. It shares the closing's own work, so raising it costs nothing extra — but note that a wider box makes the density test stricter against thin strokes, since a line of a given width fills a smaller fraction of a bigger box. This is also the length the line test is measured over, so raising it asks a stroke to hold still for longer before it counts. |
 | **Diagnostics: motion view** | Which reading the overlay draws when it is switched on. On, it is the motion view: red where the frame sees a change, nothing where it does not. Off, it is the verdict view: green where a pixel has earned its place in the mask — the shader's own verdict, without the closing radius — nothing where it has not. Both tint only the pixels they name and leave the rest of the picture exactly as the game drew it; the deadzone ring and the bottom-left corner marker show in both. |
+| **Diagnostics: tile view** *(compute path only)* | A third overlay reading, and the one that measures rather than shows. It chops the screen into a 16×16 grid of squares and colours each square by what the mask is doing in it — so it draws a coarse map rather than a per-pixel one, and a whole square is one colour rather than a blend. **Green** is a square that is mostly masked interface, **black** a square that is not, **red** a square that changed a lot this frame and is *not* masked — a panel appearing that the shader has not caught yet, which is the case the screen-wide reading cannot see — and **orange** a square that is not masked but is walled in by mask on every side: a hole inside a protected element. Five bars along the top are the region counts, in the order below. It draws nothing and changes nothing, so flicking it on and off leaves the picture and the mask identical; it exists to be watched while deciding whether the region filters it measures are worth their cost. |
 
 There are three more switches that are not sliders — **anti-bloom** (on by default), the **diagnostics
 overlay** (off), and the **compute path** (off). They are compile-time switches, so turning one on or off
@@ -112,8 +113,8 @@ fail to build. On anything modern it is safe to switch on, and worth doing if yo
 screen-wide reading behave oddly — a mask that forms or refuses to form for no visible reason, or scenery
 that creeps in slowly while nothing appears to be moving.
 
-It carries three settings the pixel path cannot — **Drift horizon**, **Auto-detect RGB step** and its
-**Noise floor** — all described in the table above. The drift average is the most memory-hungry part of
+It carries four settings the pixel path cannot — **Drift horizon**, **Auto-detect RGB step** and its
+**Noise floor**, and **Diagnostics: tile view** — all described in the table above. The drift average is the most memory-hungry part of
 the shader, and deliberately so: it has to creep toward the picture by a fraction of a level a frame,
 finer than half precision can resolve over the brighter half of the range, so it is the one buffer kept
 in full precision instead of half. The pair comes to about 120 MB at 1440p, and what that buys is the
@@ -124,12 +125,21 @@ shared memory first and hands only the block's totals on, so the screen costs a 
 block rather than one per pixel, and a frame where almost nothing moved adds almost nothing — which is
 exactly the frame a still scene gives it. Turned off it does none of that work at all.
 
+The **tile view** is the one addition rather than a retune, and it is not free: while the overlay is
+switched on, the compute path also runs a small pass over a 16×16 grid, and that pass is a fixed 256
+threads doing a few thousand shared-memory reads apiece per frame. It is nothing beside the full-screen
+passes, and with the diagnostics overlay compiled out the pass, its shader and its two small buffers are
+not in the shader at all — the same rule every other guarded part of this follows. What it is for is
+deciding, with eyes on a real game, whether the region filters it measures are worth their cost; it does
+not touch the mask in any way.
+
 ## Seeing what it decided
 
 Turn the diagnostics overlay on and it draws one of two readings over the picture, whichever
 **Diagnostics: motion view** picks. Both tint *only* the pixels they name and leave every other pixel
 exactly as the game drew it, with no global wash — red where the frame sees a change, or green where the
-shader has decided a pixel is interface, and nothing where neither applies.
+shader has decided a pixel is interface, and nothing where neither applies. With the compute path on,
+**Diagnostics: tile view** replaces both with the region reading described below.
 
 - **Red** — the motion view: how much this pixel changed this frame, with nothing the frame forgave drawn
   at all. It is graded over a fixed three-level span: a change one step under the RGB-step setting is the
@@ -166,6 +176,47 @@ shader has decided a pixel is interface, and nothing where neither applies.
 
 If **Enable center deadzone** is ticked and its width and height are above zero, a thin yellow ring marks
 the ellipse so you can see where it frames your character while adjusting the sliders.
+
+### The tile view, square by square
+
+The motion and verdict views answer a per-pixel question — did *this* dot change, is *this* dot protected.
+The tile view answers a per-region one, and it is the only reading that does: it draws the screen as a
+16×16 grid and colours each square by what is happening inside it. Every pixel of a square gets that
+square's colour, so you are looking at a mosaic, not at the picture.
+
+| Colour | What that square is |
+| --- | --- |
+| **Green** | Mostly masked interface — the shader is protecting it. |
+| **Black** | Not masked, and not changing much: ordinary world, working as intended. |
+| **Red** | Changing strongly and **not** masked, while the world has gone quiet. This is a panel appearing over a stopped scene that the shader has not noticed yet — the one case the screen-wide reading cannot see, and the reason the instrument exists. |
+| **Orange** | Not masked, but sealed off from the screen edge by mask on every side — a hole left inside an element. The mask caught the outline and missed the middle. |
+
+A square is green as soon as **the mask touches any of it** — it is a footprint reading, so a square a
+thin bar merely crosses still counts as interface. Red needs **most** of the square to be changing strongly
+*and* the corner marker to be yellow: a panel appearing is only an arrival when the world is not otherwise
+being drawn, so while you are panning or the scenery is busy no square is red, however much it moves. The
+boundaries you see are the reading's resolution, not a hard edge in the mask.
+
+The five bars along the top are the numbers that map produced, filled left to right, one bar each:
+
+1. **White — how many separate pieces the mask is in.** One bar nearly full means the mask is one solid
+   region, as it should be. A bar filling up means it has broken into specks, which is the isolation
+   filter's problem to clean up. The bar is filled to sixteen pieces; past that it stays full.
+2. **Green — how big the largest piece is**, as a share of the whole mask. Full means one region holds
+   everything; a short bar means the mask is a scattering of small ones.
+3. **Orange — how much of the screen is sealed off by mask.** This is the size of the orange squares:
+   the interior holes. It is normally tiny — a handful of squares, or none. A bar that climbs while a
+   menu is open is the case a fill filter would fix; a bar that jumps to most of the screen during a
+   camera move means the reading has gone wrong, because movement cannot seal anything off from the
+   screen edge.
+4. **Red — how many separate patches changed a lot at once while the world was quiet.** This is the
+   arrival signature: a panel opening over a stopped scene makes one or two big patches. Ordinary scenery
+   motion, however much of it there is, makes none — the bar stays empty through a camera move by design.
+5. **Magenta — how much of the screen those patches cover.** Together with the bar above it, this says
+   whether what just appeared is a panel-sized region or a scatter of noise.
+
+None of it does anything. Nothing here is read by the mask, nothing changes the picture, and the whole
+reading is only compiled in when the overlay is on.
 
 The small block in the bottom-left corner is always drawn, and its colour tells you what the whole screen
 is doing — which decides whether what you are looking at is a current judgement or a held one:
