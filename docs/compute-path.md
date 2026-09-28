@@ -244,19 +244,25 @@ Follows from what each pass reads:
 8. The diagnostics overlay, last, and only when `AutoMaskDiagnostics` is defined to 1 — a compile-time
    guard on the pass and the shader both, so with it off neither is compiled. It reads the accumulator
    directly rather than recomputing the difference, so it cannot report on itself instead of on the
-   shader. It draws one of two views, picked by the live toggle `UIDebugMotion`: red where the graded
-   motion reads, or green where the accumulator's own confidence crosses the protection threshold. A
+   shader. It draws one of three views: red where the graded
+   motion reads, green where the accumulator's own confidence crosses the protection threshold, or — on
+   the second live toggle — two flat colours split at that threshold, one the mask already claims and one
+   it does not, with everything at or below zero left plain, so no shade has to be compared — the view that
+   read `docs/ui-isolation-options.md` §5.5.1; the two toggles are mutually
+   exclusive and the colours are drawn where the verdict would be. A
    third, `UIDebugTile` (compute-only, since the tile map it draws exists only there), replaces both with
    the cell classes `CS_Tile` wrote: a square of the 16×16 grid drawn in its class — green mask, black
    world, red a wide change with no mask on it while the world is stopped, orange a world cell sealed off
    by mask — and the five
    region readings as bars along the top.
    The published mask is deliberately *not* used, so the verdict view shows an element's own area without
-   the closing radius grown around it. Both views tint over the stored history frame and only where the
-   chosen signal covers — the blend is scaled by the signal, so a pixel it does not name is passed
+   the closing radius grown around it. Every per-pixel view tints the stored history frame and only where
+   the chosen signal covers — the blend is scaled by the signal, so a pixel it does not name is passed
    through untouched. The map packs the view's own channels into one target: red the graded motion, green
-   the verdict, blue the tile view's own class and alpha the screen state in two steps. On the pixel path
-   blue keeps the verdict, which is what the tile view does not exist to use there. The state is read from the same statistic the gate itself reads, one frame
+   the verdict, blue the confidence grade, and alpha the screen state in two steps; the tile view's own
+   class takes rgb together where it draws, which is why the grade is read from blue only while the tile
+   view is off. The same blue carries it on the pixel path, where the tile view does not exist to use it.
+   The state is read from the same statistic the gate itself reads, one frame
    behind the frame it describes, so it shows the state that will shortly govern the mask rather than a
    value recomputed a second way, and its strictness must match the gate's: `> AutoMaskMotion`, not
    `step`, which is true at the threshold itself and would disagree on exactly the boundary frame. The

@@ -986,10 +986,21 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 		ui_category = "Diagnostics";
 	> = true;
 
+	//Confidence view, the reading ui-isolation-options.md 5.5 asks for: the accumulator's confidence
+	//drawn as a grade rather than decided, so the pixels sitting just under the protection line -- the
+	//mass a count of crossings throws away -- can be seen. Both accumulators carry it, so unlike the
+	//tile view it needs no compute path.
+	uniform bool UIDebugConfidence <
+		__UNIFORM_SLIDER_BOOL1
+		ui_label = "Diagnostics: confidence view";
+		ui_tooltip = "On, the overlay draws each pixel in one of two flat colours instead of grading it: cyan where the mask already claims it, magenta where it is still earning and has not crossed -- the band just under the protection line.\nNothing at all below zero, so a pixel still recovering from a move shows as the plain picture.\nOverridden by the tile view where that exists";
+		ui_category = "Diagnostics";
+	> = false;
+
 	#if AutoMaskCompute == 1
-		//The third view, and the only one that is compute-only: the tile map the region readings are
-		//taken over exists only there. It replaces the other two while it is on, rather than tinting
-		//with them, because what it draws is a whole-cell class rather than a per-pixel reading.
+		//The one view that is compute-only, because the tile map the region readings are taken over
+		//exists only there. It replaces the other views while it is on, rather than tinting with them,
+		//because what it draws is a whole-cell class rather than a per-pixel reading.
 		uniform bool UIDebugTile <
 			__UNIFORM_SLIDER_BOOL1
 			ui_label = "Diagnostics: tile view";
@@ -1009,18 +1020,22 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 	> = 8.0;
 
 	//Packs the view's own channels, one map pass for every view: the motion view in .r, the verdict in
-	//.g, the tile view's own colour in .rgb, and the screen state always in .a. The view selector
-	//decides nothing here; it only decides what `PS_Restore` draws from this map.
+	//.g, the accumulator's charge in .b, the tile view's own colour in .rgb, and the screen state always
+	//in .a. The view selector decides nothing here; it only decides what `PS_Restore` draws from this map.
 	float4 PS_DebugMap(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	{
 		float4 accum = tex2D(AutoAccumA, texcoord);
 		float verdict = step(0.5, accum.r);
+		//The accumulator's charge, clamped: the restore below splits it at the 0.5 verdict step into the
+		//two flat colours it draws, and below zero draws nothing. Stored raw rather than pre-classed so
+		//the threshold and the verdict stay the same number.
+		float confidence = saturate(accum.r);
 		float changed = saturate(accum.b * UIDebugGain);
 		float drawn = AutoMaskDrawn(tex2D(MotionStat, float2(0.5, 0.5)).r);
 		float screen = drawn ? 1.0 : 0.0;
 
 		//The compute path packs the tile view's own colour in .rgb and the screen state in .a, so one map
-		//pass serves every view; the pixel path has no tile view and keeps the verdict in .b as before.
+		//pass serves every view; the pixel path has no tile view and shares the .b below.
 		#if AutoMaskCompute == 1
 			//The tile view draws the region the readings are taken over: each cell in the class it landed
 			//in, so a wide change with no mask under it -- the arrival candidate, the case the premise
@@ -1037,10 +1052,8 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 					return float4(0.0, 1.0, 0.0, screen);      //mask: green
 				return float4(0.0, 0.0, 0.0, screen);          //world: black
 			}
-			return float4(changed, verdict, 0.0, screen);
-		#else
-			return float4(changed, verdict, verdict, screen);
 		#endif
+		return float4(changed, verdict, confidence, screen);
 	}
 #endif
 
@@ -1054,14 +1067,23 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 
 	#if AutoMaskDiagnostics == 1
 		//Tint over the restore, drawn after it so it sits on top of the stored UI: red where the
-		//motion view sees a change, green where the verdict view sees protection, and the tile view's
-		//own colours where the grid reading is being watched.
+		//motion view sees a change, green where the verdict view sees protection, a cyan grade where the
+		//confidence view reads, and the tile view's own colours where the grid reading is being watched.
 		float4 debug = tex2D(AutoDebug, texcoord);
 		float tint = UIDebugMotion ? debug.r : debug.g;
 		float3 mark = UIDebugMotion ? float3(1.0, 0.0, 0.0) : float3(0.0, 1.0, 0.0);
+		//The confidence view draws two flat colours rather than a brightness ramp, so no shade has to be
+		//judged: cyan where the verdict would already claim the pixel, magenta where it is earning but
+		//has not crossed -- the band a weighted count would weigh -- and nothing at all below zero. It is
+		//read from the channel the tile view overrides below.
+		if (!UIDebugMotion && UIDebugConfidence){
+			mark = debug.b >= 0.5 ? float3(0.0, 1.0, 1.0) : float3(1.0, 0.0, 1.0);
+			tint = debug.b > 0.0 ? 1.0 : 0.0;
+		}
 		#if AutoMaskCompute == 1
-			//The tile view's own colour, packed by the map above, rather than one of those two: the
-			//blend is how strong that colour is, and the class is the mark.
+			//The tile view's own colour, packed by the map above, rather than a per-pixel mark: the
+			//blend is how strong that colour is, and the class is the mark. It overrides the
+			//confidence grade, which shares its blue channel.
 			if (UIDebugTile){
 				mark = saturate(debug.rgb);
 				tint = max(mark.r, max(mark.g, mark.b));

@@ -178,6 +178,18 @@ graded against it goes off screen-wide.
   the grid: a count of a few regions against 256 cells would move a bar by one percent of its length. It rides both the compute and diagnostics guards, since it exists only to be watched,
   and it is the first thing to build of `docs/ui-isolation-options.md` §6's readings, because the other
   two need it.
+- The **confidence view is the same kind of instrument as the tile map, and deliberately not on it.**
+  `UIDebugConfidence` grades every pixel by the accumulator's own confidence instead of deciding it, so
+  the mass sitting just under the 0.5 line — what §5.5 of `docs/ui-isolation-options.md` would have
+  weighed rather than counted — is visible. It owns no pass, target or definition and rides the channel the pixel
+  path already carried the verdict in, so unlike the tile view it draws on **both** paths: it answers a
+  per-pixel question, which no map does, and §5.5 rides no map for the same reason. It draws **two flat
+  colours rather than a ramp** — cyan already claimed, magenta earning but short of the line — and leaves
+  everything at or below zero plain, since a move's debt is not evidence; a grade would ask shades to be
+  compared, which is the read that went wrong. Read in a game it found a thin band over UI interiors and a
+  much larger one over dark scenery, which **closed §5.5.1**: charge over dark world is corroboration a
+  weighted gate would keep *more* of, and it comes from the level comparison crediting a dark region's
+  smaller change as stillness. §5.5.2's change-size reading is still to build.
 - **The isolation gate follows the deadzone's rule** rather than getting a definition of its own: it owns
   no pass, shader or target, its counts riding in the two channels `texAutoDilate` leaves unused on the two
   closing passes. `AutoMaskIsolated` opens `Isolated pixels` with `ui_category_toggle`, and the test it

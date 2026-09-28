@@ -334,6 +334,20 @@ whether the reading you are looking at is current.
   (`tools/.work/`, not committed) and compared against an independent BFS labelling and flood over 300
   grids — 0 mismatches, after the probe caught a real bug in the first cut, a label spreading through
   cells that are not mask and collapsing every region into one.
+- **The confidence view, the reading §5.5 asked for, and the answer it produced.** It is a
+  per-pixel read of the accumulator, so unlike the tile view it exists on the pixel path too: it must be
+  selectable with the compute switch either way, and absent only with the diagnostics overlay compiled out.
+  With the motion toggle off it must **draw two flat colours, not a ramp** — cyan where the verdict would
+  already claim the pixel and magenta where it is earning but has not crossed — since a grade asks for
+  shades to be compared, which is the read that went wrong first. Its split must be the same line the
+  verdict view greens at, so the two agree on which side each pixel falls: a pixel cyan here and dark in
+  that view is the split and the threshold having drifted apart. **Nothing at or below zero may be tinted**,
+  since the range a move's debt covers is wide and shading it made healing world read as a halo. It reads
+  nothing in the mask, so toggling it must leave the mask and the final image identical. **Run in a game it
+  showed a thin band over UI interiors and a much larger one over dark scenery with no interface in it** —
+  the shader crediting the world, because a change in a dark region is fewer levels and slips under the
+  deadband. That is the reading that closed §5.5.1, and it is a limit of the level comparison rather than a
+  bug: the clip exclusion voids a colour pinned at all 0 or 255, not one a few levels up in shadow.
 - **Admission, the speck rule, in the panel and in the mask.** The checkbox ships off, so the mask with
   it clear must be **byte-identical** to the pre-change mask: the branch around the four taps is absent
   while the uniform is false, so a mask that differs is the taps having been taken unconditionally. It

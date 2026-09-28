@@ -9,7 +9,10 @@ a plan**: nothing here is scoped or approved. §5.1's directional densities **ha
 admission test **has since shipped**. What building and watching that instrument settled is in §5.2,
 §5.4 and §6: the arrival reading fires, but neither it nor §5.2's per-pixel fill is worth what building
 on it would cost — §5.2's was built as a probe and watched in a game, §5.4's is judged against the
-premise it would have to break. The other options stand as written.
+premise it would have to break. §5.5's confidence-weighted count **has since been measured out** — the
+view built to read it found the band under the protection line was mostly dark scenery, which a weighted
+sum would keep *more* of rather than less — while its magnitude half **still needs a reading of its own**,
+this time of change size. The other options stand as written.
 
 Companions: `docs/core-model.md` (the verdict the isolation rides on), `docs/compute-path.md` (the
 compute path most of this would live in), `docs/optical-flow.md` (the one instrument already built,
@@ -227,16 +230,69 @@ repo has already got wrong three times.
 
 ### 5.5 Two one-line signal upgrades
 
-Both need an overlay reading before either becomes a rule.
+Two changes to an existing signal rather than additions. They were grouped under one precondition — a
+reading before either becomes a rule — but they read **different quantities** and stand or fall
+separately, so they are decided separately.
 
-- **Confidence-weighted count.** The gate counts `step(0.5, neighbour)`. Summing the neighbour's
-  `confidence` instead removes the cliff at exactly `0.5` and turns `AutoMaskDensity` into "share of
-  confidence". It stays on the verdict's own channel, so it keeps the property the docs care about — the
-  count is not on colour.
-- **Stratify stillness by magnitude.** The verdict already knows whether a change was *exactly zero* or
-  merely inside the deadband, and a pixel bit-identical across frames is stronger evidence of an interface
-  draw than one a level off. The premise already guards the stopped-scene case, and dither and TAA mean
-  exactness is not universal, so this is a weight and not a rule.
+#### 5.5.1 Confidence-weighted count — measured out
+
+The gate counts `step(0.5, neighbour)`. Summing the neighbour's `confidence` instead removes the cliff at
+exactly `0.5` and turns `AutoMaskDensity` into "share of confidence". It stays on the verdict's own channel,
+so it keeps the property the docs care about — the count is not on colour.
+
+**The view was built, and it drew two flat colours rather than a ramp.** A fourth overlay view,
+`UIDebugConfidence` splits the accumulator's charge at the 0.5 verdict step and draws one colour for
+interface the mask already claims and another for the band under the line that it does not, leaving
+everything at or below zero as the plain picture. It needs no pass, target or definition — confidence is
+already in `.r` of `texAutoAccumA` — and it draws on the pixel path as well as the compute one, which is why
+it is a diagnostics view rather than a reading on the tile map. It rides the free `.b` channel of
+`texAutoDebug`, so the tile view's `.rgb` and the screen state's `.a` are untouched, and no variant of the
+compile changed shape. The flat colours were the second cut: a brightness ramp asked for shades to be
+compared, which is not something an eye can do, and it put the wide debt a move leaves into the lower part
+of the scale so healing world read as a halo.
+
+**Measured out: the band is dark scenery, which is the wrong sign.** The reading is a thin band over UI
+interiors — the wanted case, an element's own edge earning as it settles — and a **much larger one over
+plain dark scenery with no menu open**. Dark world reads still because the comparison is in whole levels:
+the same motion is fewer levels in a dark region than a bright one, so it falls under the deadband and the
+pixel is credited as interface while the world is being drawn elsewhere. The clip exclusion does not cover
+it — that voids a colour pinned at all 0 or all 255, not one a few levels up in shadow. It is the
+attenuation `README.md` already records for semi-transparent UI, seen from the other side: there it stops
+translucent interface being protected, here it lets dark world be taken for interface.
+
+That closes the option, and not merely because the mass is small. A weighted sum reads that same charge as
+**corroboration**, so at a fixed `AutoMaskDensity` the gate would keep *more* dark world, not less — the
+opposite of the sharpening the upgrade was for. The case against is not "nothing to weigh" but "what is
+there should not count". Admission does not rescue it either: a large uniform dark region holds no claimed
+pixel anywhere in it, so every pixel of it earns at the same seed rate and the region is **delayed about
+twice, not prevented** — which fits the UI-interior case, small and beside already-claimed pixels, far
+better than the world one.
+
+The mechanism notes stand regardless. **A weighted sum is never more than the count it replaces** — every
+term is at most one — so at a fixed density it drops less only where the charge is real. And it would make
+a region **still healing from a move** count as weak support, a way to erode a real element the count never
+had. Precision is not an objection: the box holds at most 49 pixels, so `AUTOMASK_COUNT_SCALE`'s 255 leaves
+the sum ample resolution. The view that decided it stays in the shader.
+
+#### 5.5.2 Stratify stillness by magnitude — open, and narrower than it looks
+
+The verdict already knows whether a change was *exactly zero* or merely inside the deadband, and a pixel
+bit-identical across frames is stronger evidence of an interface draw than one a level off. The premise
+already guards the stopped-scene case, and dither and TAA mean exactness is not universal, so this is a
+weight and not a rule.
+
+**Its premise is narrower than the section first assumed.** The verdict is `maxDiff < deadband`, so at the
+`AutoMaskEps` default of `1` every still pixel is already bit-identical and there is nothing left to
+stratify: the weighting speaks only where the deadband is **2 or more**, which makes this a question about
+a non-default setting rather than a general one.
+
+**It needs its own reading, and the confidence view is not it.** This half reads *change magnitude*, not
+charge, which is why the two are split rather than decided together. The compute path already bins change
+sizes for the auto-deadband (`texAutoMotionHist`), so the distribution it needs sits beside machinery that
+exists, but nothing currently draws it.
+
+It is independent of 5.5.1 as a decision and coupled to it in effect: charging exact-still pixels faster
+would fill the grade higher and thin the band 5.5.1 was measured on — never revive it.
 
 ### 5.6 A tile map, off the tally that already exists
 
@@ -369,7 +425,8 @@ open are settled against the code:
 | 5.2 | contour-bounded fill | §3.2 | fill + a small contour history | live checkbox — **bounded form built as a probe and measured out** |
 | 5.3 | non-isolated admission | speck seeding | four taps on the verdict already in hand, and no new target | live checkbox — **shipped, with the seed as the second door** |
 | 5.4 | arrival detection | §3.3 | tile map + a patch test | live checkbox, compute-only — **measured out: the window is narrower than the rise it would unlock** |
-| 5.5 | weighted count / exact-still weighting | tuning sharpness | none | none, unless it proves out |
+| 5.5.1 | confidence-weighted count | tuning sharpness | an overlay view off the accumulator, no pass or target | live checkbox inside the gate — **measured out: the band under the line is dark scenery, so weighting keeps more of it** |
+| 5.5.2 | magnitude weighting | tuning sharpness, and only where the deadband is 2+ | none for the rule; its reading is not built | none, unless it proves out — **open** |
 | 5.6 | tile map | enables §5.7 and §5.8 | a pass, a 16×16 target and a 2×1 reading target | compute-only — **shipped with §6** |
 | 5.7 | auto-placed deadzone | §3.4's manual tuning | off the tile map | override sliders stay |
 | 5.8 | alpha-composite ratio | reading only | off the tile map | diagnostics, compute-only |
@@ -395,4 +452,6 @@ rise. That is what makes it ship at all — §5.4's arrival was the other door t
 measured out, so a plain refusal would leave a wholly new element unmaskable. It shrinks the isolation
 gate's job, which was its point.
 
-Of the rest, §5.5 needs a reading before it is a rule, and §5.7 and §5.8 ride the map.
+Of the rest, §5.5's confidence-weighted count is measured out — the band under the line is mostly dark
+scenery, which weighting would keep more of rather than less. Its magnitude half needs a change-size
+reading of its own and is the one part of §5.5 still open; §5.7 and §5.8 ride the map.

@@ -91,6 +91,7 @@ fallback on a frame where the walk finds no floor.
 | **Still neighbourhood density (percent)** | What share of a masked pixel's neighbourhood must be still — the pixel itself counted — for it to stay in the mask. It is a share rather than a count of pixels so that it means the same thing at every **Isolation radius**: at the `33` default about a third of the box must be still, which drops a lone pixel and an adjacent pair while keeping anything with real substance. `0` keeps every pixel, so turning the filter off is the same thing as unticking **Enable isolated pixel removal**; `100` demands a completely solid neighbourhood and will erode thin strokes unless a line through them saves them. Raise it to drop sparser specks, lower it if something with real substance comes back with holes. |
 | **Isolation radius in pixels** | How far the neighbourhood above reaches, as a square `2 × this + 1` across. It is deliberately separate from **Closing radius**: the closing is how far the mask is grown to bridge rough edges, which is about how the mask looks, while this is how much agreement a pixel needs, which is about how much evidence a speck has to produce. Tying them together would move what the density means every time you retune the closing. `1` is the default and the smallest useful box; `0` is treated as `1`, so the setting never silently switches the filter off. It shares the closing's own work, so raising it costs nothing extra — but note that a wider box makes the density test stricter against thin strokes, since a line of a given width fills a smaller fraction of a bigger box. This is also the length the line test is measured over, so raising it asks a stroke to hold still for longer before it counts. |
 | **Diagnostics: motion view** | Which reading the overlay draws when it is switched on. On, it is the motion view: red where the frame sees a change, nothing where it does not. Off, it is the verdict view: green where a pixel has earned its place in the mask — the shader's own verdict, without the closing radius — nothing where it has not. Both tint only the pixels they name and leave the rest of the picture exactly as the game drew it; the deadzone ring and the bottom-left corner marker show in both. |
+| **Diagnostics: confidence view** | The verdict view with its judgement *and* its shades taken out, leaving two flat colours that need no comparing. **Cyan** is a pixel the mask already claims. **Magenta** is a pixel that is earning its place but has not crossed the line yet — the band just under it. Anything in neither colour is left exactly as the game drew it, including a pixel still recovering from a move: that is drawn plain on purpose, so recovery never looks like evidence. It answers a question the verdict view cannot: whether a crowd of pixels is sitting just under the line, and whether that crowd is interface or scenery. **Magenta over dark scenery, with no interface there, is the reading that matters**: it is the shader part-way to protecting the world, because a change in a dark region is a smaller number of levels and slips under the threshold that would call it movement. That is a known limit of the idea rather than a bug — the same thing that stops translucent interface being protected, seen from the other side — and the view is the way to see how much of it a particular game produces. It draws nothing and changes nothing. |
 | **Diagnostics: tile view** *(compute path only)* | A third overlay reading, and the one that measures rather than shows. It chops the screen into a 16×16 grid of squares and colours each square by what the mask is doing in it — so it draws a coarse map rather than a per-pixel one, and a whole square is one colour rather than a blend. **Green** is a square that is mostly masked interface, **black** a square that is not, **red** a square that changed a lot this frame and is *not* masked — a panel appearing that the shader has not caught yet, which is the case the screen-wide reading cannot see — and **orange** a square that is not masked but is walled in by mask on every side: a hole inside a protected element. Five bars along the top are the region counts, in the order below. It draws nothing and changes nothing, so flicking it on and off leaves the picture and the mask identical; it exists to be watched while deciding whether the region filters it measures are worth their cost. |
 
 There are three more switches that are not sliders — **anti-bloom** (on by default), the **diagnostics
@@ -143,11 +144,12 @@ not touch the mask in any way.
 
 ## Seeing what it decided
 
-Turn the diagnostics overlay on and it draws one of two readings over the picture, whichever
-**Diagnostics: motion view** picks. Both tint *only* the pixels they name and leave every other pixel
-exactly as the game drew it, with no global wash — red where the frame sees a change, or green where the
-shader has decided a pixel is interface, and nothing where neither applies. With the compute path on,
-**Diagnostics: tile view** replaces both with the region reading described below.
+Turn the diagnostics overlay on and it draws one reading over the picture, picked by two toggles:
+**Diagnostics: motion view** chooses between red where the frame sees a change and green where the shader
+has decided a pixel is interface, and **Diagnostics: confidence view** replaces that green with a grade of
+how sure the shader is. They tint *only* the pixels they name and leave every other pixel exactly as the
+game drew it, with no global wash. With the compute path on, **Diagnostics: tile view** replaces them both
+with the region reading described below.
 
 - **Red** — the motion view: how much this pixel changed this frame, with nothing the frame forgave drawn
   at all. It is graded over a fixed three-level span: a change one step under the RGB-step setting is the
@@ -181,6 +183,13 @@ shader has decided a pixel is interface, and nothing where neither applies. With
   view for asking what the shader thinks it is protecting: a menu should light up while open and go dark
   as the world takes it back. A stopped world adds nothing, so in a held frame (marker yellow) the green
   is the last state decided, and may only shrink, never grow.
+- **Cyan** — the mask already claims this pixel.
+- **Magenta** — this pixel is earning its place but has not crossed the line yet: the band just under it.
+  Magenta over dark scenery, with no interface in it, means the shader is part-way to protecting the world:
+  a change in a dark region is a smaller number of levels, so it slips under the threshold that would call
+  it movement. This is the same limit as semi-transparent interface, from the other side, and it is what the
+  view is for — seeing how much of it a given game produces. Anything in neither colour, including a pixel
+  still recovering from a move, is passed through untouched.
 
 If **Enable center deadzone** is ticked and its width and height are above zero, a thin yellow ring marks
 the ellipse so you can see where it frames your character while adjusting the sliders.

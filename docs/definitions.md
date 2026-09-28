@@ -351,9 +351,15 @@ durations — are the `Frame timing` section.
   settings below say, and they keep their values.
 - **diagnostics overlay** — the `PS_DebugMap` pass, compiled only when `AutoMaskDiagnostics == 1`. It
   reads the accumulator directly, so it cannot report on itself instead of on the shader.
-- **motion view / verdict view** — the overlay's two readings, picked by the live `UIDebugMotion` toggle:
-  red where the frame sees a change, or green where the pixel has earned protection *without* the
-  closing radius.
+- **motion view / verdict view / confidence view** — the overlay's per-pixel readings, picked by two
+  live toggles: red where the frame sees a change; green where the pixel has earned protection *without*
+  the closing radius; or, with the second toggle, the accumulator's own confidence as a grade, its middle
+  the 0.5 protection line. It draws **two flat colours rather than a ramp** — cyan where the verdict would
+  already claim the pixel, magenta where it is earning but has not crossed — and leaves everything at or
+  below zero untinted, so the wide debt range a move leaves does not read as a halo. Read in a game it
+  found a thin band over UI interiors and a much larger one over dark scenery with no interface in it: a
+  change in a dark region is fewer levels and slips under the deadband, so the world is credited — §5.5.1
+  of `docs/ui-isolation-options.md`. The tile view overrides both per-pixel views.
 - **tile map / tile view** — the picture as a fixed 16×16 grid, each cell sampled at `AUTOMASK_TILE_TAPS`²
   points, reduced to region readings: the mask's component count and largest share, the enclosed share,
   and the count and area of contiguous wide-change patches *while the world is stopped* — a wide change
