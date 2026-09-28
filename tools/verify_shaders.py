@@ -620,6 +620,15 @@ def cmd_init(args) -> int:
 
 # -------------------------------------------------------------------------- check
 
+def without_comments(text: str) -> str:
+    """The source with `//` comments dropped, so prose cannot trip a guard.
+
+    This file's own tooltips name the spellings the guards below refuse, and a
+    comment quoting one is not a use of it.
+    """
+    return re.sub(r"//[^\n]*", "", text)
+
+
 def include_names(path: Path) -> set[str]:
     """The `.fx`/`.fxh` names `path` includes by quotes, as written.
 
@@ -628,7 +637,7 @@ def include_names(path: Path) -> set[str]:
     guessed: a header the shader does not include is a scratch file of the
     author's, not this check's business.
     """
-    text = re.sub(r"//[^\n]*", "", path.read_text(encoding="utf-8", errors="replace"))
+    text = without_comments(path.read_text(encoding="utf-8", errors="replace"))
     return set(re.findall(r'#include\s+"([^"]+\.fxh?)"', text))
 
 
@@ -708,9 +717,8 @@ def strip_for_fxc(text: str) -> str:
     # ReShade does not know is not a compile error here, because the translation
     # below would rewrite it into valid HLSL and the check would pass a shader the
     # game cannot load. The dimension letter is capital in ReShade's lexer, so a
-    # lowercased one is exactly that case. Comments are dropped from the search so
-    # prose about the dialect cannot trip it.
-    misspelled = MISSPELLED_STORAGE.search(re.sub(r"//[^\n]*", "", text))
+    # lowercased one is exactly that case.
+    misspelled = MISSPELLED_STORAGE.search(without_comments(text))
     if misspelled:
         fail("%r is not a ReShade keyword; the dimension letter is "
              "capital (storage, storage1D, storage2D, storage3D). ReShade "
@@ -720,7 +728,7 @@ def strip_for_fxc(text: str) -> str:
     # Loud guard, on the same reasoning as the storage keyword one above: the
     # intrinsic name is case sensitive, and the translation below would rewrite
     # a lowercased one into valid HLSL, so the misspelling has to fail here.
-    misspelled_access = MISSPELLED_STORAGE_ACCESS.search(re.sub(r"//[^\n]*", "", text))
+    misspelled_access = MISSPELLED_STORAGE_ACCESS.search(without_comments(text))
     if misspelled_access:
         fail("%r is not a ReShade intrinsic; the dimension letter is "
              "capital (tex1Dfetch, tex2Dfetch, tex3Dfetch and their store "
@@ -744,10 +752,9 @@ def strip_for_fxc(text: str) -> str:
     # name is real HLSL, so fxc compiles it and the translation has nothing to do
     # with it. Only ReShade's parser rejects it, and it does so at load time with
     # X3004 -- which is a shader that passes this check and fails in the game.
-    # Comments are dropped first so prose about the dialect cannot trip it, and a
-    # definition of the same name is read out so a shader supplying its own is not
-    # refused for calling it.
-    code = re.sub(r"//[^\n]*", "", text)
+    # A definition of the same name is read out so a shader supplying its own is
+    # not refused for calling it.
+    code = without_comments(text)
     defined = set(FUNCTION_DEFINITION.findall(code))
     not_in_reshade = [name for name in NOT_IN_RESHADE_CALL.findall(code)
                       if name not in defined]
@@ -780,7 +787,7 @@ def drop_comments_and_strings(text: str) -> str:
     """
     text = re.sub(r'"(?:[^"\\]|\\.)*"', '""', text)
     text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
-    return re.sub(r"//[^\n]*", "", text)
+    return without_comments(text)
 
 
 def storages_in(text: str) -> set[str]:
@@ -806,7 +813,7 @@ def guard_storage_index(text: str, names: set[str]) -> None:
     which is exactly how this reached a real game. Reading and writing a storage
     goes through `tex2Dfetch`/`tex2Dstore` (see `translate_storage_access`).
     """
-    code = re.sub(r"//[^\n]*", "", text)
+    code = without_comments(text)
     for name in sorted(names):
         if re.search(r'\b%s\s*\[' % re.escape(name), code):
             fail("'%s' is a storage object, which cannot be indexed in "
@@ -950,7 +957,7 @@ def technique_bindings(preprocessed: str) -> list[Pass]:
     technique that loses a compute pass cannot pass for a technique that never
     had one.
     """
-    text = re.sub(r"//[^\n]*", "", preprocessed)
+    text = without_comments(preprocessed)
     out: list[Pass] = []
     for tech, body in technique_blocks(text):
         passes = PASS.findall(body)
@@ -959,8 +966,8 @@ def technique_bindings(preprocessed: str) -> list[Pass]:
         # that misses a pass must not look like a technique with fewer passes.
         keywords = len(re.findall(r"\bpass\b", body))
         if keywords != len(passes):
-            sys.exit("FAIL -- technique %s: parsed %d pass(es) but found %d pass keyword(s); "
-                     "the pass pattern is wrong" % (tech, len(passes), keywords))
+            fail("technique %s: parsed %d pass(es) but found %d pass keyword(s); "
+                 "the pass pattern is wrong" % (tech, len(passes), keywords))
         found: list[Pass] = []
         for one in passes:
             cs = re.search(r"ComputeShader\s*=\s*(\w+)", one)
@@ -974,9 +981,9 @@ def technique_bindings(preprocessed: str) -> list[Pass]:
                 # ReShade's own error 3012: a compute pass needs both sizes, and
                 # a pass that lost one to a bad guard would otherwise read as a
                 # pass that simply has fewer properties.
-                sys.exit("FAIL -- technique %s: compute pass '%s' declares %d dispatch "
-                         "size(s); ReShade requires both DispatchSizeX and DispatchSizeY"
-                         % (tech, shader.group(1) if shader else "?", len(dispatch)))
+                fail("technique %s: compute pass '%s' declares %d dispatch "
+                     "size(s); ReShade requires both DispatchSizeX and DispatchSizeY"
+                     % (tech, shader.group(1) if shader else "?", len(dispatch)))
             found.append(Pass(tech, shader.group(1) if shader else None, kind,
                               rt.group(1) if rt else None, dispatch or None))
         # The parse is cross-checked against the keyword counts the same way the
@@ -989,8 +996,8 @@ def technique_bindings(preprocessed: str) -> list[Pass]:
                  sum(len(bound.dispatch or ()) for bound in found))):
             keywords = len(re.findall(pattern, body))
             if keywords != parsed:
-                sys.exit("FAIL -- technique %s: parsed %d %s binding(s) but found %d keyword(s); "
-                         "the pass pattern is wrong" % (tech, parsed, label, keywords))
+                fail("technique %s: parsed %d %s binding(s) but found %d keyword(s); "
+                     "the pass pattern is wrong" % (tech, parsed, label, keywords))
         out += found
     return out
 
@@ -1064,13 +1071,13 @@ def technique_blocks(text: str) -> list[tuple[str, str]]:
 
 def cmd_check(args) -> int:
     if not (WORK / "ReShade.fxh").is_file():
-        sys.exit("FAIL -- headers missing; run: uv run tools/verify_shaders.py init")
+        fail("headers missing; run: uv run tools/verify_shaders.py init")
     sources = source_files()
     if not sources:
         # Nothing to check is not a pass. Say so loudly rather than reporting a
         # clean run over an empty set.
-        sys.exit("FAIL -- no shaders found in %s; nothing was compiled"
-                 % SHADERS.relative_to(REPO))
+        fail("no shaders found in %s; nothing was compiled"
+             % SHADERS.relative_to(REPO))
 
     failed: list[str] = []
     print("%-*s %-30s %6s  %s" % (VARIANT_WIDTH, "variant", "entry point", "instr", "status"))

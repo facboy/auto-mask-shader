@@ -130,9 +130,10 @@ are listed under it.
   credit a ceiling.
 - **state machine** — the branch structure of `PS_Accum`, whose shared parts `CS_Accum` calls as the same
   helpers declared in `Shaders/AutoMask.fxh` (`docs/compute-path.md`).
-- **shared helper** — one of the four functions `Shaders/AutoMask.fxh` holds: the deadzone test, the
-  premise, the decay step and the published-mask read. Each takes what it needs sampled already, so
-  neither path's sampling form moves onto the other's (`docs/refactor-candidates.md`).
+- **shared helper** — one of the functions `Shaders/AutoMask.fxh` holds: the deadzone offset and the
+  test that reads it, the premise, the decay step, the published-mask read, the deadband, the
+  pinned-colour count and the frame rate. Each takes what it needs sampled already, so neither path's
+  sampling form moves onto the other's (`docs/refactor-candidates.md`).
 - **bank** — two senses, told apart by the object. Of *scenery*: wrongly taken into the mask as
   interface, i.e. kept protected because neither comparison caught it — "the sky is banked". Of a *cost*
   or *debt*: accrued — "the debt it banks". Both are about laying something away

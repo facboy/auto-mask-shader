@@ -423,10 +423,9 @@ sampler AutoMap { Texture = texAutoMap; };
 		float3 nowLevels = round(now * 255.0);
 		float3 beforeLevels = round(before * 255.0);
 		now = nowLevels / 255.0;
-		//A pinned colour voids stillness on either side of the pair: saturation, not stillness. `all`
-		//makes the count a scalar, avoiding the X3206 truncation warning fxc emits for a vector form.
-		float clipped = all(now == 0.0.xxx) + all(now == 1.0.xxx)
-		              + all(before == 0.0.xxx) + all(before == 1.0.xxx)
+		//A pinned colour voids stillness on either side of the pair: saturation, not stillness, plus the
+		//drift average's own two rails.
+		float clipped = AutoMaskClipped(now, before)
 		              + all(drift == 0.0.xxx) + all(drift == 1.0.xxx);
 		float3 diff = abs(nowLevels - beforeLevels);
 		//The long-baseline reading against the same deadband: how far the frame has got from where
@@ -439,7 +438,7 @@ sampler AutoMap { Texture = texAutoMap; };
 		//unwritten target off the slider's own scale.
 		float deadband = AutoMaskAutoStep
 			? clamp(tex2Dlod(AutoStep, float4(0.5, 0.5, 0.0, 0.0)).r, 1.0, 8.0)
-			: max(ceil(AutoMaskEps), 1.0);
+			: AutoMaskDeadband();
 		float motion = max(smoothstep(deadband - 1.0, deadband + 2.0, maxDiff),
 		                   smoothstep(deadband, deadband * AUTOMASK_DRIFT_LAG, maxDrift));
 		float stable = (maxDiff < deadband && maxDrift < deadband && clipped == 0.0) ? 1.0 : 0.0;
@@ -456,8 +455,8 @@ sampler AutoMap { Texture = texAutoMap; };
 		float3 reach = deadband * AUTOMASK_DRIFT_LAG / 255.0;
 		next = max(now - reach, min(now + reach, next));
 
-		float gain = 0.504 / max(AutoMaskRise, 1.0);
-		float cost = 0.504 / max(AutoMaskFall, 1.0);
+		float gain = AutoMaskRate(AutoMaskRise);
+		float cost = AutoMaskRate(AutoMaskFall);
 
 		float4 prev = tex2Dlod(AutoAccumA, float4(texcoord, 0.0, 0.0));
 		float conf = prev.r;
@@ -559,7 +558,7 @@ sampler AutoMap { Texture = texAutoMap; };
 		//change and would otherwise tighten the rule in proportion to how much of the screen it covers.
 		if (AutoMaskAutoStep){
 			float floorCount = AutoMaskNoiseFloor * 0.01 * max(float(activeCount), 1.0);
-			float step = max(ceil(AutoMaskEps), 1.0);
+			float step = AutoMaskDeadband();
 			uint above = 0u;
 			for (int i = 0; i < AUTOMASK_STEP_MAX; i++)
 				above += tex2Dfetch(AutoMotionHist, int2(i, 0));
@@ -772,22 +771,18 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	float3 beforeLevels = round(before * 255.0);
 	now = nowLevels / 255.0;
 	//A pixel pinned at all 0 or all 255 shows no difference while it stays there, but that is
-	//saturation, not stillness, so a wholly clipped colour voids the still verdict. `all` makes the
-	//count a scalar, avoiding the X3206 truncation warning fxc emits for a vector form.
-	float clipped = all(now == 0.0.xxx) + all(now == 1.0.xxx)
-	              + all(before == 0.0.xxx) + all(before == 1.0.xxx);
+	//saturation, not stillness, so a wholly clipped colour voids the still verdict.
+	float clipped = AutoMaskClipped(now, before);
 	float3 diff = abs(nowLevels - beforeLevels);
 	float maxDiff = max(diff.r, max(diff.g, diff.b));
 	//The deadband is a level count: a change of that many levels or more is motion, anything less is
 	//still. The ramp spans a fixed three levels, footed one under, so its own level reads a quarter.
-	float deadband = max(ceil(AutoMaskEps), 1.0);
+	float deadband = AutoMaskDeadband();
 	float motion = smoothstep(deadband - 1.0, deadband + 2.0, maxDiff);
 	float stable = (maxDiff < deadband && clipped == 0.0) ? 1.0 : 0.0;
 
-	//The sliders speak in frames; the accumulator is confidence against the 0.5 verdict step, so a
-	//frame of credit is that step over the slider, a hair above the exact share for half precision.
-	float gain = 0.504 / max(AutoMaskRise, 1.0);
-	float cost = 0.504 / max(AutoMaskFall, 1.0);
+	float gain = AutoMaskRate(AutoMaskRise);
+	float cost = AutoMaskRate(AutoMaskFall);
 
 	float4 prev = tex2D(AutoAccumA, texcoord);
 	float conf = prev.r;
@@ -863,6 +858,19 @@ float4 PS_Copy(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	return tex2D(AutoAccumB, texcoord);
 }
 
+//The closing's luma, one copy for both passes, and the luma bound on a tap. `inRange` is passed to the
+//test rather than computed in it, so the loop index stays at the call site where it was.
+float AutoMaskLuma(float3 rgb)
+{
+	return dot(rgb, float3(0.299, 0.587, 0.114));
+}
+
+float AutoMaskEdgeKeep(float luma, float lumaCentre, bool inRange)
+{
+	float edge = abs(luma - lumaCentre) * 255.0;
+	return (inRange && edge <= AutoMaskEdge) ? 1.0 : 0.0;
+}
+
 //Horizontal closing bounded by luma edge, plus the row's still count for the isolation gate and the
 //centre verdict the vertical pass reads the column and the diagonals off.
 float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
@@ -873,15 +881,14 @@ float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	float reach = max(floor(AutoMaskIsolation + 0.5), 1.0);
 	float centre = tex2D(AutoAccumA, texcoord).r;
 	float mask = centre;
-	float lumaCentre = dot(tex2D(ReShade::BackBuffer, texcoord).rgb, float3(0.299, 0.587, 0.114));
+	float lumaCentre = AutoMaskLuma(tex2D(ReShade::BackBuffer, texcoord).rgb);
 	float nearby = 0.0;
 
 	for (int i = -AUTOMASK_DILATE_MAX; i <= AUTOMASK_DILATE_MAX; i++){
 		float2 uv = texcoord + float2(i * texel.x, 0.0);
 		bool inRange = abs(float(i)) <= r;
-		float luma = dot(tex2D(ReShade::BackBuffer, uv).rgb, float3(0.299, 0.587, 0.114));
-		float edge = abs(luma - lumaCentre) * 255.0;
-		float keep = (inRange && edge <= AutoMaskEdge) ? 1.0 : 0.0;
+		float luma = AutoMaskLuma(tex2D(ReShade::BackBuffer, uv).rgb);
+		float keep = AutoMaskEdgeKeep(luma, lumaCentre, inRange);
 		float neighbour = tex2D(AutoAccumA, uv).r;
 		//The count is the verdict, unbounded by luma: a contour inside a HUD must not cost it support.
 		nearby += abs(float(i)) <= reach ? step(0.5, neighbour) : 0.0;
@@ -901,7 +908,7 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	float reach = max(floor(AutoMaskIsolation + 0.5), 1.0);
 	float4 centre = tex2D(AutoDilate, texcoord);
 	float mask = centre.r;
-	float lumaCentre = dot(tex2D(ReShade::BackBuffer, texcoord).rgb, float3(0.299, 0.587, 0.114));
+	float lumaCentre = AutoMaskLuma(tex2D(ReShade::BackBuffer, texcoord).rgb);
 	float nearby = 0.0;
 	//The four runs through this pixel: its column, and its two diagonals. Its row is the centre's own
 	//count, already in .g, and the diagonals read the centre verdict .b so a contour inside a HUD
@@ -913,9 +920,8 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	for (int i = -AUTOMASK_DILATE_MAX; i <= AUTOMASK_DILATE_MAX; i++){
 		float2 uv = texcoord + float2(0.0, i * texel.y);
 		bool inRange = abs(float(i)) <= r;
-		float luma = dot(tex2D(ReShade::BackBuffer, uv).rgb, float3(0.299, 0.587, 0.114));
-		float edge = abs(luma - lumaCentre) * 255.0;
-		float keep = (inRange && edge <= AutoMaskEdge) ? 1.0 : 0.0;
+		float luma = AutoMaskLuma(tex2D(ReShade::BackBuffer, uv).rgb);
+		float keep = AutoMaskEdgeKeep(luma, lumaCentre, inRange);
 		float4 row = tex2D(AutoDilate, uv);
 		//The gate's extra taps sit behind its own checkbox, which ships off, so the default path does
 		//not take them: the column and the diagonals cost nothing while nothing reads them.
@@ -1064,10 +1070,7 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 		color = lerp(color, mark, tint * 0.7);
 
 		if (AutoMaskDeadzone && AutoMaskDeadzoneWidth > 0.0 && AutoMaskDeadzoneHeight > 0.0){
-			float rx = AutoMaskDeadzoneWidth * 0.005;
-			float ry = AutoMaskDeadzoneHeight * 0.005;
-			float2 offset = float2(texcoord.x - 0.5, texcoord.y - AutoMaskDeadzoneY * 0.01);
-			float dist = length(offset / float2(rx, ry));
+			float dist = length(AutoMaskDeadzoneOffset(texcoord));
 			float ring = 1.0 - saturate(abs(dist - 1.0) / max(fwidth(dist) * 1.5, 0.001));
 			color = lerp(color, float3(1.0, 1.0, 0.0), ring * 0.85);
 		}

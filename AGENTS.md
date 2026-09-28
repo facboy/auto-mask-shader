@@ -36,8 +36,8 @@ for the concept, the store/restore pattern and the anti-bloom suppression belong
 | `docs/ui-isolation-options.md` | Options for reading interface as a region rather than per pixel, none of them scoped. What §6's instrument decides between. |
 | `docs/refactor-candidates.md` | The folds that landed in the shader and the check, what was considered and left, and what is deliberately not a candidate. |
 
-The one companion header is **`Shaders/AutoMask.fxh`, and it holds code and nothing else**: the four
-functions both accumulators call, no uniform, `texture`, `sampler` or technique. A header of **authored
+The one companion header is **`Shaders/AutoMask.fxh`, and it holds code and nothing else**: the shared
+arithmetic both accumulators call, no uniform, `texture`, `sampler` or technique. A header of **authored
 data** — pixel tables, coordinates, stored colours, or a tuning value a user edits and restarts — is what
 this repo refuses, because every tuning value here is a live slider and configuration in a file would be
 a usability regression. The code header is not that: including it changes nothing about the panel, the
@@ -136,11 +136,12 @@ graded against it goes off screen-wide.
   never hidden. See `docs/editing-conventions.md`.
 - The **accumulator's state machine is written once**, in `Shaders/AutoMask.fxh`. `PS_Accum` and
   `CS_Accum` differ only in how a texture is sampled and in the drift channel the compute path alone
-  carries, so the parts that sample nothing — the deadzone test, the premise, the decay step and the
-  published-mask read — are those shared functions. Every helper takes what it needs **already sampled**,
-  or the two paths' sampling forms would move onto each other's, and the drift terms stay behind
-  `AutoMaskCompute` in the `.fx`. The include sits after the uniforms and targets the helpers read, since
-  the dialect has no forward declaration. See `docs/refactor-candidates.md`.
+  carries, so the parts that sample nothing — the deadzone test, the premise, the decay step, the
+  published-mask read, and the values they read (the deadzone offset, the deadband, the pinned-colour
+  count, the frame rate) — are those shared functions. Every helper takes what it needs **already
+  sampled**, or the two paths' sampling forms would move onto each other's, and the drift terms stay
+  behind `AutoMaskCompute` in the `.fx`. The include sits after the uniforms and targets the helpers
+  read, since the dialect has no forward declaration. See `docs/refactor-candidates.md`.
 - `BUFFER_WIDTH`/`BUFFER_HEIGHT` are injected by ReShade at runtime, not defined here. Anything
   buffer-relative stays correct across resolutions; absolute pixel numbers do not.
 - Every pixel shader keeps `float4 pos : SV_Position` as its **first** parameter, even though no body

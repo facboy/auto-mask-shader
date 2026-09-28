@@ -27,12 +27,13 @@ does not change how long repayment takes.
 
 The one state machine this describes runs in two places — `PS_Accum` and, on the compute path,
 `CS_Accum` — so its parts that do not sample anything are shared helper functions in
-`Shaders/AutoMask.fxh`: the deadzone test, the premise, the decay step and the published-mask read. Each
-takes what it needs sampled already, because the two paths read their textures differently (`tex2D`
-against `tex2Dlod` with an explicit level) and a helper that sampled would move one path's sampling onto
-the other's. The drift terms stay behind the compute guard in the `.fx`, since the pixel path has no drift
-pass at all. The header is included *after* the uniforms and targets the helpers read — the dialect has no
-forward declaration — and it holds no uniform, target or technique of its own.
+`Shaders/AutoMask.fxh`: the deadzone test with the offset it reads, the premise, the decay step, the
+published-mask read, the deadband, the pinned-colour count and the frame rate. Each takes what it needs
+sampled already, because the two paths read their textures differently (`tex2D` against `tex2Dlod` with an
+explicit level) and a helper that sampled would move one path's sampling onto the other's. The drift terms
+stay behind the compute guard in the `.fx`, since the pixel path has no drift pass at all. The header is
+included *after* the uniforms and targets the helpers read — the dialect has no forward declaration — and
+it holds no uniform, target or technique of its own.
 `docs/refactor-candidates.md` records the fold and how it was checked.
 
 Above the per-pixel verdict sits **is the world being drawn at all?** — the premise, not a safety net under

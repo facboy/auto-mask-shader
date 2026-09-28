@@ -22,7 +22,8 @@ and what is deliberately not a candidate. **None of it changes what the shader o
 
 `CS_Accum` and `PS_Accum` were the same state machine written twice, differing only in how a sample is
 spelled (`tex2Dlod` with an explicit level against `tex2D`) and in the drift channel the compute path
-alone has. The duplicated parts now live as four functions in `Shaders/AutoMask.fxh`:
+alone has. The duplicated parts now live as four functions in `Shaders/AutoMask.fxh` (more joined them
+below):
 
 | helper | folds |
 | --- | --- |
@@ -34,6 +35,30 @@ alone has. The duplicated parts now live as four functions in `Shaders/AutoMask.
 Each takes what it needs **already sampled**, so neither path's sampling form moved onto the other's. The
 drift terms stay behind `#if AutoMaskCompute == 1` in the `.fx`, because its ramp and the two extra rail
 comparisons are the compute path's alone and the pixel path is documented as having no drift pass.
+
+A second reading, of the shader against its header, its two closing passes against each other and its
+restore pass against the deadzone test, folded the values each site was deriving for itself:
+
+| helper | folds |
+| --- | --- |
+| `AutoMaskDeadzoneOffset(texcoord)` | the ellipse `AutoMaskInDeadzone` tests and the ring `PS_Restore` draws |
+| `AutoMaskDeadband()` | `max(ceil(AutoMaskEps), 1.0)` at the verdict, the walk's fallback and the walk's floor |
+| `AutoMaskClipped(now, before)` | the pinned-colour count, with the compute path's two drift terms added at its call site |
+| `AutoMaskRate(frames)` | the `0.504 / max(slider, 1.0)` pair, one copy for `AutoMaskRise` and `AutoMaskFall` |
+
+The deadzone pair is a correctness coupling rather than a tidy: the ring had to stay over the region the
+verdict excludes, and the two `0.005`/`0.01` scales were written in both files. `AutoMaskClipped` returns
+`int`, not `float`: as a float the helper's `all()` terms summed in integer and the total was converted,
+which reordered `iadd`/`itof` against `and`/`add` in `CS_Accum` and moved its hash — returning `int`
+restores the assembly exactly.
+
+The closing passes' luma and edge test is a fold of the same kind but **not** verdict arithmetic, so its
+helpers sit at file scope in `AutoMask.fx` beside the two passes: `AutoMaskLuma` holds the one copy of the
+`float3(0.299, 0.587, 0.114)` literal, and `AutoMaskEdgeKeep(luma, lumaCentre, inRange)` the one copy of
+the luma bound. It takes the luma and the range already computed rather than the sampled colour: a helper
+taking the colour left the tap's sample and the index comparison free to swap in fxc's schedule, so
+`PS_DilateH` and `PS_DilateV` hashes moved with their instruction counts unchanged. Passing both keeps the
+assembly byte-identical.
 
 The header is a deliberate exception to "one self-contained file", and a narrow one: it holds **code** and
 nothing else — no uniform, `texture`, `sampler` or technique — so it changes nothing about the panel, the
@@ -66,19 +91,48 @@ conversion is at the call site and the accumulator's own uses are untouched.
 
 ## 4. Landed — `tools/verify_shaders.py`
 
-- **`fail(why)`.** The exit-and-print prefix was written out at ten guard sites. It is one function now.
-  The import-time duplicate-variant guard still calls `sys.exit` directly, since it runs before the
-  helper is defined.
+- **The `fail(why)` fold, completed.** The exit-and-print prefix was written out at ten guard sites when
+  the helper landed, and five runtime guards were missed — `technique_bindings`' three parse cross-checks
+  and `cmd_check`'s two missing-data guards. All five call `fail(why)` now and print the same text, so the
+  prefix is written in one place and the import-time duplicate-variant guard is the only `sys.exit` left
+  (it runs before the helper is defined).
 - **`report_hits(label, hits, advice)`.** The docs check printed its two hit lists with the same six
   lines twice; both now go through it, and the "a hit is a failure" decision is in one place.
 - **`rewrite_calls(text, pattern, render)`.** `translate_atomics` and `translate_storage_access` were the
   same scan — find a call, read its arguments by balancing parens, emit something else — differing only
   in the emitted text. The walk is one function now and each caller supplies a `render(match, args)`.
+- **`without_comments(text)`.** `re.sub(r"//[^\n]*", "", text)` stood at seven sites — the include scan,
+  the two misspelled-dialect guards, the denied-intrinsic guard, the last line of
+  `drop_comments_and_strings`, the storage-index guard and the technique reader — with the "comments
+  dropped so prose cannot trip the guard" reason restated at most of them. One helper holds the strip and
+  one docstring holds the reason; `drop_comments_and_strings` blanks strings ahead of calling it.
 - **The module's prose stays.** The docstring and the per-guard comments are most of the file's lines and
   are the account `docs/verification.md` points at, so a "shrink" of them would be a loss rather than a
   tidy.
 
-## 5. What is not a candidate
+## 5. Left alone
+
+The same reading that took the folds above found these, and left each because the body is smaller than
+the ceremony around it:
+
+- **The `motion`/`stable` grading.** Only the un-drifted half is shared, and folding it means handing the
+  compute call site a partly-built value back to recombine with its ramp — call-site surgery that can
+  move instructions, on the full-res accumulator, for one line.
+- **The admission cross.** The four taps differ only in how the sample is spelled, so only the
+  `support < 0.5` tail folds, and it folds to one line.
+- **The two radii and the changed threshold.** `floor(AutoMaskDilate + 0.5)`,
+  `max(floor(AutoMaskIsolation + 0.5), 1.0)` and `step(0.001, …)` are real pairs with bodies too small to
+  name, so they are worth taking only alongside one of the folds above.
+- **Naming the 0.5 verdict step.** It is written as `step(0.5, …)` across `AutoMaskPublished`, both
+  closing passes, the tile sampler and the debug map — six entry points for a documentation gain, which
+  is the constant-merging §6 already refuses.
+- **`float2 texel = float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT)` in `CS_Accum`** where the pixel path
+  writes `BUFFER_PIXEL_SIZE`: one value, two spellings, nothing else.
+
+Nothing in that reading reopens §3: the three `CS_Tile` relaxations, the `PS_Restore` bar block and the
+`PS_Motion`/`PS_MotionAvg` pair stand as argued.
+
+## 6. What is not a candidate
 
 - **The named constants cannot be merged.** `AUTOMASK_STEP_MAX`, `AUTOMASK_DRIFT_LAG`, `AUTOMASK_AXIS_MIN`
   and the reset's `max(deadband, 8.0)` are each deliberately not tied to the neighbouring constant —
@@ -92,7 +146,7 @@ conversion is at the call site and the accumulator's own uses are untouched.
   those guards would allocate what the guard exists to elide. The header's helpers span only
   `AutoMaskCompute`'s *drift terms*, which stay in the `.fx` for that reason.
 
-## 6. How a step was, and is, verified
+## 7. How a step was, and is, verified
 
 - `uv run tools/verify_shaders.py check --hashes --opcodes`, run before and after against the step's own
   before-run: all 82 entry points' hashes and instruction counts came out identical.

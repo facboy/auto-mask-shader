@@ -34,8 +34,10 @@ check:
   committing a change to it: put the construct below back and it must exit non-zero naming the code.
 - The shader is written so that `check` is silent, and the rewrite below is the *only* thing that silences
   its code — do not "tidy" it back into the warning shape. A `clipped` accumulator declared `float3` makes
-  `clipped == 0.0` a three-wide test whose `&&` truncation is X3206, so it is a `float` (the `all()` answer
-  is one value, not one per channel). It is an outright bug in the log rather than a cosmetic preference.
+  `clipped == 0.0` a three-wide test whose `&&` truncation is X3206, so it is a scalar (the `all()` answer
+  is one value, not one per channel) — `AutoMaskClipped` returns `int` so the four `all()` terms stay one
+  integer sum, and a `float` return reorders `iadd`/`itof` against `and`/`add` in the compute accumulator
+  and moves its hash. It is an outright bug in the log rather than a cosmetic preference.
 - **The full identity check is the strongest evidence this tool offers, and it is how a behaviour-neutral
   change is verified.** `check --hashes --opcodes` is run before and after, and every one of the 82 entry
   points' bytecode sha256 and instruction count must come out identical — stronger than "the off path is

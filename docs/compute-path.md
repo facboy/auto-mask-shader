@@ -213,8 +213,9 @@ Follows from what each pass reads:
 1. `PS_Accum` — builds the new confidence against the *previous* frame, **before** the history store, and
    applies the world-drawn premise by reading the statistic the previous frame left behind. With
    `AutoMaskCompute` on this pass is `CS_Accum` instead: same slot, same work, plus the count — the
-   deadzone test, the premise, the decay step and the published-mask read come from `Shaders/AutoMask.fxh`,
-   so the two paths cannot drift apart in what they decide. Admission
+   verdict arithmetic both accumulators share comes from `Shaders/AutoMask.fxh` (the deadzone offset and
+   its test, the premise, the decay step, the published-mask read, the deadband, the pinned-colour count
+   and the frame rate), so the two paths cannot drift apart in what they decide. Admission
    rides here — four taps on the verdict channel it already holds, behind `AutoMaskNeighbour`, and the
    same four on both paths.
 2. The two sub-resolution passes that average the still flag into the share of the screen being redrawn —
