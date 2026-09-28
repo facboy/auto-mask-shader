@@ -3,7 +3,8 @@
 Builds a UI mask for ReShade by watching what holds still.
 
 Nothing to install, nothing to paint, no coordinates to pick. Drop the shader in, place it twice, and
-it works out where your HUD is by itself.
+it works out where your HUD is by itself. It is two files — `AutoMask.fx` and `AutoMask.fxh` — and they
+go into your ReShade shaders folder together; the shader will not load without its companion.
 
 ## What it does
 

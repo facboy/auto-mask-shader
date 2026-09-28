@@ -139,6 +139,8 @@ VARIANTS = tuple(
 _names = [name for name, _ in VARIANTS]
 _duplicates = sorted({name for name in _names if _names.count(name) > 1})
 if _duplicates:
+    # `sys.exit` rather than `fail` below: this runs at import, before the helper
+    # is defined.
     sys.exit("FAIL -- duplicate variant name(s) %s; the list must be a crossing of "
              "distinct combinations, or one variant silently stands in for another"
              % ", ".join(_duplicates))
@@ -376,7 +378,7 @@ def find_fxc() -> Path:
             kits_found += [p / "x64" / "fxc.exe" for p in kits.iterdir()
                            if (p / "x64" / "fxc.exe").is_file()]
     if not kits_found:
-        sys.exit("FAIL -- fxc.exe not found; set $FXC to its path (needs the Windows SDK)")
+        fail("fxc.exe not found; set $FXC to its path (needs the Windows SDK)")
     kits_found.sort(key=lambda p: [int(n) for n in re.findall(r"\d+", p.parent.parent.name)])
     return kits_found[-1]
 
@@ -405,8 +407,48 @@ def first_error(log: str) -> str:
     return match.group(0).strip() if match else "unknown compile failure"
 
 
+def fail(why: str) -> None:
+    """Exit with a `FAIL -- ...` message. Every guard reports this way, and the exit
+    is the point: a check that prints and carries on reports a clean run over data it
+    could not read.
+    """
+    sys.exit("FAIL -- " + why)
+
+
+def report_hits(label: str, hits: list[str], advice: str) -> int:
+    """Print a non-empty hit list under `label` and report the run as failed, so the
+    docs check's two lists share one copy of the printing and of that decision.
+    """
+    if not hits:
+        return 0
+    print("FAIL -- %d %s:" % (len(hits), label))
+    for hit in hits:
+        print("  " + hit)
+    print("\n" + advice)
+    return 1
+
+
 def source_files() -> list[Path]:
     return sorted(SHADERS.glob("*.fx"))
+
+
+def header_files() -> list[Path]:
+    """The shaders' own headers, `.fxh`, in `Shaders/`.
+
+    Separate from `source_files` on purpose: a header holds no entry point, so
+    compiling it as a source is not just unnecessary but wrong -- it would report
+    "no entry points found" and "no technique passes found" for a file that is not
+    meant to have either. It is still this project's source in every way that
+    matters to the comment budget, and it still has to reach the workspace, because
+    a shader `#include`s it by name and the preprocessor resolves that against the
+    including file's own directory.
+    """
+    return sorted(SHADERS.glob("*.fxh"))
+
+
+def workspace_sources() -> list[Path]:
+    """Every file the preprocessor needs in the workspace: the shaders and their headers."""
+    return source_files() + header_files()
 
 
 # ---------------------------------------------------------------------- check-docs
@@ -487,7 +529,7 @@ def prose_lines(text: str) -> list[tuple[int, str]]:
 
 
 def comment_block_hits() -> list[str]:
-    """Every `//` block in the shaders longer than COMMENT_BLOCK_MAX, as report lines.
+    """Every `//` block in the shaders and their headers longer than COMMENT_BLOCK_MAX.
 
     A run of adjacent `//` lines is one block, so wrapping a comment further down
     counts as lengthening it rather than spreading it. The credit header is fenced
@@ -495,7 +537,7 @@ def comment_block_hits() -> list[str]:
     named exception.
     """
     hits: list[str] = []
-    for path in source_files():
+    for path in workspace_sources():
         text = path.read_text(encoding="utf-8", errors="replace")
         lines = text.splitlines()
         first, last = 0, 0
@@ -529,7 +571,7 @@ def cmd_check_docs(args) -> int:
     files = [path for path in PROSE_FILES if path.is_file()]
     if not files:
         # Nothing to check is not a pass; say so rather than reporting a clean run.
-        sys.exit("FAIL -- no prose files found; nothing was read")
+        fail("no prose files found; nothing was read")
     hits: list[str] = []
     for path in files:
         for number, line in prose_lines(path.read_text(encoding="utf-8", errors="replace")):
@@ -540,20 +582,17 @@ def cmd_check_docs(args) -> int:
                 if match:
                     hits.append("%s:%d: %r -- %s"
                                 % (path.relative_to(REPO), number, match.group(0), why))
-    if hits:
-        print("FAIL -- %d prose-budget hit(s):" % len(hits))
-        for hit in hits:
-            print("  " + hit)
-        print("\nState the fact and stop. See: uv run tools/verify_shaders.py check-docs --list")
-        return 1
+    failed = report_hits("prose-budget hit(s)", hits,
+                         "State the fact and stop. See: "
+                         "uv run tools/verify_shaders.py check-docs --list")
+    if failed:
+        return failed
     long_blocks = comment_block_hits()
-    if long_blocks:
-        print("FAIL -- %d comment block(s) over %d lines:" % (len(long_blocks), COMMENT_BLOCK_MAX))
-        for hit in long_blocks:
-            print("  " + hit)
-        print("\nSplit the block or say it in fewer lines. See: "
-              "uv run tools/verify_shaders.py check-docs --list")
-        return 1
+    failed = report_hits("comment block(s) over %d lines" % COMMENT_BLOCK_MAX, long_blocks,
+                         "Split the block or say it in fewer lines. See: "
+                         "uv run tools/verify_shaders.py check-docs --list")
+    if failed:
+        return failed
     print("PASS -- %d prose file(s), no framing from the list" % len(files))
     return 0
 
@@ -581,9 +620,48 @@ def cmd_init(args) -> int:
 
 # -------------------------------------------------------------------------- check
 
+def include_names(path: Path) -> set[str]:
+    """The `.fx`/`.fxh` names `path` includes by quotes, as written.
+
+    `#include` is what decides whether a stale copy in the workspace can stand in
+    for a file that is gone, so the names are read from the source rather than
+    guessed: a header the shader does not include is a scratch file of the
+    author's, not this check's business.
+    """
+    text = re.sub(r"//[^\n]*", "", path.read_text(encoding="utf-8", errors="replace"))
+    return set(re.findall(r'#include\s+"([^"]+\.fxh?)"', text))
+
+
+def clear_stale_workspace(keep: set[str]) -> list[str]:
+    """Delete workspace copies of this project's shader files that no longer exist in it.
+
+    A copy left from an earlier run is a file the current run must not resolve
+    against: with a deleted header's stale copy still sitting there, the include
+    succeeds and the check reports a clean pass for a shader that cannot load in the
+    game -- the loud-failure property the module docstring opens with. The sweep is
+    deliberately narrow: only a name the sources themselves `#include` is removed, so
+    the author's own probes and captured assembly under `tools/.work/` are left alone.
+    """
+    removed: list[str] = []
+    for name in sorted(keep):
+        stale = WORK / name
+        if (name.endswith((".fx", ".fxh")) and stale.is_file()
+                and not (SHADERS / name).is_file() and name not in HEADERS):
+            stale.unlink()
+            removed.append(name)
+    return removed
+
+
 def build_workspace(source: Path, definitions: dict[str, str]) -> Path:
     """Preprocess one shader into the workspace; returns the preprocessed path."""
-    shutil.copy(source, WORK / source.name)
+    # Every shader and header is copied in, because a shader `#include`s its header
+    # by name and the preprocessor resolves that against its own directory -- `/I`
+    # cannot stand in for the copy, since a name that collides with one in the
+    # ReShade headers would then be resolved from the wrong file.
+    workspace = workspace_sources()
+    clear_stale_workspace({name for path in workspace for name in include_names(path)})
+    for path in workspace:
+        shutil.copy(path, WORK / path.name)
     prelude = ["#define __RESHADE__ 52000", "#define __RESHADE_FXC__ 1",
                "#define BUFFER_WIDTH      2560", "#define BUFFER_HEIGHT     1440",
                "#define BUFFER_RCP_WIDTH  (1.0 / 2560.0)",
@@ -598,7 +676,7 @@ def build_workspace(source: Path, definitions: dict[str, str]) -> Path:
 
     result = run_fxc(["/P", "preprocessed.i", "/I", windows_path(WORK), "build.fx"])
     if result.returncode != 0:
-        sys.exit("FAIL -- preprocessing failed: %s" % first_error(result.stdout + result.stderr))
+        fail("preprocessing failed: %s" % first_error(result.stdout + result.stderr))
     return WORK / "preprocessed.i"
 
 
@@ -624,8 +702,8 @@ def strip_for_fxc(text: str) -> str:
     # tooltip broke the strip). Fail here instead, naming the construct.
     residue = re.search(r'\b(ui_\w+|__UNIFORM_\w+)\s*=', text)
     if residue:
-        sys.exit("FAIL -- annotation stripping left %r in the source; the "
-                 "annotation pattern is wrong" % residue.group(0))
+        fail("annotation stripping left %r in the source; the "
+             "annotation pattern is wrong" % residue.group(0))
     # Loud guard, same reasoning as the annotation one above: a storage keyword
     # ReShade does not know is not a compile error here, because the translation
     # below would rewrite it into valid HLSL and the check would pass a shader the
@@ -634,21 +712,21 @@ def strip_for_fxc(text: str) -> str:
     # prose about the dialect cannot trip it.
     misspelled = MISSPELLED_STORAGE.search(re.sub(r"//[^\n]*", "", text))
     if misspelled:
-        sys.exit("FAIL -- %r is not a ReShade keyword; the dimension letter is "
-                 "capital (storage, storage1D, storage2D, storage3D). ReShade "
-                 "lexes it as an identifier and fails with a bare X3000, and this "
-                 "check would otherwise translate it into valid HLSL and report it "
-                 "clean" % misspelled.group(0))
+        fail("%r is not a ReShade keyword; the dimension letter is "
+             "capital (storage, storage1D, storage2D, storage3D). ReShade "
+             "lexes it as an identifier and fails with a bare X3000, and this "
+             "check would otherwise translate it into valid HLSL and report it "
+             "clean" % misspelled.group(0))
     # Loud guard, on the same reasoning as the storage keyword one above: the
     # intrinsic name is case sensitive, and the translation below would rewrite
     # a lowercased one into valid HLSL, so the misspelling has to fail here.
     misspelled_access = MISSPELLED_STORAGE_ACCESS.search(re.sub(r"//[^\n]*", "", text))
     if misspelled_access:
-        sys.exit("FAIL -- %r is not a ReShade intrinsic; the dimension letter is "
-                 "capital (tex1Dfetch, tex2Dfetch, tex3Dfetch and their store "
-                 "counterparts). ReShade would report the bare identifier as "
-                 "undeclared, and this check would otherwise translate it into "
-                 "valid HLSL and report it clean" % misspelled_access.group(0))
+        fail("%r is not a ReShade intrinsic; the dimension letter is "
+             "capital (tex1Dfetch, tex2Dfetch, tex3Dfetch and their store "
+             "counterparts). ReShade would report the bare identifier as "
+             "undeclared, and this check would otherwise translate it into "
+             "valid HLSL and report it clean" % misspelled_access.group(0))
     # Loud guard, the same class as the two above and a third form of it: a word
     # ReShade lexes as a reserved token. fxc has no such token, so this source is
     # well-formed HLSL and the compile below succeeds on a shader ReShade refuses
@@ -657,11 +735,11 @@ def strip_for_fxc(text: str) -> str:
     # this file's own tooltips say it.
     reserved = RESERVED_WORD.search(drop_comments_and_strings(text))
     if reserved:
-        sys.exit("FAIL -- %r is a reserved word in ReShade's lexer, so it cannot be "
-                 "an identifier there and the effect fails at load with X3000 "
-                 "('unexpected reserved word, expected identifier'); fxc accepts it, "
-                 "so this check would compile it clean. Rename the identifier"
-                 % reserved.group(0))
+        fail("%r is a reserved word in ReShade's lexer, so it cannot be "
+             "an identifier there and the effect fails at load with X3000 "
+             "('unexpected reserved word, expected identifier'); fxc accepts it, "
+             "so this check would compile it clean. Rename the identifier"
+             % reserved.group(0))
     # Loud guard, on the same reasoning as the two above but a different cause: the
     # name is real HLSL, so fxc compiles it and the translation has nothing to do
     # with it. Only ReShade's parser rejects it, and it does so at load time with
@@ -674,12 +752,12 @@ def strip_for_fxc(text: str) -> str:
     not_in_reshade = [name for name in NOT_IN_RESHADE_CALL.findall(code)
                       if name not in defined]
     if not_in_reshade:
-        sys.exit("FAIL -- %r is called but is not one of the intrinsics ReShade's "
-                 "parser knows, so the effect would fail to load with X3004 "
-                 "('undeclared identifier or no matching intrinsic overload') while "
-                 "compiling cleanly here, because fxc does implement it. Use a form "
-                 "ReShade provides (integer arithmetic, %% , frac, floor, round) "
-                 "instead" % sorted(not_in_reshade)[0])
+        fail("%r is called but is not one of the intrinsics ReShade's "
+             "parser knows, so the effect would fail to load with X3004 "
+             "('undeclared identifier or no matching intrinsic overload') while "
+             "compiling cleanly here, because fxc does implement it. Use a form "
+             "ReShade provides (integer arithmetic, %% , frac, floor, round) "
+             "instead" % sorted(not_in_reshade)[0])
     text = re.sub(r"(?sm)^[ \t]*technique\b.*\Z", "", text)
     # Guard before any translation below: the bracket form this rejects is what
     # the access translation produces on its way out, and the declaration names
@@ -731,12 +809,12 @@ def guard_storage_index(text: str, names: set[str]) -> None:
     code = re.sub(r"//[^\n]*", "", text)
     for name in sorted(names):
         if re.search(r'\b%s\s*\[' % re.escape(name), code):
-            sys.exit("FAIL -- '%s' is a storage object, which cannot be indexed in "
-                     "ReShade (it would fail with X3121, 'array, matrix, vector, or "
-                     "indexable object type expected in index expression'); read and "
-                     "write it with tex2Dfetch/tex2Dstore. This check would otherwise "
-                     "translate the bracket access into valid HLSL and report it clean"
-                     % name)
+            fail("'%s' is a storage object, which cannot be indexed in "
+                 "ReShade (it would fail with X3121, 'array, matrix, vector, or "
+                 "indexable object type expected in index expression'); read and "
+                 "write it with tex2Dfetch/tex2Dstore. This check would otherwise "
+                 "translate the bracket access into valid HLSL and report it clean"
+                 % name)
 
 
 def translate_storage(text: str) -> str:
@@ -767,6 +845,27 @@ def call_arguments(text: str, open_paren: int) -> tuple[list[str], int]:
     return [argument.strip() for argument in arguments], index
 
 
+def rewrite_calls(text: str, pattern: re.Pattern, render) -> str:
+    """Rewrite every call `pattern` finds, with `render` deciding the replacement.
+
+    Both translations below are the same scan: find a call, read its arguments by
+    balancing parens (see `call_arguments`), and emit something else in its place.
+    Only the emitted text differs, so the walk lives here and each caller supplies a
+    `render(match, arguments) -> str`.
+    """
+    out: list[str] = []
+    index = 0
+    while True:
+        match = pattern.search(text, index)
+        if not match:
+            out.append(text[index:])
+            return "".join(out)
+        out.append(text[index:match.start()])
+        arguments, close = call_arguments(text, match.end() - 1)
+        out.append(render(match, arguments))
+        index = close + 1
+
+
 def translate_atomics(text: str) -> str:
     """Rewrite the atomic family into its `Interlocked*` counterpart.
 
@@ -780,26 +879,16 @@ def translate_atomics(text: str) -> str:
     rather than translated into something that would not compile for a reason
     nothing here could explain. It is not used by this shader.
     """
-    out: list[str] = []
-    index = 0
-    while True:
-        match = ATOMIC.search(text, index)
-        if not match:
-            out.append(text[index:])
-            return "".join(out)
-        out.append(text[index:match.start()])
-        arguments, close = call_arguments(text, match.end() - 1)
+    def render(match: re.Match, arguments: list[str]) -> str:
         name = "Interlocked%s" % match.group(1)
         if match.group(1) == "CompareExchange":
-            sys.exit("FAIL -- atomicCompareExchange has no HLSL expression form "
-                     "(it needs an out parameter); translate it by hand if it is "
-                     "ever needed")
+            fail("atomicCompareExchange has no HLSL expression form "
+                 "(it needs an out parameter); translate it by hand if it is "
+                 "ever needed")
         if len(arguments) == 3:
-            call = "%s(%s[%s], %s)" % (name, arguments[0], arguments[1], arguments[2])
-        else:
-            call = "%s(%s)" % (name, ", ".join(arguments))
-        out.append(call)
-        index = close + 1
+            return "%s(%s[%s], %s)" % (name, arguments[0], arguments[1], arguments[2])
+        return "%s(%s)" % (name, ", ".join(arguments))
+    return rewrite_calls(text, ATOMIC, render)
 
 
 def translate_storage_access(text: str) -> str:
@@ -820,24 +909,16 @@ def translate_storage_access(text: str) -> str:
     arity that is not the fixed one is a loud failure, because a mismatch would
     otherwise be silently dropped on the floor here while ReShade rejected it.
     """
-    out: list[str] = []
-    index = 0
-    while True:
-        match = STORAGE_ACCESS.search(text, index)
-        if not match:
-            out.append(text[index:])
-            return "".join(out)
-        out.append(text[index:match.start()])
-        arguments, close = call_arguments(text, match.end() - 1)
+    def render(match: re.Match, arguments: list[str]) -> str:
         kind = match.group(2)
         if len(arguments) != STORAGE_ACCESS_ARITY[kind]:
-            sys.exit("FAIL -- tex%sD%s takes %d argument(s) in ReShade but %d were "
-                     "given; the call cannot be translated and would otherwise be "
-                     "dropped silently"
-                     % (match.group(1), kind, STORAGE_ACCESS_ARITY[kind], len(arguments)))
+            fail("tex%sD%s takes %d argument(s) in ReShade but %d were "
+                 "given; the call cannot be translated and would otherwise be "
+                 "dropped silently"
+                 % (match.group(1), kind, STORAGE_ACCESS_ARITY[kind], len(arguments)))
         addressed = "%s[%s]" % (arguments[0], arguments[1])
-        out.append(addressed if kind == "fetch" else "%s = %s" % (addressed, arguments[2]))
-        index = close + 1
+        return addressed if kind == "fetch" else "%s = %s" % (addressed, arguments[2])
+    return rewrite_calls(text, STORAGE_ACCESS, render)
 
 
 def entry_points(text: str) -> dict[str, str]:

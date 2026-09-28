@@ -22,6 +22,7 @@ for the concept, the store/restore pattern and the anti-bloom suppression belong
 | Path | Role |
 | --- | --- |
 | `Shaders/AutoMask.fx` | The shader: uniforms, render targets, pixel shaders, two techniques. |
+| `Shaders/AutoMask.fxh` | The shared verdict arithmetic both accumulators call, and nothing else. A **code** header — see below. |
 | `tools/verify_shaders.py` | Offline compile-and-cost check, and the prose-budget check for the docs. |
 | `tools/pyproject.toml` | The `uv` project the check runs under. Deliberately inside `tools/` — this is a shader project, not a Python one. |
 | `README.md` | End-user guide: placement order, how to tune, what it cannot do. |
@@ -33,12 +34,17 @@ for the concept, the store/restore pattern and the anti-bloom suppression belong
 | `docs/definitions.md` | Glossary of the vocabulary reused across the shader, the README and the docs. |
 | `docs/review.md`, `docs/drift-snap-review.md`, `docs/optical-flow.md` | Recorded design history and closed investigations. |
 | `docs/ui-isolation-options.md` | Options for reading interface as a region rather than per pixel, none of them scoped. What §6's instrument decides between. |
+| `docs/refactor-candidates.md` | The folds that landed in the shader and the check, what was considered and left, and what is deliberately not a candidate. |
 
-There is **no `.fxh` companion header and there deliberately never will be**. A header holds authored
-data — pixel tables, coordinates, stored colours — and this shader has none: every tuning value is a
-live slider, and the only preprocessor definitions are the structural switches below, which elide a pass
-rather than hold data. Configuration in a file the user edits and restarts would be a usability
-regression, so do not introduce one.
+The one companion header is **`Shaders/AutoMask.fxh`, and it holds code and nothing else**: the four
+functions both accumulators call, no uniform, `texture`, `sampler` or technique. A header of **authored
+data** — pixel tables, coordinates, stored colours, or a tuning value a user edits and restarts — is what
+this repo refuses, because every tuning value here is a live slider and configuration in a file would be
+a usability regression. The code header is not that: including it changes nothing about the panel, the
+targets or the bytecode, and it exists so the two accumulators cannot drift apart. It is included **after
+this file's uniforms and targets**, because the dialect has no forward declaration, and the check copies
+it into `tools/.work/` and holds it to the comment budget with the shader. **Both files must be dropped
+into the ReShade folder together**, which `README.md` says.
 
 There is no build system and no CI beyond the offline check, by design. Never vendor ReShade's headers.
 
@@ -128,6 +134,13 @@ graded against it goes off screen-wide.
   same name used again further down the list draws a second heading. A category can also carry no gate at
   all, purely to name a group — `Frame timing` does that for the four frame-count durations, which are
   never hidden. See `docs/editing-conventions.md`.
+- The **accumulator's state machine is written once**, in `Shaders/AutoMask.fxh`. `PS_Accum` and
+  `CS_Accum` differ only in how a texture is sampled and in the drift channel the compute path alone
+  carries, so the parts that sample nothing — the deadzone test, the premise, the decay step and the
+  published-mask read — are those shared functions. Every helper takes what it needs **already sampled**,
+  or the two paths' sampling forms would move onto each other's, and the drift terms stay behind
+  `AutoMaskCompute` in the `.fx`. The include sits after the uniforms and targets the helpers read, since
+  the dialect has no forward declaration. See `docs/refactor-candidates.md`.
 - `BUFFER_WIDTH`/`BUFFER_HEIGHT` are injected by ReShade at runtime, not defined here. Anything
   buffer-relative stays correct across resolutions; absolute pixel numbers do not.
 - Every pixel shader keeps `float4 pos : SV_Position` as its **first** parameter, even though no body

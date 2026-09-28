@@ -392,6 +392,11 @@ sampler AutoMap { Texture = texAutoMap; };
 	groupshared uint tileHole[AUTOMASK_TILE_GRID * AUTOMASK_TILE_GRID];
 #endif
 
+//The shared verdict arithmetic, in its own header. It holds no coordinate, colour or table, only the
+//functions both accumulators call. Included here because the dialect has no forward declaration, so a
+//call may only name what is already declared. Both files go into the ReShade folder together.
+#include "AutoMask.fxh"
+
 //Pixel shaders
 #if AutoMaskCompute == 1
 	//Per-group tallies, so the counter and the histogram take a handful of adds per group rather
@@ -472,41 +477,13 @@ sampler AutoMap { Texture = texAutoMap; };
 				earn = gain * AUTOMASK_SEED_SHARE;
 		}
 
-		float live_share = tex2Dlod(MotionStat, float4(0.5, 0.5, 0.0, 0.0)).r * 100.0;
-		bool drawn = live_share > AutoMaskMotion;
+		float live_share = tex2Dlod(MotionStat, float4(0.5, 0.5, 0.0, 0.0)).r;
+		bool drawn = AutoMaskDrawn(live_share);
+		bool inDeadzone = AutoMaskInDeadzone(texcoord, drawn);
 
-		bool inDeadzone = false;
-		if (AutoMaskDeadzone && AutoMaskDeadzoneWidth > 0.0 && AutoMaskDeadzoneHeight > 0.0){
-			float rx = AutoMaskDeadzoneWidth * 0.005;
-			float ry = AutoMaskDeadzoneHeight * 0.005;
-			float2 offset = float2(texcoord.x - 0.5, texcoord.y - AutoMaskDeadzoneY * 0.01);
-			if (dot(offset / float2(rx, ry), offset / float2(rx, ry)) <= 1.0){
-				inDeadzone = !AutoMaskDeadzoneMotionOnly || drawn;
-			}
-		}
-
-		if (stable > 0.5 && !inDeadzone){
-			held = max(held - 0.5, 0.0);
-			if (drawn){
-				if (conf < 0.0){
-					conf = min(0.0, conf + cost);
-				} else {
-					conf = min(1.0, conf + earn);
-				}
-			}
-		} else if (drawn && held < AutoMaskForget && !inDeadzone){
-			held += 1.0;
-		} else {
-			conf = conf - cost * (1.0 - stable);
-			if (AutoMaskMoveMemory > 0.0){
-				conf = min(conf, -cost * AutoMaskMoveMemory * (1.0 - stable));
-			}
-		}
-
-		if (inDeadzone){
-			conf = min(conf, 0.0);
-			held = 0.0;
-		}
+		float2 state = AutoMaskDecay(conf, held, stable > 0.5, drawn, inDeadzone, earn, cost);
+		conf = state.x;
+		held = state.y;
 
 		//Count first, then reduce, so a group agrees on the tallies once every thread has added to
 		//them. Both are tallied in groupshared, so the screen costs a handful of adds per group
@@ -652,7 +629,7 @@ sampler AutoMap { Texture = texAutoMap; };
 		//over a *stopped* world, so while the world is being drawn every moving cell is that drawing and
 		//none of it is an arrival. Without this the class is simply "what moved", which on a camera pan is
 		//the whole screen -- the screen-wide orange wash in the screenshots.
-		bool stopped = tex2Dlod(MotionStat, float4(0.5, 0.5, 0.0, 0.0)).r * 100.0 <= AutoMaskMotion;
+		bool stopped = !AutoMaskDrawn(tex2Dlod(MotionStat, float4(0.5, 0.5, 0.0, 0.0)).r);
 		//A cell is mask before it is an arrival candidate: a wide change inside a region the mask
 		//already covers is that region being redrawn, not a panel appearing over it.
 		tileState[cell] = masked >= AUTOMASK_TILE_HITS ? 1u
@@ -830,45 +807,13 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	}
 
 	//Whether the world is being drawn, measured on the previous frame.
-	float live = tex2D(MotionStat, float2(0.5, 0.5)).r * 100.0;
-	bool drawn = live > AutoMaskMotion;
+	float live = tex2D(MotionStat, float2(0.5, 0.5)).r;
+	bool drawn = AutoMaskDrawn(live);
+	bool inDeadzone = AutoMaskInDeadzone(texcoord, drawn);
 
-	bool inDeadzone = false;
-	if (AutoMaskDeadzone && AutoMaskDeadzoneWidth > 0.0 && AutoMaskDeadzoneHeight > 0.0){
-		float rx = AutoMaskDeadzoneWidth * 0.005;
-		float ry = AutoMaskDeadzoneHeight * 0.005;
-		float2 offset = float2(texcoord.x - 0.5, texcoord.y - AutoMaskDeadzoneY * 0.01);
-		if (dot(offset / float2(rx, ry), offset / float2(rx, ry)) <= 1.0){
-			inDeadzone = !AutoMaskDeadzoneMotionOnly || drawn;
-		}
-	}
-
-	if (stable > 0.5 && !inDeadzone){
-		//Still, so pay half a frame of the bridge back rather than ending it.
-		held = max(held - 0.5, 0.0);
-		//A drawn world turns stillness into interface: repay debt, then earn.
-		if (drawn){
-			if (conf < 0.0){
-				conf = min(0.0, conf + cost);
-			} else {
-				conf = min(1.0, conf + earn);
-			}
-		}
-	} else if (drawn && held < AutoMaskForget && !inDeadzone){
-		//Bridge brief animation before decay starts.
-		held += 1.0;
-	} else {
-		//Decay confidence and bank move debt: the fall never waits on the world being drawn.
-		conf = conf - cost * (1.0 - stable);
-		if (AutoMaskMoveMemory > 0.0){
-			conf = min(conf, -cost * AutoMaskMoveMemory * (1.0 - stable));
-		}
-	}
-
-	if (inDeadzone){
-		conf = min(conf, 0.0);
-		held = 0.0;
-	}
+	float2 state = AutoMaskDecay(conf, held, stable > 0.5, drawn, inDeadzone, earn, cost);
+	conf = state.x;
+	held = state.y;
 
 	//.a carries whether the verdict could speak at all, which the two reduce passes below read: the
 	//share is taken over the pixels that flag, so a black or clipped region cannot dilute it.
@@ -1006,7 +951,7 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 //Stores masked UI pixels before downstream processing.
 float4 PS_Store(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
-	float mask = step(0.5, tex2D(AutoMap, texcoord).r);
+	float mask = AutoMaskPublished(texcoord);
 	return float4(tex2D(ReShade::BackBuffer, texcoord).rgb * mask, 1.0);
 }
 
@@ -1021,7 +966,7 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 	float4 PS_AntiBloom(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	{
 		float3 frame = tex2D(ReShade::BackBuffer, texcoord).rgb;
-		float mask = step(0.5, tex2D(AutoMap, texcoord).r);
+		float mask = AutoMaskPublished(texcoord);
 		return float4(frame * (1.0 - mask), 1.0);
 	}
 #endif
@@ -1065,7 +1010,7 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 		float4 accum = tex2D(AutoAccumA, texcoord);
 		float verdict = step(0.5, accum.r);
 		float changed = saturate(accum.b * UIDebugGain);
-		float drawn = tex2D(MotionStat, float2(0.5, 0.5)).r * 100.0 > AutoMaskMotion;
+		float drawn = AutoMaskDrawn(tex2D(MotionStat, float2(0.5, 0.5)).r);
 		float screen = drawn ? 1.0 : 0.0;
 
 		//The compute path packs the tile view's own colour in .rgb and the screen state in .a, so one map
@@ -1098,7 +1043,7 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 {
 	float3 live = tex2D(ReShade::BackBuffer, texcoord).rgb;
 	float3 stored = tex2D(AutoFrame, texcoord).rgb;
-	float mask = step(0.5, tex2D(AutoMap, texcoord).r);
+	float mask = AutoMaskPublished(texcoord);
 	float3 color = lerp(live, stored, mask);
 
 	#if AutoMaskDiagnostics == 1

@@ -36,6 +36,11 @@ check:
   its code — do not "tidy" it back into the warning shape. A `clipped` accumulator declared `float3` makes
   `clipped == 0.0` a three-wide test whose `&&` truncation is X3206, so it is a `float` (the `all()` answer
   is one value, not one per channel). It is an outright bug in the log rather than a cosmetic preference.
+- **The full identity check is the strongest evidence this tool offers, and it is how a behaviour-neutral
+  change is verified.** `check --hashes --opcodes` is run before and after, and every one of the 82 entry
+  points' bytecode sha256 and instruction count must come out identical — stronger than "the off path is
+  unchanged", because it covers the compute path too. `docs/refactor-candidates.md` records the shared
+  helpers that were folded on that evidence and what was deliberately left.
 - **It must fail loudly on missing data.** An earlier version of the companion tool reported a clean pass
   while emitting no bytecode at all, because a missing hash compares equal to another missing hash. Eight
   cases must keep exiting non-zero, each exercised by hand before committing a change here: an empty
@@ -45,7 +50,11 @@ check:
   sizes; a variant list carrying two entries under one name, which would show the same combination
   twice and leave the other uncompiled — coverage read off a report that does not have it; a call to
   an intrinsic `fxc` implements but ReShade does not; and an identifier that is a reserved word in
-  ReShade's lexer though not in HLSL, both below.
+  ReShade's lexer though not in HLSL, both below. A **ninth** came with the header: `AutoMask.fx`
+  `#include`s `AutoMask.fxh`, so a header deleted from `Shaders/` must fail — and the workspace is
+  emptied of stale copies before each run precisely so it does, since with last run's copy left in
+  `tools/.work/` the include would resolve and the check would report a clean pass for a shader that
+  cannot load. Exercise that one by deleting the `.fxh` after a passing run and checking it still fails.
 - **A spelling the tool rewrites cannot be checked by compiling.** Storage declarations are translated to
   `RWTexture*` before fxc sees them, so a keyword ReShade would reject compiles in the check regardless.
   That already bit: a lowercase `storage2d` passed every variant and failed in ReShade with a bare X3000
@@ -104,10 +113,11 @@ restate the sentence before them. `--list` prints each phrase with its reason.
 - Exercise it by hand before committing a change to the list: add a refused phrase to a doc and it must
   exit non-zero naming the phrase, then add `prose-ok` on that line and it must pass.
 - **The same run covers the HLSL half of the budget**, which the phrase list cannot: a `//` comment block
-  in any `Shaders/*.fx` longer than `COMMENT_BLOCK_MAX` (4 lines) is refused the same way, because for the
-  shader "short and sparse" is a number of lines and nothing else about it is machine-readable. Adjacent
-  `//` lines are one block, so wrapping a comment lengthens it rather than spreading it; the credit block
-  at the head of the shader is exempt by its `////...` fence, and `prose-ok` inside a block skips it.
+  in any `Shaders/*.fx` **or `*.fxh`** longer than `COMMENT_BLOCK_MAX` (4 lines) is refused the same way,
+  because for the shader "short and sparse" is a number of lines and nothing else about it is
+  machine-readable. Adjacent `//` lines are one block, so wrapping a comment lengthens it rather than
+  spreading it; the credit block at the head of the shader is exempt by its `////...` fence, and
+  `prose-ok` inside a block skips it.
 - The four blocks that predate the rule carry `prose-ok` rather than being cut: each was reviewed and
   earns its length, and a rule that demanded rewriting them would have been the wrong rule. The same four
   are exercised by hand as the rule's own tests — 5 lines must fail naming the range, 4 must pass, and
@@ -121,7 +131,9 @@ The compile check needs `fxc.exe`, which is a Windows binary run under WSL:
   `/mnt/c/Program Files (x86)/Windows Kits/10/bin/*/x64/fxc.exe`.
 - Paths are translated with `wslpath -w` before being handed to `fxc`.
 - The source must be preprocessed with these defined, because ReShade injects them and `fxc` will not
-  compile without them:
+  compile without them. `Shaders/AutoMask.fxh` and the shader are both copied into `tools/.work/` first,
+  since the include resolves against the including file's own directory, and any stale `.fx`/`.fxh` this
+  repository does not have is removed, so a deleted header cannot resolve against last run's copy:
 
   ```hlsl
   #define __RESHADE__ 52000

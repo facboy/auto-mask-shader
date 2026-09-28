@@ -128,8 +128,11 @@ are listed under it.
   stable)`.
 - **clamp** — confidence is bounded to `[-cost × AutoMaskMoveMemory, 1.0]`, so debt has a floor and
   credit a ceiling.
-- **state machine** — the branch structure of `PS_Accum`, which `CS_Accum` reproduces verbatim
-  (`docs/compute-path.md`).
+- **state machine** — the branch structure of `PS_Accum`, whose shared parts `CS_Accum` calls as the same
+  helpers declared in `Shaders/AutoMask.fxh` (`docs/compute-path.md`).
+- **shared helper** — one of the four functions `Shaders/AutoMask.fxh` holds: the deadzone test, the
+  premise, the decay step and the published-mask read. Each takes what it needs sampled already, so
+  neither path's sampling form moves onto the other's (`docs/refactor-candidates.md`).
 - **bank** — two senses, told apart by the object. Of *scenery*: wrongly taken into the mask as
   interface, i.e. kept protected because neither comparison caught it — "the sky is banked". Of a *cost*
   or *debt*: accrued — "the debt it banks". Both are about laying something away
@@ -393,11 +396,18 @@ durations — are the `Frame timing` section.
 - **`strip_for_fxc`** — the check's rewrite of the dialect into HLSL before `fxc` sees it (`storage2D`,
   `tex2Dfetch`/`tex2Dstore`, barriers, the `atomic*` family). It is also why a clean compile says nothing
   about those spellings: they are pinned by the tool instead.
+- **workspace sources** — the shader *and* its `.fxh`, copied into `tools/.work/` before preprocessing,
+  since the include resolves against the including file's directory. A copy left from an earlier run is
+  deleted first, so a removed header fails loudly rather than resolving from a stale copy.
+- **identifier check (`--hashes`)** — the bytecode sha256 of every entry point, before and after a change.
+  All 82 coming out identical is what establishes that a refactor changed no code, and it covers the
+  compute path as well as the pixel one.
 - **pinned spelling** — a spelling the check refuses rather than translates — a lowercased storage
   keyword, a wrong argument count, the bracket form the translation produces, and `fmod` — because a
   rewrite would hide the failure from `fxc` and let it reach a game.
 - **loud failure** — the check's contract that missing data exits non-zero rather than reporting a clean
-  pass. `docs/verification.md` names the eight cases and the construct that exercises each.
+  pass. `docs/verification.md` names the eight cases and the construct that exercises each; a ninth is a
+  shader whose own header has gone missing from `Shaders/`.
 - **reserved word** — a word ReShade's lexer emits as a token rather than an identifier (`sample`,
   `new`, `this`, `half`), while HLSL has no such token, so `fxc` compiles it and ReShade fails the load
   with X3000. `RESERVED_WORD` refuses it, read from ReShade's own lexer rather than guessed.

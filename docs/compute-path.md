@@ -13,7 +13,7 @@ deliberately does not carry, and the histogram's `AUTOMASK_STEP_MAX`×1 `r32u` p
 feeds — a few dozen bytes together, against 1 KB when the bins were one per level — which the coarse grid
 cannot take at all, because 1,024 taps cannot tell a level of dithering from a level of real motion.
 
-- `CS_Accum` is `PS_Accum`'s state machine verbatim, plus one count: every pixel it calls changed adds to
+- `CS_Accum` is `PS_Accum`'s state machine plus one count: every pixel it calls changed adds to
   a `groupshared` tally, and one thread per **group** adds that tally to a single 1×1 `r32u` counter, so
   the global counter takes thousands of adds a frame instead of millions. That thread is picked with
   `SV_GroupIndex` (`gi == 0`); `SV_DispatchThreadID` is the *global* thread address, so testing that for
@@ -212,7 +212,9 @@ Follows from what each pass reads:
 
 1. `PS_Accum` — builds the new confidence against the *previous* frame, **before** the history store, and
    applies the world-drawn premise by reading the statistic the previous frame left behind. With
-   `AutoMaskCompute` on this pass is `CS_Accum` instead: same slot, same work, plus the count. Admission
+   `AutoMaskCompute` on this pass is `CS_Accum` instead: same slot, same work, plus the count — the
+   deadzone test, the premise, the decay step and the published-mask read come from `Shaders/AutoMask.fxh`,
+   so the two paths cannot drift apart in what they decide. Admission
    rides here — four taps on the verdict channel it already holds, behind `AutoMaskNeighbour`, and the
    same four on both paths.
 2. The two sub-resolution passes that average the still flag into the share of the screen being redrawn —
