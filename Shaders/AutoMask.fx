@@ -84,6 +84,9 @@ uniform float AutoMaskMoveMemory <
 //The isolation gate's line test: a line through a pixel must hold more than half its length, and the
 //smallest window is 3 across, so 3 is its whole length and a two-pixel cluster still reads as a speck.
 #define AUTOMASK_AXIS_MIN 3.0
+//Admission's seed rate: a pixel with no claimed neighbour earns this share of the usual rise, so a
+//region starts only from a pixel that holds still twice as long. Named so both accumulators halve alike.
+#define AUTOMASK_SEED_SHARE 0.5
 uniform float AutoMaskDilate <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Closing radius in pixels";
@@ -125,6 +128,16 @@ uniform float AutoMaskMotion <
 		ui_step = 0.25;
 	> = 2.0;
 #endif
+
+//Admission, the second spatial term and the one upstream of the verdict. A pixel no claimed neighbour
+//touches earns at half rate, so a region starts from whichever pixel holds still for twice the rise
+//and a lone still pixel cannot seed one. It reaches a genuinely new element, only later.
+uniform bool AutoMaskNeighbour <
+	__UNIFORM_SLIDER_BOOL1
+	ui_label = "Stop specks entering the mask";
+	ui_tooltip = "On, a still pixel with no mask beside it takes twice as long to be added.\nA lone speck of noise is not protected; a solid element still appears normally.\nOff, every still pixel is added at the same pace";
+	ui_category = "AutoMask";
+> = false;
 
 //RGB change deadband in whole levels out of 255, the smallest change counted as motion. It decides
 //only whether a pixel moved; what moving then costs is AutoMaskRise and AutoMaskFall's business. Last
@@ -445,6 +458,20 @@ sampler AutoMap { Texture = texAutoMap; };
 		float conf = prev.r;
 		float held = prev.g;
 
+		//Admission: a pixel no claimed neighbour touches earns at half rate, so a region starts only
+		//from a pixel that holds still for twice the rise. The cross is the same channel the isolation
+		//gate counts on, read a frame behind like the centre tap.
+		float earn = gain;
+		if (AutoMaskNeighbour){
+			float2 texel = float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT);
+			float support = step(0.5, tex2Dlod(AutoAccumA, float4(texcoord + float2(texel.x, 0.0), 0.0, 0.0)).r)
+			              + step(0.5, tex2Dlod(AutoAccumA, float4(texcoord - float2(texel.x, 0.0), 0.0, 0.0)).r)
+			              + step(0.5, tex2Dlod(AutoAccumA, float4(texcoord + float2(0.0, texel.y), 0.0, 0.0)).r)
+			              + step(0.5, tex2Dlod(AutoAccumA, float4(texcoord - float2(0.0, texel.y), 0.0, 0.0)).r);
+			if (support < 0.5)
+				earn = gain * AUTOMASK_SEED_SHARE;
+		}
+
 		float live_share = tex2Dlod(MotionStat, float4(0.5, 0.5, 0.0, 0.0)).r * 100.0;
 		bool drawn = live_share > AutoMaskMotion;
 
@@ -464,7 +491,7 @@ sampler AutoMap { Texture = texAutoMap; };
 				if (conf < 0.0){
 					conf = min(0.0, conf + cost);
 				} else {
-					conf = min(1.0, conf + gain);
+					conf = min(1.0, conf + earn);
 				}
 			}
 		} else if (drawn && held < AutoMaskForget && !inDeadzone){
@@ -789,6 +816,19 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	float conf = prev.r;
 	float held = prev.g;
 
+	//Admission, the same test as the compute path's: a pixel no claimed neighbour touches earns at the
+	//seed rate, so a region starts only from a pixel that holds still for twice the rise.
+	float earn = gain;
+	if (AutoMaskNeighbour){
+		float2 texel = BUFFER_PIXEL_SIZE;
+		float support = step(0.5, tex2D(AutoAccumA, texcoord + float2(texel.x, 0.0)).r)
+		              + step(0.5, tex2D(AutoAccumA, texcoord - float2(texel.x, 0.0)).r)
+		              + step(0.5, tex2D(AutoAccumA, texcoord + float2(0.0, texel.y)).r)
+		              + step(0.5, tex2D(AutoAccumA, texcoord - float2(0.0, texel.y)).r);
+		if (support < 0.5)
+			earn = gain * AUTOMASK_SEED_SHARE;
+	}
+
 	//Whether the world is being drawn, measured on the previous frame.
 	float live = tex2D(MotionStat, float2(0.5, 0.5)).r * 100.0;
 	bool drawn = live > AutoMaskMotion;
@@ -811,7 +851,7 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 			if (conf < 0.0){
 				conf = min(0.0, conf + cost);
 			} else {
-				conf = min(1.0, conf + gain);
+				conf = min(1.0, conf + earn);
 			}
 		}
 	} else if (drawn && held < AutoMaskForget && !inDeadzone){

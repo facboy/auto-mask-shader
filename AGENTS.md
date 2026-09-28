@@ -82,9 +82,15 @@ changing the verdict, the hold, the move memory, the clip exclusion or the accum
   no rise, no fall, no heal — while a moving pixel still falls. A stopped scene can only lose mask.
 - **The move memory is a duration** of still frames, negative in the accumulator's confidence, and 0
   restores the old behaviour exactly.
-- **The verdict carries no spatial term, and the isolation gate is the one exception.** A masked pixel is
-  kept only while enough still pixels surround it, counted on the verdict rather than on colour, over the
-  closing radius. It is the only thing that removes a pixel the verdict claimed, so it ships off.
+- **The verdict carries no spatial term of its own.** Two things add one. **Admission is the term upstream
+  of the verdict:** a pixel no claimed neighbour touches earns at `AUTOMASK_SEED_SHARE` of the rise, so a
+  region can only start from a pixel still for twice the rise and a lone speck cannot seed one — the
+  cheapest spatial prior, four taps against the verdict the accumulator already holds. `AutoMaskNeighbour`
+  gates it as a live checkbox inside `AutoMask`, because it owns no pass, shader or target; it is off by
+  default, so the mask is the verdict exactly as before. **The isolation gate is the term downstream:** a
+  masked pixel is kept only while enough still pixels surround it, counted on the verdict rather than on
+  colour, over the closing radius. It is the only thing that removes a pixel the verdict claimed, so it
+  ships off too.
 
 `docs/compute-path.md` holds what `AutoMaskCompute=1` swaps in — the exact motion count, the change-size
 histogram and auto-deadband, the `RGBA32F` drift channel, and the pass order inside `AutoMask`. The drift

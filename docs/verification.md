@@ -320,6 +320,23 @@ whether the reading you are looking at is current.
   (`tools/.work/`, not committed) and compared against an independent BFS labelling and flood over 300
   grids — 0 mismatches, after the probe caught a real bug in the first cut, a label spreading through
   cells that are not mask and collapsing every region into one.
+- **Admission, the speck rule, in the panel and in the mask.** The checkbox ships off, so the mask with
+  it clear must be **byte-identical** to the pre-change mask: the branch around the four taps is absent
+  while the uniform is false, so a mask that differs is the taps having been taken unconditionally. It
+  lives as a single row of **AutoMask** rather than a gated category — it owns no second setting to hide —
+  so after any move of the uniform, the row drawn as **Stop specks entering the mask** is what to look for,
+  and a second **AutoMask** heading is the failure to look for. With it on:
+  a lone still speck that the verdict would claim must be claimed *later*, not never, and a solid element
+  must arrive at nearly its usual time once a couple of its pixels have landed — the interior has a
+  neighbour and earns at the full rate, so an element that shows up visibly late is the seed rate having
+  been applied to the whole region rather than to its first pixels. Its two properties are checkable
+  off-GPU and were, in `tools/.work/neighbour_probe.py` (not committed), which mirrors the accumulator's
+  arithmetic: with the rule clear both a lone and a supported pixel still cross the step at the rise
+  (30 frames at the default), and with it set the supported pixel is unchanged while the lone one takes
+  twice that (60). The taps are the four-neighbour cross on the verdict channel, so the count is of the
+  shader's own still/moving reading, not of colour — a still element with a hard internal edge must be
+  unaffected. The same four taps are written into the pixel and compute accumulators, so the two paths
+  must agree.
 - The deadzone's gate, in the panel and in the mask: the checkbox ships off, so on first load the category
   must show the gate alone with the four settings hidden under it, and ticking it must reveal them — the
   gate is the one checkbox ReShade never hides, so a still-visible slider while it is clear is the

@@ -4,12 +4,12 @@
 
 What element-level isolation could do better, given that the depth buffer is not available. **Options, not
 a plan**: nothing here is scoped or approved. §5.1's directional densities **have since been implemented**
-— the four-axis form, described in that section and in `docs/core-model.md` — and §5.6's tile map with
-§6's readings on it **has since been built**, as the instrument that decides the rest. What building and
-watching that instrument settled is in §5.2, §5.4 and §6: the arrival reading fires, but neither it nor
-§5.2's per-pixel fill is worth what building on it would cost — §5.2's was built as a probe and watched
-in a game, §5.4's is judged against the premise it would have to break. The other options stand as
-written.
+— the four-axis form, described in that section and in `docs/core-model.md` — §5.6's tile map with
+§6's readings on it **has since been built**, as the instrument that decides the rest, and §5.3's
+admission test **has since shipped**. What building and watching that instrument settled is in §5.2,
+§5.4 and §6: the arrival reading fires, but neither it nor §5.2's per-pixel fill is worth what building
+on it would cost — §5.2's was built as a probe and watched in a game, §5.4's is judged against the
+premise it would have to break. The other options stand as written.
 
 Companions: `docs/core-model.md` (the verdict the isolation rides on), `docs/compute-path.md` (the
 compute path most of this would live in), `docs/optical-flow.md` (the one instrument already built,
@@ -175,6 +175,21 @@ Its failure mode is a genuinely new element with no mask region anywhere near it
 door: an arrival event (§5.4) or a high-confidence seed. It also makes the isolation gate's job much
 smaller, by not admitting most of what the gate currently has to remove.
 
+**Shipped, with the seed as the second door.** A pixel with no claimed neighbour is not refused but
+*delayed*: it earns at half the rise (`AUTOMASK_SEED_SHARE`), so a region can only start from a pixel
+that holds still for twice `AutoMaskRise`, and a lone speck has nothing to grow from. That door is a
+share rather than a refusal for exactly the failure this section names — §5.4's arrival event is
+measured out, so nothing else can certify a wholly new element, and a refusal would leave one
+unmaskable until mask happened to touch it. The delay lets any element arrive on its own evidence,
+twice as late.
+
+It is four taps on the verdict channel the accumulator already holds, behind the live checkbox
+`AutoMaskNeighbour` inside `AutoMask` — no pass, shader or target, so no definition, by the deadzone's
+rule. Both doors read the verdict rather than colour, and it runs *before* the isolation gate rather
+than instead of it: the gate still removes what the delay admitted. `docs/core-model.md` carries the
+design; an off-GPU probe (`tools/.work/`, not committed) holds the arithmetic — the lone pixel takes
+twice the rise, the supported one the rise, and the rule clear is identical to no rule at all.
+
 ### 5.4 Localise the premise, for arrivals only
 
 The recorded hole is the panel opening over an already-stopped world. A menu opening produces a signature
@@ -236,7 +251,7 @@ square tile. A square map — which is what a component reduction wants, and wha
 adds per group. A fixed-size target, in the `texMotionCoarse` 16×16 precedent, keeps it resolution-independent
 and small.
 
-This is the enabler for §5.4 and §5.7, and it is also the reduction §5.1's component test needs to start
+This is the enabler for §5.7 and §5.8, and it is also the reduction §5.1's component test needs to start
 from. The directional densities need none of it — their counts ride in the two closing passes already. It
 costs almost nothing, and it is also the natural home for a future *regional* accumulator, should the
 verdict ever be pooled spatially — the change most likely to reduce speck noise without touching the
@@ -352,10 +367,10 @@ open are settled against the code:
 | 5.1 | directional densities | §3.1 for axis and diagonal strokes; mid-slopes lapse as the radius rises | no new taps, riding the existing passes | live checkbox — **shipped, four-axis** |
 | 5.1 | connected-component area | §3.1 in any orientation | the passes are not boundable, measured | live checkbox, compute-only — **measured out** |
 | 5.2 | contour-bounded fill | §3.2 | fill + a small contour history | live checkbox — **bounded form built as a probe and measured out** |
-| 5.3 | non-isolated admission | speck seeding | one test at admission | live checkbox |
+| 5.3 | non-isolated admission | speck seeding | four taps on the verdict already in hand, and no new target | live checkbox — **shipped, with the seed as the second door** |
 | 5.4 | arrival detection | §3.3 | tile map + a patch test | live checkbox, compute-only — **measured out: the window is narrower than the rise it would unlock** |
 | 5.5 | weighted count / exact-still weighting | tuning sharpness | none | none, unless it proves out |
-| 5.6 | tile map | enables §5.4 and §5.7 | a pass, a 16×16 target and a 2×1 reading target | compute-only — **shipped with §6** |
+| 5.6 | tile map | enables §5.7 and §5.8 | a pass, a 16×16 target and a 2×1 reading target | compute-only — **shipped with §6** |
 | 5.7 | auto-placed deadzone | §3.4's manual tuning | off the tile map | override sliders stay |
 | 5.8 | alpha-composite ratio | reading only | off the tile map | diagnostics, compute-only |
 
@@ -374,5 +389,10 @@ separates. The connected-component area filter §5.1 ranked highest is measured 
 full resolution — the round count a labelling needs is set by the picture, not by a named bound — so the
 four-axis door answers §3.1 in its place.
 
-Of the rest, §5.3 is the cheapest and the only one that shrinks what the gate has to clean up; §5.5 needs
-a reading before it is a rule, and §5.7 and §5.8 ride the map.
+**§5.3's admission test is shipped.** The door it needed is the seed rather than an arrival: a pixel with
+no claimed neighbour earns at half the rise, so a region starts only from a pixel still for twice the
+rise. That is what makes it ship at all — §5.4's arrival was the other door this section named and it is
+measured out, so a plain refusal would leave a wholly new element unmaskable. It shrinks the isolation
+gate's job, which was its point.
+
+Of the rest, §5.5 needs a reading before it is a rule, and §5.7 and §5.8 ride the map.

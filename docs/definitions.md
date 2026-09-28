@@ -19,7 +19,13 @@ are listed under it.
   mask" always means the pixels of it do.
 - **speck / isolated pixel** — a pixel the verdict claims with too few still pixels around it to be
   interface: a stuck pixel, a lone sample in a noisy gradient. What the isolation gate drops.
-- **isolation gate / `AutoMaskIsolated`** — the one spatial term on the verdict, and the only thing that
+- **admission / `AutoMaskNeighbour`** — the spatial term upstream of the verdict: a pixel no claimed
+  neighbour touches earns at `AUTOMASK_SEED_SHARE` of the usual rate, so a region can only start from a
+  pixel still for twice the rise. Off, every still pixel earns alike. Shrinks the isolation gate's job
+  rather than duplicating it. Inside `AutoMask` as a live checkbox, off by default.
+- **seed rate** — `AUTOMASK_SEED_SHARE`, the `0.5` admission multiplies the rise by for a pixel with no
+  claimed neighbour. A share rather than a refusal, so a wholly new element still arrives, twice as late.
+- **isolation gate / `AutoMaskIsolated`** — the one spatial term on the verdict *that removes*, and the only thing that
   takes a pixel *out* of the mask the verdict put in. A masked pixel is kept while its neighbourhood holds
   `AutoMaskDensity` percent of still pixels, itself counted, over the isolation radius; the count is on the
   verdict and not on colour, so it is the opposite of the closing radius, which only grows the mask. Ships
@@ -252,6 +258,7 @@ durations — are the `Frame timing` section.
 | `AutoMaskEdge` | Luma step counted as a boundary | The luma difference, 0–255, past which that growth stops. |
 | `AutoMaskMotion` | Motion needed to trust stillness (percent) | Share of the screen that must change before stillness is credited. The premise. |
 | `AutoMaskDrift` | Drift horizon (seconds) | The drift average's memory, in seconds; `0` turns the comparison off. |
+| `AutoMaskNeighbour` | Stop specks entering the mask | Whether a pixel with no claimed neighbour earns at half rate, so a region starts only from a pixel still for twice the rise. |
 | `AutoMaskEps` | RGB step counted as a change | The deadband in whole levels out of 255; decides only whether a pixel moved. Last row of `AutoMask`, so it sits above the group that measures it. |
 | `AutoMaskAutoStep` | Auto-detect RGB step | Whether the deadband is measured rather than read from the slider. |
 | `AutoMaskNoiseFloor` | Noise floor (percent) | The share of the screen the walk's rule is set at; gated by the toggle above. |

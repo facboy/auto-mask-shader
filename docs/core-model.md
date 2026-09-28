@@ -101,11 +101,27 @@ verdict step divided by X, and the conversion keeps a hair above the exact share
 the half-precision accumulator crosses the step on the frame it should and not one either way. Keep
 `AutoMaskFall`'s frames at or under `AutoMaskRise`'s, or the mask lingers over moving scenery.
 
-### The isolation gate, which is the one spatial term
+### Admission, the spatial term upstream of the verdict
+
+The verdict is per pixel, so a lone still pixel is credited on the same evidence as a panel: a stuck
+pixel, a flat patch between two dithering regions, one lone sample in a noisy gradient. The isolation
+gate below removes such a pixel *after* the fact; admission stops most of it from being claimed at all.
+A pixel no claimed neighbour touches earns at `AUTOMASK_SEED_SHARE` of the usual rate, so a region can
+only start from a pixel that holds still for twice `AutoMaskRise`, and a lone speck has nothing to grow
+from. It is the cheapest spatial prior there is — four taps against the verdict the accumulator already
+holds, no pass and no target — and it shrinks the gate's job rather than duplicating it.
+
+The neighbour is read off the verdict channel, not colour, exactly as the gate counts it, so a HUD's
+own high-contrast interior still supports its pixels. Its failure mode is a genuinely new element with
+no mask region anywhere near it: the seed rate reaches it, only twice as late. That is the price of the
+door and it is why the rate is a share of the rise rather than a refusal.
+
+### The isolation gate, the spatial term that removes
 
 The verdict is per pixel and carries no spatial term, so a still pixel with no still pixel near it is
 protected on the same evidence as a panel: a stuck pixel, a flat patch between two dithering regions, one
-lone sample in a noisy gradient. The missing test is regional, and it belongs on the verdict rather than on
+lone sample in a noisy gradient. Admission above turns that into a delay for the pixel with no neighbour;
+the gate is what still removes one. The missing test is regional, and it belongs on the verdict rather than on
 colour — a neighbour counts toward a pixel only when the comparison itself calls it still. Colour similarity
 is the closing radius's own question and the wrong one here, since a HUD's edges are high-contrast while a
 speck's neighbourhood is whatever the scene happens to be.

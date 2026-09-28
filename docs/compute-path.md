@@ -212,7 +212,9 @@ Follows from what each pass reads:
 
 1. `PS_Accum` — builds the new confidence against the *previous* frame, **before** the history store, and
    applies the world-drawn premise by reading the statistic the previous frame left behind. With
-   `AutoMaskCompute` on this pass is `CS_Accum` instead: same slot, same work, plus the count.
+   `AutoMaskCompute` on this pass is `CS_Accum` instead: same slot, same work, plus the count. Admission
+   rides here — four taps on the verdict channel it already holds, behind `AutoMaskNeighbour`, and the
+   same four on both paths.
 2. The two sub-resolution passes that average the still flag into the share of the screen being redrawn —
    after the accumulate, since their only input is what it just wrote, and read on the next frame. With
    `AutoMaskCompute` on these two are gone, replaced by `CS_Finish`, which turns the exact count into the
