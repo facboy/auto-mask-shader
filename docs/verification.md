@@ -382,29 +382,3 @@ whether the reading you are looking at is current.
   shader's own still/moving reading, not of colour — a still element with a hard internal edge must be
   unaffected. The same four taps are written into the pixel and compute accumulators, so the two paths
   must agree.
-- **The alpha view, the reading §5.8 asked for, and what it needs a game for.** Like the tile view it
-  exists only with the compute path and the diagnostics overlay both on, so it must be absent — not merely
-  inert — with either switch off, and it must override the tile view where both are on rather than tint with
-  it. It tints **only the cells that moved below the frame's own rate**, and leaves everything at or above
-  that rate exactly as the game drew it: a cell at the rate *is* ordinary world, which is most of the
-  screen, and a view that painted it was reported from a game as a red wash. Brightness is how far below the
-  rate a cell sits, and the colour on top is the one binary — **red where no mask covers the cell, blue
-  where one does**. So a middling red over something you can see the world through is the case the reading
-  is for, and a screen that is uniformly red is the wash coming back. Four bars along the top are the
-  summary shares, the third of them the leak, and they are the number the option was gated on. **Toggling it
-  must leave the mask and the final image identical**, and it may not disturb the tile view's own drawing
-  when that is selected instead. Three of its properties are checkable off-GPU and were, in
-  `tools/.work/alpha_probe.py` (not committed), which mirrors the pass's arithmetic: an attenuated cell
-  lands in the band and counts as the leak while the same cell with mask on it does not, a cell the mask
-  covers is kept out of the rate it is read against, and **a mostly-still cell with only a couple of lit
-  taps stays in the band rather than reading as the frame's own rate** — the regression the first cut
-  shipped with, when the numerator summed every tap but the denominator counted only the lit ones. Its rate
-  is a mean over the grid rather than a fixed reference, so a game is where the things it cannot be checked
-  for are seen: **a see-through panel over moving, contrasty scenery should hold a middling red patch for as
-  long as it is up**, and a pan over open scenery should leave the picture almost untinted with the third
-  bar empty. Two failures a game already reported are worth re-checking rather than re-explaining: **world
-  reading red** is a cell below the frame's own rate for a reason other than translucency — dim scenery, or
-  a rate the panel itself has pulled down — and **an open menu reading bright** is a panel whose pixels move
-  at or above the frame's rate, where the reading says nothing because there is no attenuation to measure.
-  Faint panels and sub-level world motion read untinted rather than red, which is the comparison's floor
-  rather than a failure — the same one §5.5.1 was closed on.

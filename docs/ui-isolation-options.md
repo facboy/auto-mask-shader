@@ -14,8 +14,8 @@ view built to read it found the band under the protection line was dim scenery d
 comparison's resolution, which a weighted sum would keep *more* of rather than less — and its magnitude
 half **has since been closed on that same finding**, which names the very pixels it would charge fastest.
 What the instrument also settled is the shape of what is left: §5.7 is dropped with the manual region it
-would have seeded, and §5.8 turned out to need a magnitude the map does not carry — so its reading was
-built as its own pass, `CS_Alpha`, and the mechanism it is for still waits on a game.
+would have seeded, and §5.8's own reading — built, watched and removed — is measured out too, because the
+quantity it needs is not in any target.
 
 Companions: `docs/core-model.md` (the verdict the isolation rides on), `docs/compute-path.md` (the
 compute path most of this would live in), `docs/optical-flow.md` (the one instrument already built,
@@ -366,75 +366,48 @@ nothing to seed and is dropped with it: auto-placing a region nobody enables wou
 was deleted. The case it addressed is now an open cost in §3.4, and a future answer has to earn a region
 from the mask rather than from a slider.
 
-### 5.8 The alpha-composite signature — reading built, mechanism open
+### 5.8 The alpha-composite signature — measured out, and the reading removed
 
 The one avenue that could change the semi-transparent case. Semi-transparent UI composites as
 `pixel = α · ui + (1 − α) · world`, so its frame-to-frame change is the world's change *attenuated by a
-spatially constant factor*: the ratio of a pixel's motion to its neighbourhood's motion carries the `α`.
+spatially constant factor*, and the ratio of a pixel's motion to its neighbourhood's motion was to carry
+the `α`.
 
 **The instrument it needs is not the one §5.6 built.** That claim — "a local motion statistic, §5.6's
 tile map" — did not survive the code. `CS_Tile` accumulates *coverage*, never magnitude: `masked +=
 step(0.5, …)` and `wide += step(AUTOMASK_TILE_WIDE, …)` are counts of taps over a threshold, and a share
 of a region that changed cannot form a ratio of a pixel's motion to its neighbourhood's. The magnitude
 does exist on the compute path, in the change-size histogram behind the auto-deadband — but that is one
-distribution for the whole frame, with no spatial locality at all. Spatiality and magnitude are held in
-two separate places, and this needs both at once, so its first form is **a new statistic**: a local mean
-of the accumulator's graded motion, with its own small target. The map is where it would live, not the
-reading it can be read off.
+distribution for the whole frame, with no spatial locality at all. So its first form was **a new
+statistic**, and it was built as one: `CS_Alpha`, a pass over the tile map's own grid, each cell the mean
+of the accumulator's graded motion over the taps that moved at all, taken against the grid's own rate over
+the cells the mask does not touch.
 
-**Built, in that corrected form.** `CS_Alpha` is a second pass over the same 16×16 grid, guarded with the
-tile map because it is the same kind of instrument. Each cell is the mean of the accumulator's graded
-motion over the taps that moved at all, taken against the grid's own rate over the cells the mask does not
-touch — and the tap floor matters more than the cell size: a tap under `AUTOMASK_ALPHA_LIT` has no change
-to attenuate, so it is left out of both sides of the ratio, while a cell under `AUTOMASK_ALPHA_BAND` of the
-rate is the band the view draws — a cell at the rate is world. The part of that band with no mask on it is
-the leak the reading exists to size.
+**It was then watched in a game and removed.** Three cuts were needed before it drew anything honest — a
+fixed class boundary, then a ramp over the whole grid, then the band alone — and the defects in those were
+the reading's, not the display's: the ratio must be a mean over *lit taps on both sides*, or a mostly-still
+cell is inflated into the frame's own rate, and a cell with no lit taps stores a ratio of zero, which paints
+as the *brightest* thing on screen. With all three fixed the display was honest and the option was still
+not: the quantity it reads cannot carry the answer.
 
-**Watched in a game, the class form failed and two fixes followed.** The first cut drew a fixed class per
-cell, and a game showed the boundary was the wrong instrument — world at nine tenths of the frame's own
-rate read as bright as world over it — and then that a ramp over the whole grid painted a red wash, because
-a cell *at* the rate is world and that is most of the screen. What survives both is the **band alone with a
-boundary**: the view tints only the cells below `AUTOMASK_ALPHA_BAND`, their brightness how far below the
-rate they sit, with the hue a binary — red where the mask misses the cell, blue where it covers it. The
-same run forced a third fix, in the arithmetic rather than the view: the numerator summed every tap while
-the denominator counted only the lit ones, so a cell whose taps mostly sat under the floor was inflated
-into the frame's own rate, reading still interface as world. Both sides are now the same mean over the lit
-taps. The four shares are still written as bars along the top, the leak the third of them.
+**The failure is the graded channel, and it is arithmetic rather than tuning.** The accumulator stores
+`smoothstep(deadband−1, deadband+2, maxDiff)`, which **saturates at one** — it is a certainty, not a
+magnitude. At the `AutoMaskEps` default of `1` a world change of one level reads `0.26` and a six-level one
+reads `1.0`, and a panel at 50% opacity reads half the world's change on that *curve*: so a panel is only
+detectable where the world behind it moves by roughly 2–5 levels a frame, below that the world's own small
+change puts the ratio in the band and a panel is indistinguishable from dim moving scenery, and above it
+both panel and world saturate to `1.0` and the attenuation is gone. Measured over that span, the ratio a
+50%-transparent panel produces runs from 0.29 (inside the band, i.e. a false positive) through 0.50 to
+1.00 (invisible). The three symptoms reported from a game are exactly this: **dim scenery reading as
+attenuation**, **an open menu reading as world**, and **a still panel or permanent UI reading as nothing at
+all**, because a panel with no world movement behind it has no lit taps and no ratio.
 
-**The cell is as local as the instrument was going to get, so one caution stands rather than two.** The
-160×90 px cell was the objection to a mean over a cell, and it is real for a panel thinner than one: its
-cell averages into the scenery beside it and the leak reads small. What it does *not* need is the
-*regional accumulator* the first draft of this section demanded — that was for turning an α region into a
-mask, which is the mechanism, not the reading, and it is the mechanism that stays unscoped. §5.5.2's
-per-pixel history is deliberately not reused either: nothing per-pixel changes hands until a game says the
-regional form is worth it.
+That is the same class of result as §5.2 and §5.4: not a feature to add, an avenue to stop. The instrument
+was therefore removed with the mechanism still unbuilt — no `CS_Alpha`, no grid, no share target, no view —
+and the semi-transparent case stays the documented limit it always was (`README.md`, `docs/core-model.md`
+§"What the signal cannot do"). A future proposal has to start by saying where a **proportional** per-pixel
+or per-cell motion magnitude would come from, since the channel this one read saturates by construction.
 
-**The ratio also goes blind exactly where the limitation bites.** The change is `(1 − α)` of the world's,
-so a faint panel leaves a residue under the deadband and the composite reads *bit-still* — the same
-one-frame, one-level floor `docs/optical-flow.md` §3 measured and §5.5.1 confirmed. Sub-level world motion
-is the same floor from the other side: panel and world are both bit-identical and the ratio is `0/0`. It
-survives only over contrasty, moving world — a translucent map over a panning bright scene — which is
-therefore the regime the reading has to be taken in. There dither and TAA inflate the numerator for their own
-reasons — the confound named here, and the same wander the drift channel reads as drift, which is why a
-flickering HUD is given up on that path (`README.md`).
-
-**What is left is the game, not the instrument.** The reading is built and the mask still reads none of it,
-which is the order this repo keeps: a mechanism only if a real game says so, and the flow probe is still the
-precedent. The run that produced the ramp also produced the caveat the flow probe's own result carries: two
-of the three symptoms were world reading red and an open menu reading bright, and neither is the instrument
-being broken. **Dim drifting scenery sits below the frame's rate** for the reason §5.5.1 was closed on,
-which makes its red a false positive the reading cannot separate from a real attenuation — the same
-sub-resolution floor, now reached by a different route. **A panel whose pixels move at or above the frame's
-rate reads bright**, because the ratio is `(1 − α)` and the world behind an open menu is animating, so there
-is no attenuation in the picture to find: the ratio only speaks where it survives the deadband, which is the
-regime already named. So the reading separates the case *only* over contrasty moving world with the panel's
-own opacity high enough to stay under the rate, and outside that band it is not measuring the thing it is
-named for.
-
-Two things need eyes on them — a see-through panel over moving, contrasty scenery holding a middling red
-patch for as long as it is up, and a pan over open scenery reading uniformly bright with the leak bar empty.
-`docs/verification.md` carries both, and carries the two reported failures as things to re-check rather than
-explain away. What is genuinely unscoped is the mechanism: what to *do* with a leak once measured.
 
 ## 6. Measure first: the instrument
 
@@ -500,14 +473,13 @@ open are settled against the code:
   its own — the deadzone and isolation precedent — with the gate first in its own category. Anything with
   a pass or a target of its own gets a definition, per the same rule read the other way: so the tile view
   is the live toggle `UIDebugTile`, while the pass and targets behind it are the compute definition. The
-  tile map and the alpha reading are the two features here that need **two** definitions at once, since
-  each instrument is only usable where it can be seen.
+  tile map is the one feature here that needs **two** definitions at once, since the instrument is only
+  usable where it can be seen.
 - **A named bound** (`AUTOMASK_..._MAX`) for any capped iteration, as `AUTOMASK_DILATE_MAX` does, so the
   cap cannot drift from the loop that reads it.
 - **Cost honesty in `README.md`.** The drift channel's cost claim and the flow probe's both had to be
   corrected once already; a tile map plus a reconstruction loop is an *addition*, not a retune, and the
-  README says so in those words — and the alpha reading is a second pass of that kind beside it, with its
-  own grid and share target, so the README counts two.
+  README says so in those words.
 - **Verification stays a review pass plus the offline check** — `uv run tools/verify_shaders.py check`
   across all eight variants, pixel-path hashes unchanged, and no new warnings, since a warning is a
   failure here. None of this is verifiable without a game; §6's readings are what a game gets used for.
@@ -525,7 +497,7 @@ open are settled against the code:
 | 5.5.2 | magnitude weighting | tuning sharpness, and only where the deadband is 2+ | none for the rule; it charges the pixels 5.5.1 was measured on faster, and its own reading was dropped | none — **closed on 5.5.1's reading** |
 | 5.6 | tile map | enables §6's readings | a pass, a 16×16 target and a 2×1 reading target | compute-only — **shipped with §6** |
 | 5.7 | auto-placed deadzone | §3.4's manual tuning | off the tile map | — **dropped: the manual region was removed as unused** |
-| 5.8 | alpha-composite ratio | reading only | a local mean-magnitude statistic off the map: its own pass, a `RGBA32F` cell grid and a 1×1 share target | compute + diagnostics — **reading built; the mechanism behind it stays unscoped** |
+| 5.8 | alpha-composite ratio | reading only | a new per-cell magnitude statistic, built as a pass with a `RGBA32F` grid and a share target | compute + diagnostics — **measured out and removed: the graded channel saturates, so the ratio cannot separate a panel from moving world** |
 
 **The directional densities are shipped**, in the four-axis form that covers the diagonals too.
 **§5.6's tile map and §6's readings are shipped as one instrument step**, which is the order §6 asks for:
@@ -554,10 +526,10 @@ neither spatial rule can remove because it has the shape the gate is built to ke
 closed on the same reading: it charges exactly the bit-still pixels that finding implicates, faster than any
 other, so 5.5.1's result is its verdict rather than its cost.
 
-**§5.8's reading is built, and the option is still open behind it.** `CS_Tile` reads coverage — taps over
-a threshold — where the alpha-composite ratio needs a magnitude, so it is its own pass, `CS_Alpha`,
-guarded with the map. It measures each cell's mean graded motion against the grid's own rate over the
-cells the mask does not touch, and reports the share of the screen that is attenuated with no mask on it —
-the leak. What is left open is not the instrument but the mechanism: what to *do* with a leak once a game
-says it is worth attacking, which no reading can decide. It also goes blind where the limitation bites
-worst, since a faint panel leaves the composite bit-still and sub-level world motion makes the ratio `0/0`.
+**§5.8's reading was built and is measured out.** The ratio needs a magnitude, so it was its own pass,
+`CS_Alpha`, measuring each cell's mean graded motion against the grid's own rate. Watched in a game it read
+dim scenery as attenuation and an open menu as world, and the arithmetic says why: the accumulator's graded
+motion **saturates at one**, so a panel is only separable from moving world where the world behind it moves
+by about 2–5 levels a frame, and a still panel has no ratio at all. Same class of result as §5.2 and §5.4,
+so the instrument was removed with the mechanism still unbuilt. The semi-transparent case stays a
+documented limit, and a future proposal owes the repo a **proportional** magnitude first.

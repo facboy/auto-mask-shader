@@ -276,7 +276,6 @@ durations — are the `Frame timing` section.
 | `AutoMaskIsolation` | Isolation radius in pixels | How far that density and the line door are measured; its own radius rather than the closing's. |
 | `UIDebugMotion` | Diagnostics: motion view | Which reading the overlay draws: motion view (red) or verdict view (green). |
 | `UIDebugTile` | Diagnostics: tile view | Whether the overlay draws the tile map instead: a cell in its class, with the region readings as bars. Compute-only, since the map is. |
-| `UIDebugAlpha` | Diagnostics: alpha view | Whether the overlay draws the alpha reading instead: the attenuated band tinted by how far below the rate it sits, red where the mask misses it, with the four shares as bars. Compute-only, and overrides the tile view. |
 | `UIDebugGain` | Diagnostics: motion gain | Multiplier making a small change visible in the overlay. |
 
 - **structural switch** — a preprocessor definition that removes a feature from the compile: each is
@@ -306,10 +305,6 @@ durations — are the `Frame timing` section.
   top of the drift ramp. A bound on a value rather than on a loop, and the reason the horizon no longer
   sets how long a pan lingers. The clamp divides it onto the value's own scale: `now` is normalized and
   the reach is a level count, so left in levels it names 255 times what it means and holds nothing.
-- **`AUTOMASK_ALPHA_LIT` / `AUTOMASK_ALPHA_BAND`** — `0.25` and `0.5`: the alpha reading's two floors on
-the graded motion. A tap clears the first to enter a cell's mean, below the third a deadband-sized change
-lands on, so a quiet cell is not read as total attenuation; a cell under the second of the frame's own rate
-is attenuated, and the view tints only that band. Shares of the ramp, not level counts.
 - **the reset's wide step** — `max(deadband, 8.0)`, in the drift average's reset. Deliberately not a
   slider: it has to stay at or above the deadband so the two thresholds cannot collapse into one, and
   the `max` means it cannot if either cap is ever raised.
@@ -361,8 +356,7 @@ is attenuated, and the view tints only that band. Shares of the ramp, not level 
   below zero untinted, so the wide debt range a move leaves does not read as a halo. Read in a game it
   found a thin band over UI interiors and a much larger one over dim scenery with no interface in it:
   scenery drifting too slowly to change a pixel between two frames reads as still, and still is what the
-  verdict credits — §5.5.1 of `docs/ui-isolation-options.md`. The tile view overrides both per-pixel views,
-  and the alpha view overrides the tile view.
+  verdict credits — §5.5.1 of `docs/ui-isolation-options.md`. The tile view overrides both per-pixel views.
 - **tile map / tile view** — the picture as a fixed 16×16 grid, each cell sampled at `AUTOMASK_TILE_TAPS`²
   points, reduced to region readings: the mask's component count and largest share, the enclosed share,
   and the count and area of contiguous wide-change patches *while the world is stopped* — a wide change
@@ -371,14 +365,6 @@ is attenuated, and the view tints only that band. Shares of the ramp, not level 
   mask reads it; `UIDebugTile` draws it, and the five readings as bars are filled against
   `AUTOMASK_TILE_COUNT_MAX` for the two counts and their own share for the three. Compute-only, riding
   both the compute and diagnostics guards.
-- **alpha reading / alpha view** — the other coarse instrument, and the one aimed at semi-transparent
-  interface: a see-through element composites as the world's change times its alpha, so its pixels move
-  *below* the frame's own rate without holding still. Each cell's mean graded motion is taken against that
-  rate — the mean over the cells the mask does not touch — over the lit taps only, and a cell under
-  `AUTOMASK_ALPHA_BAND` with no mask on it is the leak. `CS_Alpha` writes a ratio per cell and the four
-  shares into a 1×1 target; `UIDebugAlpha` draws **only the band** — brightness how far below the rate a
-  cell sits, red where the mask does not cover it and blue where it does — because a cell at the rate is
-  most of the screen and tinting it is a wash a game reported as red over ordinary world.
 - **corner marker** — the bottom-left block drawn by `AutoMask_Restore`, not the overlay, so nothing
   downstream can paint over it: magenta while the world is drawn, yellow while it is not. It reads the
   state about to govern the mask, one frame ahead of the decision.
