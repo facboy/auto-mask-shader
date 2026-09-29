@@ -176,8 +176,12 @@ graded against it goes off screen-wide.
   and reading it as arrivals turned every cell of the grid red. The two *count* readings are stored against
   `AUTOMASK_TILE_COUNT_MAX`, not as a share of
   the grid: a count of a few regions against 256 cells would move a bar by one percent of its length. It rides both the compute and diagnostics guards, since it exists only to be watched,
-  and it is the first thing to build of `docs/ui-isolation-options.md` §6's readings, because the other
-  two need it.
+  and it was the first thing built of `docs/ui-isolation-options.md` §6's readings, because the other two
+  needed it. **It outlived them**: the options it was built to decide (§5.2's fill, §5.4's arrivals,
+  §5.8's ratio) are all closed, and it stays as the tuning instrument for the two spatial rules that
+  shipped — the isolation gate and the admission seed — which are region questions no per-pixel view can
+  show. Honest and free at rest, which is the test that keeps it: absent from every variant but the one
+  where the overlay and the compute path are both on.
 - The **confidence view is the same kind of instrument as the tile map, and deliberately not on it.**
   `UIDebugConfidence` grades every pixel by the accumulator's own confidence instead of deciding it, so
   the mass sitting just under the 0.5 line — what §5.5 of `docs/ui-isolation-options.md` would have

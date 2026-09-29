@@ -339,21 +339,31 @@ square tile. A square map — which is what a component reduction wants, and wha
 adds per group. A fixed-size target, in the `texMotionCoarse` 16×16 precedent, keeps it resolution-independent
 and small.
 
-This is the enabler §5.7 and §5.8 each assumed they needed. §5.7 is dropped with the manual region it would
-have seeded, and §5.8's reading was built beside the map rather than on it — the map's coverage count
-cannot carry a magnitude. The directional densities need none of it — their counts ride
+This was the enabler §5.7 and §5.8 each assumed they needed, and neither took it up: §5.7 is dropped with
+the manual region it would have seeded, and §5.8 was built as its own pass and then measured out, its
+coverage count unable to carry a magnitude. The directional densities need none of it — their counts ride
 in the two closing passes already. It is also the natural home for a future *regional* accumulator, should
 the verdict ever be pooled spatially — the change most likely to reduce speck noise without touching the
 per-pixel tuning.
 
-**Built, with §6's readings rather than on its own.** The map is `CS_Tile` and the readings are §6's three:
-it is a fixed 16×16 grid, 8 sample points per axis, and each cell is a *share* of itself rather than a
-tally of its pixels — which is what makes it resolution-independent without the per-pixel atomic the tally
-shape would need. The two design points this section left open are settled as: the readings are relaxations
-over that fixed grid, so their round count is `G × G`, a property of the grid rather than of the picture
-(§5.1's component filter had no such bound at full resolution — see the correction below); and the map is
-gated by the compute *and* diagnostics switches, because it is an instrument and exists only where it can
-be seen. It is read by nothing in the mask.
+**Built, with §6's readings, and kept for the spatial rules rather than for those options.** The map is
+`CS_Tile` and the readings are §6's three: it is a fixed 16×16 grid, 8 sample points per axis, and each
+cell is a *share* of itself rather than a tally of its pixels — which is what makes it resolution-independent
+without the per-pixel atomic the tally shape would need. The two design points this section left open are
+settled as: the readings are relaxations over that fixed grid, so their round count is `G × G`, a property
+of the grid rather than of the picture (§5.1's component filter had no such bound at full resolution — see
+the correction below); and the map is gated by the compute *and* diagnostics switches, because it is an
+instrument and exists only where it can be seen. It is read by nothing in the mask.
+
+**Its own questions are all settled; what keeps it is the shipped rules.** §5.2's fill, §5.4's arrivals
+and §5.8's ratio are all recorded above, so the map is no longer the first step of a plan and the options it
+was built to decide are closed. The isolation gate and the admission seed are still open to tuning, and both
+are region questions — how many pieces a mask has broken into, where its wide changes sit against the
+enclosing contour — that no per-pixel view can show. So its standing is the tuning instrument for those two
+settings. It earns that on the test the repo applies to any instrument: honest (its three readings were
+mirrored against an independent labelling and flood, 0 mismatches) and free at rest (`CS_Tile` is absent
+from all four of the compute-off and diagnostics-off variants, so it costs a pass, a grid and a share target
+only in the combination where it can be seen).
 
 ### 5.7 Auto-place the center deadzone — dropped with the manual region
 
@@ -495,13 +505,15 @@ open are settled against the code:
 | 5.4 | arrival detection | §3.3 | tile map + a patch test | live checkbox, compute-only — **measured out: the window is narrower than the rise it would unlock** |
 | 5.5.1 | confidence-weighted count | tuning sharpness | an overlay view off the accumulator, no pass or target | live checkbox inside the gate — **measured out: the band under the line is dim scenery drifting below the comparison's resolution, so weighting keeps more of it** |
 | 5.5.2 | magnitude weighting | tuning sharpness, and only where the deadband is 2+ | none for the rule; it charges the pixels 5.5.1 was measured on faster, and its own reading was dropped | none — **closed on 5.5.1's reading** |
-| 5.6 | tile map | enables §6's readings | a pass, a 16×16 target and a 2×1 reading target | compute-only — **shipped with §6** |
+| 5.6 | tile map | its three readings; kept as the tuning instrument for the shipped spatial rules | a pass, a 16×16 target and a 2×1 reading target | compute + diagnostics — **shipped, and kept after the options it was built to decide were settled** |
 | 5.7 | auto-placed deadzone | §3.4's manual tuning | off the tile map | — **dropped: the manual region was removed as unused** |
 | 5.8 | alpha-composite ratio | reading only | a new per-cell magnitude statistic, built as a pass with a `RGBA32F` grid and a share target | compute + diagnostics — **measured out and removed: the graded channel saturates, so the ratio cannot separate a panel from moving world** |
 
 **The directional densities are shipped**, in the four-axis form that covers the diagonals too.
 **§5.6's tile map and §6's readings are shipped as one instrument step**, which is the order §6 asks for:
-nothing is wired into the mask.
+nothing is wired into the mask. **It is also the one instrument here that outlived its brief** — every
+option it was built to decide (§5.2, §5.4, §5.7, §5.8) is now closed, and it stays because the two spatial
+rules that *did* ship are region questions it is the only view of.
 
 **§5.4's arrival reading is measured out too.** It fires, but the case it closes is a panel small enough to
 stay under the screen share, opened abruptly into a world that stopped silently, and the unlock would have

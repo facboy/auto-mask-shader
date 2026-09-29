@@ -325,9 +325,12 @@ whether the reading you are looking at is current.
   hole is open inside a protected element, and the arrival patches appearing exactly when something wide
   changes that the mask has not claimed. A count bar that stays empty over a mask visibly broken into a
   dozen specks is the scale — `AUTOMASK_TILE_COUNT_MAX` — being read wrong. The bars were the reading that
-  decided §5.2's fill and §5.4's arrival detection of `docs/ui-isolation-options.md`; both are now recorded
-  there as measured out, so a bar that never moves is no longer a pending question — but a bar that moves
-  the wrong way still is, since the readings are what the map is for. None of it may touch the mask:
+  decided §5.2's fill and §5.4's arrival detection of `docs/ui-isolation-options.md`; both are recorded
+  there as measured out, and so is §5.8, so a bar that never moves is no longer a pending question — but a
+  bar that moves the wrong way still is. Those bars are also what the map is now for: the two spatial rules
+  that ship — the speck rule and the isolated-pixel filter — are the questions still worth watching it
+  against, and a component bar that climbs while the filter is on is the reading to trust over the picture.
+  None of it may touch the mask:
   toggling the tile view on and off must leave the final image and the mask identical, which is the check
   that the instrument is read-only. Two of its properties are checkable off-GPU and were: the component,
   arrival-patch and enclosure readings were mirrored statement for statement in a scratch probe

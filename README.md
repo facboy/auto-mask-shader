@@ -132,9 +132,11 @@ The **tile view** is the one addition rather than a retune, and it is not free: 
 switched on, the compute path also runs a small pass over a 16×16 grid, and that pass is a fixed 256
 threads doing a few thousand shared-memory reads apiece per frame. It is nothing beside the full-screen
 passes, and with the diagnostics overlay compiled out the pass, its shader and its two small buffers are
-not in the shader at all — the same rule every other guarded part of this follows. What it is for is
-deciding, with eyes on a real game, whether the region filters it measures are worth their cost; it does
-not touch the mask in any way.
+not in the shader at all — the same rule every other guarded part of this follows. It is the one instrument
+here that outlived its brief: the open questions it was built to measure are all decided, and what it is
+now for is watching the two rules that ship — the speck rule and the isolated-pixel filter — which are
+about how much of the screen holds still *around* a pixel, and which no per-pixel view can show you. It
+does not touch the mask in any way.
 
 ## Seeing what it decided
 
