@@ -278,11 +278,10 @@ time:
   refinement: while the world is not being drawn the shader does not take stillness for interface at all,
   so a stopped scene cannot fill the mask in — it can only hold what it already had, or lose it.
 
-  Remembering movement cannot help here, and it is worth being clear why: the shader only knows what the
-  last two frames looked like. A wall you walked past was moving in the picture, so it is remembered and
-  cannot be grabbed when you stop; a wall you have been standing in front of the whole time never moved,
-  so there is nothing to remember — and on the evidence available it is genuinely indistinguishable from
-  a HUD.
+  Remembering movement cannot help here: the shader only knows what the last two frames looked like. A
+  wall you walked past was moving in the picture, so it is remembered and cannot be grabbed when you stop;
+  a wall you have been standing in front of the whole time never moved, so there is nothing to remember —
+  and on the evidence available it is genuinely indistinguishable from a HUD.
 - **A frame that is fully black or fully white never counts as still.** A colour pressed against the top
   or bottom of its range may be saturated rather than motionless, so a letterbox bar, a hard fade or a
   clipped sky earns nothing while it holds, and a screenful of it converges toward no mask rather than
@@ -360,14 +359,14 @@ time:
   one-pixel text or a hairline map border comes back with holes, lower the density or the radius, and if
   it keeps happening, leave the filter off.
 
-  One thing worth knowing before you tune this: **the closing radius decides how much there is to save.**
-  The filter judges the mask *after* the closing, and the closing thickens a hairline along its own length
-  — the luma boundary stops it growing across a contour, not along one. So with **Closing radius** at its
-  default `1` a one-pixel line is already wide enough for the square test to keep it on its own, and this
-  filter only comes into play at **Closing radius** `0`. That is where to look if you want to see what it
-  does: set the closing to `0`, which is its pass-through position, and a one-pixel hairline over moving
-  scenery goes from being dropped to being kept. A filter that only bites at one position of another
-  slider is worth knowing about rather than discovering.
+  **The closing radius decides how much there is to save.** The filter judges the mask *after* the
+  closing, and the closing thickens a hairline along its own length — the luma boundary stops it growing
+  across a contour, not along one. So with **Closing radius** at its default `1` a one-pixel line is
+  already wide enough for the square test to keep it on its own, and this filter only comes into play at
+  **Closing radius** `0`. That is where to look if you want to see what it does: set the closing to `0`,
+  which is its pass-through position, and a one-pixel hairline over moving scenery goes from being dropped
+  to being kept. A filter that only bites at one position of another slider is worth knowing about rather
+  than discovering.
 - **A wrong mask is worse than a wrong verdict.** Where a mask image toggles effects at the wrong moment,
   this one is continuously visible if it's wrong. If in doubt, tune toward a longer grace period and a
   tighter closing radius rather than an eager mask.

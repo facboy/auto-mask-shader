@@ -25,11 +25,11 @@ are listed under it.
   rather than duplicating it. Inside `AutoMask` as a live checkbox, off by default.
 - **seed rate** — `AUTOMASK_SEED_SHARE`, the `0.5` admission multiplies the rise by for a pixel with no
   claimed neighbour. A share rather than a refusal, so a wholly new element still arrives, twice as late.
-- **isolation gate / `AutoMaskIsolated`** — the one spatial term on the verdict *that removes*, and the only thing that
-  takes a pixel *out* of the mask the verdict put in. A masked pixel is kept while its neighbourhood holds
-  `AutoMaskDensity` percent of still pixels, itself counted, over the isolation radius; the count is on the
-  verdict and not on colour, so it is the opposite of the closing radius, which only grows the mask. Ships
-  off.
+- **isolation gate / `AutoMaskIsolated`** — the one spatial term on the verdict *that removes*, and the
+  only thing that takes a pixel *out* of the mask the verdict put in. A masked pixel is kept while its
+  neighbourhood holds `AutoMaskDensity` percent of still pixels, itself counted, over the isolation radius
+  — or while one line through it clears the line door. Both tests read the verdict and not colour, which
+  makes the gate the opposite of the closing radius, which only grows the mask. Ships off.
 - **neighbourhood / the box** — the `2r + 1` square the gate reads, `r` the isolation radius. A fixed-size
   box, so the density is the only thing that decides the outcome once the radius is set.
 - **density** — `AutoMaskDensity`, the share of that box that must be still, itself counted. A *share*
@@ -137,8 +137,7 @@ are listed under it.
   helpers declared in `Shaders/AutoMask.fxh` (`docs/compute-path.md`).
 - **shared helper** — one of the functions `Shaders/AutoMask.fxh` holds: the premise, the decay step, the
   published-mask read, the deadband, the pinned-colour count and the frame rate. Each takes what it needs
-  sampled already, so neither path's
-  sampling form moves onto the other's (`docs/refactor-candidates.md`).
+  sampled already, so neither path's sampling form moves onto the other's (`docs/refactor-candidates.md`).
 - **bank** — two senses, told apart by the object. Of *scenery*: wrongly taken into the mask as
   interface, i.e. kept protected because neither comparison caught it — "the sky is banked". Of a *cost*
   or *debt*: accrued — "the debt it banks". Both are about laying something away
@@ -360,9 +359,9 @@ durations — are the `Frame timing` section.
 - **tile map / tile view** — the picture as a fixed 16×16 grid, each cell sampled at `AUTOMASK_TILE_TAPS`²
   points, reduced to region readings: the mask's component count and largest share, the enclosed share,
   and the count and area of contiguous wide-change patches *while the world is stopped* — a wide change
-  during a camera move is that move, not an arrival. A cell is mask as soon as the mask touches it
-  — a footprint reading, not a filled one. An instrument only, nothing in the
-  mask reads it; `UIDebugTile` draws it, and the five readings as bars are filled against
+  during a camera move is that move, not an arrival. A cell is mask as soon as the mask touches it — a
+  footprint reading, not a filled one. An instrument only, nothing in the mask reads it; `UIDebugTile`
+  draws it, and the five readings as bars are filled against
   `AUTOMASK_TILE_COUNT_MAX` for the two counts and their own share for the three. Compute-only, riding
   both the compute and diagnostics guards.
 - **corner marker** — the bottom-left block drawn by `AutoMask_Restore`, not the overlay, so nothing

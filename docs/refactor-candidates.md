@@ -22,7 +22,7 @@ and what is deliberately not a candidate. **None of it changes what the shader o
 
 `CS_Accum` and `PS_Accum` were the same state machine written twice, differing only in how a sample is
 spelled (`tex2Dlod` with an explicit level against `tex2D`) and in the drift channel the compute path
-alone has. The duplicated parts now live as four functions in `Shaders/AutoMask.fxh` (more joined them
+alone has. The duplicated parts now live as three functions in `Shaders/AutoMask.fxh` (more joined them
 below):
 
 | helper | folds |
@@ -44,10 +44,9 @@ folds the values each site was deriving for itself:
 | `AutoMaskClipped(now, before)` | the pinned-colour count, with the compute path's two drift terms added at its call site |
 | `AutoMaskRate(frames)` | the `0.504 / max(slider, 1.0)` pair, one copy for `AutoMaskRise` and `AutoMaskFall` |
 
-`AutoMaskClipped` returns
-`int`, not `float`: as a float the helper's `all()` terms summed in integer and the total was converted,
-which reordered `iadd`/`itof` against `and`/`add` in `CS_Accum` and moved its hash — returning `int`
-restores the assembly exactly.
+`AutoMaskClipped` returns `int`, not `float`: as a float the helper's `all()` terms summed in integer and
+the total was converted, which reordered `iadd`/`itof` against `and`/`add` in `CS_Accum` and moved its
+hash — returning `int` restores the assembly exactly.
 
 The closing passes' luma and edge test is a fold of the same kind but **not** verdict arithmetic, so its
 helpers sit at file scope in `AutoMask.fx` beside the two passes: `AutoMaskLuma` holds the one copy of the
@@ -121,7 +120,7 @@ the ceremony around it:
   `max(floor(AutoMaskIsolation + 0.5), 1.0)` and `step(0.001, …)` are real pairs with bodies too small to
   name, so they are worth taking only alongside one of the folds above.
 - **Naming the 0.5 verdict step.** It is written as `step(0.5, …)` across `AutoMaskPublished`, both
-  closing passes, the tile sampler and the debug map — six entry points for a documentation gain, which
+  accumulators, both closing passes, the tile sampler and the debug map — a documentation gain only, which
   is the constant-merging §6 already refuses.
 - **`float2 texel = float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT)` in `CS_Accum`** where the pixel path
   writes `BUFFER_PIXEL_SIZE`: one value, two spellings, nothing else.

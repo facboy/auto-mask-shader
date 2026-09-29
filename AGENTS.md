@@ -12,10 +12,10 @@ holds still and lands in the mask; closed, that region shows moving world and dr
 hand-authored mask images — no coordinates to pick, no mask PNG to paint, no per-element configuration.
 The mask answers one question per pixel: **is this HUD or not**.
 
-Designed against Kaiser's `UIDetectMulti` pack, a *separate* project on disk
-(`/mnt/d/git/Reshade-Shaders`) sharing no code; `docs/review.md` there holds the design history. Credit
-for the concept, the store/restore pattern and the anti-bloom suppression belongs to Kaiser
-(UIDetectMulti) and Brussels1 (the original work). MIT (see `LICENSE`).
+Designed against Kaiser's `UIDetectMulti` pack, a *separate* project on disk (`/mnt/d/git/Reshade-Shaders`)
+sharing no code; `docs/review.md` there holds the design history. Credit for the concept, the
+store/restore pattern and the anti-bloom suppression belongs to Kaiser (UIDetectMulti) and Brussels1
+(the original work). MIT (see `LICENSE`).
 
 ## Repository layout
 
@@ -95,8 +95,8 @@ changing the verdict, the hold, the move memory, the clip exclusion or the accum
   gates it as a live checkbox inside `AutoMask`, because it owns no pass, shader or target; it is off by
   default, so the mask is the verdict exactly as before. **The isolation gate is the term downstream:** a
   masked pixel is kept only while enough still pixels surround it, counted on the verdict rather than on
-  colour, over the closing radius. It is the only thing that removes a pixel the verdict claimed, so it
-  ships off too.
+  colour, over its own isolation radius. It is the only thing that removes a pixel the verdict claimed, so
+  it ships off too.
 
 `docs/compute-path.md` holds what `AutoMaskCompute=1` swaps in — the exact motion count, the change-size
 histogram and auto-deadband, the `RGBA32F` drift channel, and the pass order inside `AutoMask`. The drift
@@ -138,10 +138,10 @@ graded against it goes off screen-wide.
   `CS_Accum` differ only in how a texture is sampled and in the drift channel the compute path alone
   carries, so the parts that sample nothing — the premise, the decay step, the published-mask read and
   the values they read (the deadband, the pinned-colour count, the frame rate) — are those shared
-  functions. Every helper takes what it needs **already
-  sampled**, or the two paths' sampling forms would move onto each other's, and the drift terms stay
-  behind `AutoMaskCompute` in the `.fx`. The include sits after the uniforms and targets the helpers
-  read, since the dialect has no forward declaration. See `docs/refactor-candidates.md`.
+  functions. Every helper takes what it needs **already sampled**, or the two paths' sampling forms
+  would move onto each other's, and the drift terms stay behind `AutoMaskCompute` in the `.fx`. The
+  include sits after the uniforms and targets the helpers read, since the dialect has no forward
+  declaration. See `docs/refactor-candidates.md`.
 - `BUFFER_WIDTH`/`BUFFER_HEIGHT` are injected by ReShade at runtime, not defined here. Anything
   buffer-relative stays correct across resolutions; absolute pixel numbers do not.
 - Every pixel shader keeps `float4 pos : SV_Position` as its **first** parameter, even though no body
@@ -166,38 +166,39 @@ graded against it goes off screen-wide.
   definition; a branch inside an existing pass does not.
 - The **tile map is an instrument, not a filter**: `CS_Tile` reads the picture as a fixed 16×16 grid,
   reduces it to a component count, an enclosed share and the wide-change patches, and nothing in the mask
-  reads any of it. Three readings decide whether it means anything, and each was got wrong once: a cell is
+  reads any of it. Four things decide whether it means anything, and each was got wrong once: a cell is
   interface when the mask **touches** it rather than fills it (a footprint reading; a share made thin UI
   read black), **wide is read off the accumulator's own graded motion** rather than a raw difference (the
   map's own test called a held UI edge red), and the enclosure growth is **conducted by every non-mask
   cell** with only world cells counted (letting the mask absorb it let a pan's wide cells read the screen
-  as enclosed). A fourth is the premise: **an arrival candidate exists only while the world is not being
-  drawn**, read off the share the verdict's own gate uses, because a camera pan is a screen-wide drawing
-  and reading it as arrivals turned every cell of the grid red. The two *count* readings are stored against
-  `AUTOMASK_TILE_COUNT_MAX`, not as a share of
-  the grid: a count of a few regions against 256 cells would move a bar by one percent of its length. It rides both the compute and diagnostics guards, since it exists only to be watched,
-  and it was the first thing built of `docs/ui-isolation-options.md` §6's readings, because the other two
-  needed it. **It outlived them**: the options it was built to decide (§5.2's fill, §5.4's arrivals,
-  §5.8's ratio) are all closed, and it stays as the tuning instrument for the two spatial rules that
-  shipped — the isolation gate and the admission seed — which are region questions no per-pixel view can
-  show. Honest and free at rest, which is the test that keeps it: absent from every variant but the one
-  where the overlay and the compute path are both on.
+  as enclosed). The fourth is the premise: **an arrival candidate exists only while the world is not
+  being drawn**, read off the share the verdict's own gate uses, because a camera pan is a screen-wide
+  drawing and reading it as arrivals turned every cell of the grid red. The two *count* readings are
+  stored against `AUTOMASK_TILE_COUNT_MAX`, not as a share of the grid: a count of a few regions against
+  256 cells would move a bar by one percent of its length. It rides both the compute and diagnostics
+  guards, since it exists only to be watched, and it was the first thing built of
+  `docs/ui-isolation-options.md` §6's readings, because the other two needed it. **It outlived them**:
+  the options it was built to decide (§5.2's fill, §5.4's arrivals and §5.8's ratio) are all closed, and
+  it stays as the tuning instrument for the two spatial rules that shipped — the isolation gate and the
+  admission seed — which are region questions no per-pixel view can show. Honest and free at rest, which
+  is the test that keeps it: absent from every variant but the one where the overlay and the compute path
+  are both on.
 - The **confidence view is the same kind of instrument as the tile map, and deliberately not on it.**
-  `UIDebugConfidence` grades every pixel by the accumulator's own confidence instead of deciding it, so
-  the mass sitting just under the 0.5 line — what §5.5 of `docs/ui-isolation-options.md` would have
-  weighed rather than counted — is visible. It owns no pass, target or definition and rides the channel the pixel
-  path already carried the verdict in, so unlike the tile view it draws on **both** paths: it answers a
+  `UIDebugConfidence` reads the accumulator's own confidence instead of deciding it, so the mass sitting
+  just under the 0.5 line — what §5.5 of `docs/ui-isolation-options.md` would have weighed rather than
+  counted — is visible. It owns no pass, target or definition and rides the channel the pixel path
+  already carried the verdict in, so unlike the tile view it draws on **both** paths: it answers a
   per-pixel question, which no map does, and §5.5 rides no map for the same reason. It draws **two flat
   colours rather than a ramp** — cyan already claimed, magenta earning but short of the line — and leaves
   everything at or below zero plain, since a move's debt is not evidence; a grade would ask shades to be
-  compared, which is the read that went wrong. Read in a game it found a thin band over UI interiors and a
-  much larger one over dim scenery, which **closed §5.5.1**: charge over dim world is corroboration a
+  compared, which is the read that went wrong. Read in a game it found a thin band over UI interiors and
+  a much larger one over dim scenery, which **closed §5.5.1**: charge over dim world is corroboration a
   weighted gate would keep *more* of, and it comes from the comparison crediting scenery that drifts too
   slowly to change a pixel between two frames — sub-resolution drift, not a forgiving deadband. The same
   finding closed §5.5.2, which would charge exactly those bit-still pixels faster, so both halves are shut.
 - **The isolation gate follows admission's rule** rather than getting a definition of its own: it owns
-  no pass, shader or target, its counts riding in the two channels `texAutoDilate` leaves unused on the two
-  closing passes. `AutoMaskIsolated` opens `Isolated pixels` with `ui_category_toggle`, and the test it
+  no pass, shader or target, its counts riding in the two channels `texAutoDilate` leaves unused on the
+  two closing passes. `AutoMaskIsolated` opens `Isolated pixels` with `ui_category_toggle`, and the test it
   gates is a share of the box (`AutoMaskDensity`), the pixel itself counted, so one number means the same
   thing at every radius — **or** one line through the pixel (`max(reach + 1, AUTOMASK_AXIS_MIN)`), which is
   what keeps a one-pixel stroke the box share would erode. The line count is the horizontal pass's `.g` and
@@ -207,11 +208,11 @@ graded against it goes off screen-wide.
   rescue a pixel it would have dropped and never newly drops one.
 - The **isolation radius is its own setting** (`AutoMaskIsolation`), not the closing radius: shape and
   evidence are different questions, and tying them would move what `AutoMaskDensity` means whenever the
-  closing is retuned. It is a share rather than a count, so it means one thing at every radius; a count
-  would need a cap at the smallest box's area. It shares the closing's fixed loop, so it costs no extra tap
-  and caps at `AUTOMASK_DILATE_MAX` with it; read as 1 at the bottom, so the setting cannot silently switch
-  the gate off. `AutoMaskDensity` is the one `__UNIFORM_INPUT_FLOAT1` in the shader — a typed field rather
-  than a track, because it names a share.
+  closing is retuned. The density is a share rather than a count, so it means one thing at every radius; a
+  count would need a cap at the smallest box's area. The radius shares the closing's fixed loop, so it costs
+  no extra tap and caps at `AUTOMASK_DILATE_MAX` with it; read as 1 at the bottom, so the setting cannot
+  silently switch the gate off. `AutoMaskDensity` is the one `__UNIFORM_INPUT_FLOAT1` in the shader — a
+  typed field rather than a track, because it names a share.
 - `AutoMaskTargetFPS` is the one further definition, a setup number rather than a tuning one: it multiplies
   seconds into frames for the `ui_max` caps and for the drift horizon. See `docs/editing-conventions.md`.
 - The reset's wide step is `max(deadband, 8.0)` rather than a bare literal, so it can never collapse back

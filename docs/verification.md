@@ -320,20 +320,19 @@ whether the reading you are looking at is current.
   the camera moves. A screen-wide orange wash on a pan is the enclosure growth reading the movement itself,
   and a screen-wide red one is the arrival class doing without the premise; the first is fixed by counting
   only world cells, the second by gating the class on the world being stopped. The bars must move as the
-  picture does: the component count
-  falling when a panel opens and rising when the mask breaks into specks, the enclosed share rising while a
-  hole is open inside a protected element, and the arrival patches appearing exactly when something wide
-  changes that the mask has not claimed. A count bar that stays empty over a mask visibly broken into a
-  dozen specks is the scale — `AUTOMASK_TILE_COUNT_MAX` — being read wrong. The bars were the reading that
-  decided §5.2's fill and §5.4's arrival detection of `docs/ui-isolation-options.md`; both are recorded
-  there as measured out, and so is §5.8, so a bar that never moves is no longer a pending question — but a
-  bar that moves the wrong way still is. Those bars are also what the map is now for: the two spatial rules
-  that ship — the speck rule and the isolated-pixel filter — are the questions still worth watching it
-  against, and a component bar that climbs while the filter is on is the reading to trust over the picture.
-  None of it may touch the mask:
-  toggling the tile view on and off must leave the final image and the mask identical, which is the check
-  that the instrument is read-only. Two of its properties are checkable off-GPU and were: the component,
-  arrival-patch and enclosure readings were mirrored statement for statement in a scratch probe
+  picture does: the component count falling when a panel opens and rising when the mask breaks into specks,
+  the enclosed share rising while a hole is open inside a protected element, and the arrival patches
+  appearing exactly when something wide changes that the mask has not claimed. A count bar that stays empty
+  over a mask visibly broken into a dozen specks is the scale — `AUTOMASK_TILE_COUNT_MAX` — being read
+  wrong. The bars were the reading that decided §5.2's fill and §5.4's arrival detection of
+  `docs/ui-isolation-options.md`; both are recorded there as measured out, and so is §5.8, so a bar that
+  never moves is no longer a pending question — but a bar that moves the wrong way still is. Those bars are
+  also what the map is now for: the two spatial rules that ship — the speck rule and the isolated-pixel
+  filter — are the questions still worth watching it against, and a component bar that climbs while the
+  filter is on is the reading to trust over the picture. None of it may touch the mask: toggling the tile
+  view on and off must leave the final image and the mask identical, which is the check that the instrument
+  is read-only. Two of its properties are checkable off-GPU and were: the component, arrival-patch and
+  enclosure readings were mirrored statement for statement in a scratch probe
   (`tools/.work/`, not committed) and compared against an independent BFS labelling and flood over 300
   grids — 0 mismatches, after the probe caught a real bug in the first cut, a label spreading through
   cells that are not mask and collapsing every region into one.
@@ -373,12 +372,12 @@ whether the reading you are looking at is current.
   while the uniform is false, so a mask that differs is the taps having been taken unconditionally. It
   lives as a single row of **AutoMask** rather than a gated category — it owns no second setting to hide —
   so after any move of the uniform, the row drawn as **Stop specks entering the mask** is what to look for,
-  and a second **AutoMask** heading is the failure to look for. With it on:
-  a lone still speck that the verdict would claim must be claimed *later*, not never, and a solid element
-  must arrive at nearly its usual time once a couple of its pixels have landed — the interior has a
-  neighbour and earns at the full rate, so an element that shows up visibly late is the seed rate having
-  been applied to the whole region rather than to its first pixels. Its two properties are checkable
-  off-GPU and were, in `tools/.work/neighbour_probe.py` (not committed), which mirrors the accumulator's
+  and a second **AutoMask** heading is the failure to look for. With it on: a lone still speck that the
+  verdict would claim must be claimed *later*, not never, and a solid element must arrive at nearly its
+  usual time once a couple of its pixels have landed — the interior has a neighbour and earns at the full
+  rate, so an element that shows up visibly late is the seed rate having been applied to the whole region
+  rather than to its first pixels. Its two properties are checkable off-GPU and were, in
+  `tools/.work/neighbour_probe.py` (not committed), which mirrors the accumulator's
   arithmetic: with the rule clear both a lone and a supported pixel still cross the step at the rise
   (30 frames at the default), and with it set the supported pixel is unchanged while the lone one takes
   twice that (60). The taps are the four-neighbour cross on the verdict channel, so the count is of the

@@ -4,18 +4,8 @@ How the mask is decided, and why each decision is what it is. Extracted from `AG
 overview there stays short; read this when a change touches the per-pixel verdict, the one-sided hold,
 the move memory, the clip exclusion, or the arithmetic the accumulator runs on.
 
-Two techniques, and both placements are load-bearing:
-
-1. `AutoMask` — must be **first** in the effect list, to see the untouched back buffer for the stability
-   comparison and the frame it stores. Its last pass blacks the masked pixels in the live frame, so a
-   bloom pass downstream has no UI to pick up.
-2. `AutoMask_Restore` — must be **last**, putting the masked pixels back on top after the user's other
-   effects have run. It is the only pass after which nothing else writes the frame, which is why the
-   diagnostics corner marker is drawn there rather than in the overlay.
-
-This shader and `UIDetectMulti` are **alternatives, not companions**: both want those same two slots, so
-loading both means one reads a frame the other has already written into. The user avoids that rather
-than the shader policing it at runtime, and the README says so plainly.
+Two techniques, `AutoMask` first and `AutoMask_Restore` last, and this shader is an alternative to
+`UIDetectMulti` rather than a companion — `AGENTS.md` carries both rules and the reason for each.
 
 The mask is one full-resolution HUD/non-HUD value per pixel, not one per element. Conflating health with
 inventory is accepted by design; per-element identity is not attempted.
@@ -27,13 +17,13 @@ does not change how long repayment takes.
 
 The one state machine this describes runs in two places — `PS_Accum` and, on the compute path,
 `CS_Accum` — so its parts that do not sample anything are shared helper functions in
-`Shaders/AutoMask.fxh`: the premise, the decay step, the
-published-mask read, the deadband, the pinned-colour count and the frame rate. Each takes what it needs
-sampled already, because the two paths read their textures differently (`tex2D` against `tex2Dlod` with an
-explicit level) and a helper that sampled would move one path's sampling onto the other's. The drift terms
-stay behind the compute guard in the `.fx`, since the pixel path has no drift pass at all. The header is
-included *after* the uniforms and targets the helpers read — the dialect has no forward declaration — and
-it holds no uniform, target or technique of its own.
+`Shaders/AutoMask.fxh`: the premise, the decay step, the published-mask read, the deadband, the
+pinned-colour count and the frame rate. Each takes what it needs sampled already, because the two paths
+read their textures differently (`tex2D` against `tex2Dlod` with an explicit level) and a helper that
+sampled would move one path's sampling onto the other's. The drift terms stay behind the compute guard in
+the `.fx`, since the pixel path has no drift pass at all. The header is included *after* the uniforms and
+targets the helpers read — the dialect has no forward declaration — and it holds no uniform, target or
+technique of its own.
 `docs/refactor-candidates.md` records the fold and how it was checked.
 
 Above the per-pixel verdict sits **is the world being drawn at all?** — the premise, not a safety net under
@@ -43,13 +33,13 @@ not 0: at 0 the map held on every frame and the mask never formed.
 
 The share is taken over **the pixels that could change, not the whole buffer.** A pixel pinned at all 0 or
 at all 255 can never show a difference — 'staying at all 0' is saturation, not stillness, as the clip
-exclusion below says — so every such pixel permanently lowers the ceiling the
-share can reach. A letterbox, a hard fade or a mostly black view is not a little of that: at 44% of the
-frame inert no camera movement can read above 56%, so at the `70` that setting used to be given the world
-was never seen as drawn and the mask could not form. Dividing by the pixels that can move makes the
-premise mean what it says — *of the pixels that could change, how many did* — and stops it depending on
-how much of the picture happens to be black. It is the same flag the verdict already computes, so nothing
-new is measured; the excluded pixels are counted instead of silently damping the result.
+exclusion below says — so every such pixel permanently lowers the ceiling the share can reach. A
+letterbox, a hard fade or a mostly black view is not a little of that: at 44% of the frame inert no
+camera movement can read above 56%, so at the `70` that setting used to be given the world was never seen
+as drawn and the mask could not form. Dividing by the pixels that can move makes the premise mean what it
+says — *of the pixels that could change, how many did* — and stops it depending on how much of the
+picture happens to be black. It is the same flag the verdict already computes, so nothing new is
+measured; the excluded pixels are counted instead of silently damping the result.
 
 **The statistic is coverage, not magnitude.** The question is "is the game re-drawing the view", so
 `PS_Motion` counts the share of each block whose pixels changed at all, thresholding the graded

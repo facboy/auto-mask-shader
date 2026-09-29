@@ -48,12 +48,11 @@ annotation, the frame-count sliders' conversion, the prose budget, or the drift 
   closing passes — so a `#if` would save a few instructions in one entry point while costing a recompile
   every time someone ticks the box. It is therefore a live `AutoMaskIsolated` bool carrying
   `ui_category_toggle`, and the branch reads it. Its radius is its own slider
-  (`AutoMaskIsolation`) rather than the closing's, because a count of still pixels is a different question
+  (`AutoMaskIsolation`) rather than the closing's, because a share of still pixels is a different question
   from how far the mask is grown, and sharing one number would mean retuning the closing silently changed
-  what the count means. Both radii sit inside the same fixed `AUTOMASK_DILATE_MAX` loop, so the second one
-  costs no extra tap. The structural switches keep their
-  definitions because each elides a whole pass and the `texture`/`sampler` pairs only that pass reads,
-  which ReShade would otherwise allocate forever.
+  what the density means. Both radii sit inside the same fixed `AUTOMASK_DILATE_MAX` loop, so the second one
+  costs no extra tap. The structural switches keep their definitions because each elides a whole pass and
+  the `texture`/`sampler` pairs only that pass reads, which ReShade would otherwise allocate forever.
 - **A category is a contiguous run of uniforms.** ReShade starts a new group where the `ui_category`
   value changes, so the same category named again further down the list renders as a second heading
   with the same name. Nothing else follows from the order — the panel is the only thing that sees it.
