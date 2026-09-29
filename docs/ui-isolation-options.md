@@ -10,9 +10,10 @@ admission test **has since shipped**. What building and watching that instrument
 §5.4 and §6: the arrival reading fires, but neither it nor §5.2's per-pixel fill is worth what building
 on it would cost — §5.2's was built as a probe and watched in a game, §5.4's is judged against the
 premise it would have to break. §5.5's confidence-weighted count **has since been measured out** — the
-view built to read it found the band under the protection line was mostly dark scenery, which a weighted
-sum would keep *more* of rather than less — while its magnitude half **still needs a reading of its own**,
-this time of change size. The other options stand as written.
+view built to read it found the band under the protection line was dim scenery drifting below the
+comparison's resolution, which a weighted sum would keep *more* of rather than less — and its magnitude
+half **has since been closed on that same finding**, which names the very pixels it would charge fastest.
+The other options stand as written.
 
 Companions: `docs/core-model.md` (the verdict the isolation rides on), `docs/compute-path.md` (the
 compute path most of this would live in), `docs/optical-flow.md` (the one instrument already built,
@@ -251,22 +252,41 @@ compile changed shape. The flat colours were the second cut: a brightness ramp a
 compared, which is not something an eye can do, and it put the wide debt a move leaves into the lower part
 of the scale so healing world read as a halo.
 
-**Measured out: the band is dark scenery, which is the wrong sign.** The reading is a thin band over UI
-interiors — the wanted case, an element's own edge earning as it settles — and a **much larger one over
-plain dark scenery with no menu open**. Dark world reads still because the comparison is in whole levels:
-the same motion is fewer levels in a dark region than a bright one, so it falls under the deadband and the
-pixel is credited as interface while the world is being drawn elsewhere. The clip exclusion does not cover
-it — that voids a colour pinned at all 0 or all 255, not one a few levels up in shadow. It is the
-attenuation `README.md` already records for semi-transparent UI, seen from the other side: there it stops
-translucent interface being protected, here it lets dark world be taken for interface.
+**Measured out: the band is dim drifting scenery, which is the wrong sign.** The reading is a thin band
+over UI interiors — the wanted case, an element's own edge earning as it settles — and a **much larger one
+over plain scenery with no menu open**, in the dim, smoothly shaded regions of it. The mechanism was read
+out over four rounds of in-game testing and is not the one this section first assumed:
+
+- **It is not a forgiving deadband.** At the `AutoMaskEps` default of `1` the verdict's test is
+  `maxDiff < 1`, i.e. the quantised change must be *exactly zero*; there is no band for a small change to
+  slip under, and a credited pixel is provably bit-identical to its predecessor.
+- **It is sub-resolution drift.** The comparison's baseline is one frame and its unit is one whole level,
+  so scenery sliding across the screen at a fraction of a level a frame reads as perfectly still — and the
+  per-frame change is roughly screen speed times local gradient, so dim, low-contrast regions cross a
+  level least. Bright detail crosses one almost every frame and is knocked out constantly; the dim
+  silhouettes hold for seconds at a time and are genuinely, measurably still in between. The arithmetic is
+  already in `docs/optical-flow.md` §3, which measured the same floor for the sky: under ~0.1 px/frame
+  most of the image changes by zero levels between consecutive frames.
+- **The band is the heal, and its width scales with the rise.** Each level-crossing floors a whole patch,
+  which then walks back up through the band and into the mask. `AutoMaskMoveMemory` is exactly that walk —
+  it appears in the arithmetic only as the debt's floor — so sweeping it from `120` to `600` frames shrank
+  the band and then removed it entirely, bracketing the crossing interval at a few seconds. Confirmed, not
+  inferred: the patch width tracks `AutoMaskRise`, which is the signature of charge earned over time rather
+  than of any shape or colour rule.
+- **A longer drift horizon made it worse, which is the premise at work.** The channel is the reading built
+  for movement this slow, but it can only *remove* credit per pixel; what it also does is feed the
+  changed count, and so the world-drawn share (`docs/compute-path.md`). A longer horizon catches the
+  drifting sky as changed, holds the premise up, and it is only while the premise is up that the dim
+  scenery earns — so the horizon's measured sign is the opposite of its per-pixel one.
 
 That closes the option, and not merely because the mass is small. A weighted sum reads that same charge as
-**corroboration**, so at a fixed `AutoMaskDensity` the gate would keep *more* dark world, not less — the
-opposite of the sharpening the upgrade was for. The case against is not "nothing to weigh" but "what is
-there should not count". Admission does not rescue it either: a large uniform dark region holds no claimed
-pixel anywhere in it, so every pixel of it earns at the same seed rate and the region is **delayed about
-twice, not prevented** — which fits the UI-interior case, small and beside already-claimed pixels, far
-better than the world one.
+**corroboration**, so at a fixed `AutoMaskDensity` the gate would keep *more* of the drifting scenery, not
+less — the opposite of the sharpening the upgrade was for. The case against is not "nothing to weigh" but
+"what is there should not count". Admission does not rescue it either: a large region of it holds no
+claimed pixel anywhere, so every pixel earns at the same seed rate and the region is **delayed about
+twice, not prevented**; the spatial gate does not either, because a band several pixels across clears both
+of its doors — the line door keeps any run of three still pixels at every density. The two spatial rules
+test *shape*, and this failure is not a shape problem.
 
 The mechanism notes stand regardless. **A weighted sum is never more than the count it replaces** — every
 term is at most one — so at a fixed density it drops less only where the charge is real. And it would make
@@ -274,7 +294,7 @@ a region **still healing from a move** count as weak support, a way to erode a r
 had. Precision is not an objection: the box holds at most 49 pixels, so `AUTOMASK_COUNT_SCALE`'s 255 leaves
 the sum ample resolution. The view that decided it stays in the shader.
 
-#### 5.5.2 Stratify stillness by magnitude — open, and narrower than it looks
+#### 5.5.2 Stratify stillness by magnitude — closed, and narrower than it looks
 
 The verdict already knows whether a change was *exactly zero* or merely inside the deadband, and a pixel
 bit-identical across frames is stronger evidence of an interface draw than one a level off. The premise
@@ -286,13 +306,22 @@ weight and not a rule.
 stratify: the weighting speaks only where the deadband is **2 or more**, which makes this a question about
 a non-default setting rather than a general one.
 
-**It needs its own reading, and the confidence view is not it.** This half reads *change magnitude*, not
-charge, which is why the two are split rather than decided together. The compute path already bins change
-sizes for the auto-deadband (`texAutoMotionHist`), so the distribution it needs sits beside machinery that
-exists, but nothing currently draws it.
+**Its own reading was dropped, because 5.5.1's already answers it.** This half reads *change magnitude*, not
+charge, which is why the two were split rather than decided together. The compute path still bins change
+sizes for the auto-deadband (`texAutoMotionHist`), so the distribution it wanted sits beside machinery that
+exists; nothing draws it, and it is not worth building for a rule a later reading has condemned.
 
-It is independent of 5.5.1 as a decision and coupled to it in effect: charging exact-still pixels faster
-would fill the grade higher and thin the band 5.5.1 was measured on — never revive it.
+The pixels the drifting dim scenery is credited on are bit-identical to their predecessor by definition —
+that is the whole mechanism — and 5.5.2 is precisely the change that would charge *those* pixels faster than
+any other. So the confidence view's finding decides this half too, not only 5.5.1: the reading owed as the
+rule's only justification came back against it, and where it speaks at all it deepens the one failure this
+document has measured, in the same wrong direction. The coupling runs the same way — charging exact-still
+pixels faster fills the grade higher and thins the band 5.5.1 was measured on, never revives it.
+
+It is closed **on that reading's argument rather than on a change-size readout of its own**, which is a
+departure from this repo's measure-first method and is recorded as one. A reading could still be taken to
+weigh the screen's mass in the band it wants to stratify, but its job would now be to overturn a measured
+cost rather than to justify an untested rule.
 
 ### 5.6 A tile map, off the tally that already exists
 
@@ -425,8 +454,8 @@ open are settled against the code:
 | 5.2 | contour-bounded fill | §3.2 | fill + a small contour history | live checkbox — **bounded form built as a probe and measured out** |
 | 5.3 | non-isolated admission | speck seeding | four taps on the verdict already in hand, and no new target | live checkbox — **shipped, with the seed as the second door** |
 | 5.4 | arrival detection | §3.3 | tile map + a patch test | live checkbox, compute-only — **measured out: the window is narrower than the rise it would unlock** |
-| 5.5.1 | confidence-weighted count | tuning sharpness | an overlay view off the accumulator, no pass or target | live checkbox inside the gate — **measured out: the band under the line is dark scenery, so weighting keeps more of it** |
-| 5.5.2 | magnitude weighting | tuning sharpness, and only where the deadband is 2+ | none for the rule; its reading is not built | none, unless it proves out — **open** |
+| 5.5.1 | confidence-weighted count | tuning sharpness | an overlay view off the accumulator, no pass or target | live checkbox inside the gate — **measured out: the band under the line is dim scenery drifting below the comparison's resolution, so weighting keeps more of it** |
+| 5.5.2 | magnitude weighting | tuning sharpness, and only where the deadband is 2+ | none for the rule; it charges the pixels 5.5.1 was measured on faster, and its own reading was dropped | none — **closed on 5.5.1's reading** |
 | 5.6 | tile map | enables §5.7 and §5.8 | a pass, a 16×16 target and a 2×1 reading target | compute-only — **shipped with §6** |
 | 5.7 | auto-placed deadzone | §3.4's manual tuning | off the tile map | override sliders stay |
 | 5.8 | alpha-composite ratio | reading only | off the tile map | diagnostics, compute-only |
@@ -452,6 +481,9 @@ rise. That is what makes it ship at all — §5.4's arrival was the other door t
 measured out, so a plain refusal would leave a wholly new element unmaskable. It shrinks the isolation
 gate's job, which was its point.
 
-Of the rest, §5.5's confidence-weighted count is measured out — the band under the line is mostly dark
-scenery, which weighting would keep more of rather than less. Its magnitude half needs a change-size
-reading of its own and is the one part of §5.5 still open; §5.7 and §5.8 ride the map.
+Of the rest, §5.5's confidence-weighted count is measured out — the band under the line is dim scenery
+drifting below the comparison's resolution, which weighting would keep more of rather than less, and which
+neither spatial rule can remove because it has the shape the gate is built to keep. Its magnitude half is
+closed on the same reading: it charges exactly the bit-still pixels that finding implicates, faster than any
+other, so 5.5.1's result is its verdict rather than its cost. That leaves §5.7 and §5.8 as the only options
+still open, both riding the shipped map.

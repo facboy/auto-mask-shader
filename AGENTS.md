@@ -187,9 +187,10 @@ graded against it goes off screen-wide.
   colours rather than a ramp** — cyan already claimed, magenta earning but short of the line — and leaves
   everything at or below zero plain, since a move's debt is not evidence; a grade would ask shades to be
   compared, which is the read that went wrong. Read in a game it found a thin band over UI interiors and a
-  much larger one over dark scenery, which **closed §5.5.1**: charge over dark world is corroboration a
-  weighted gate would keep *more* of, and it comes from the level comparison crediting a dark region's
-  smaller change as stillness. §5.5.2's change-size reading is still to build.
+  much larger one over dim scenery, which **closed §5.5.1**: charge over dim world is corroboration a
+  weighted gate would keep *more* of, and it comes from the comparison crediting scenery that drifts too
+  slowly to change a pixel between two frames — sub-resolution drift, not a forgiving deadband. The same
+  finding closed §5.5.2, which would charge exactly those bit-still pixels faster, so both halves are shut.
 - **The isolation gate follows the deadzone's rule** rather than getting a definition of its own: it owns
   no pass, shader or target, its counts riding in the two channels `texAutoDilate` leaves unused on the two
   closing passes. `AutoMaskIsolated` opens `Isolated pixels` with `ui_category_toggle`, and the test it
@@ -253,6 +254,8 @@ These are inherent to the signal rather than tuning problems, and they belong in
 
 - Semi-transparent UI is never protected.
 - A quiet interior with no ambient animation can accumulate.
+- Scenery that drifts too slowly to change a pixel between two frames is credited as interface, in the
+  dim regions where the same movement changes a level least.
 - Something animating in a stopped scene is given up.
 - Bloom can still find an edge at the HUD contour.
 - A HUD that flickers without moving is given up by the drift channel.
@@ -262,7 +265,8 @@ These are inherent to the signal rather than tuning problems, and they belong in
   ships off.
 
 The full reasoning for each — including why the move memory and the drift channel cannot help with the
-quiet interior — is in `docs/core-model.md`.
+quiet interior, and why the slow-drift case defeats both the premise and the move memory until the memory
+is long enough to outlast the drift's level crossings — is in `docs/core-model.md`.
 
 ## Repository rules
 

@@ -237,6 +237,20 @@ These are inherent to the signal, not tuning problems, and belong in the README:
   the same reason: a wall the player has been facing throughout never moved in the picture and never
   changes, so there is nothing to remember and no drift away from its own average. The move memory does
   catch the wall that was *walked past* and then stopped in front of, which is the common case.
+- **Scenery that drifts too slowly to change a pixel between two frames.** The comparison's baseline is one
+  frame and its unit is one whole level, so scenery sliding across the screen at a fraction of a level a
+  frame reads as *exactly* no change — and no change is the whole of the evidence the verdict asks for.
+  This is not the quiet interior and is not closed by the premise: the world genuinely is being drawn, so
+  the crediting follows the shader's own rules, and the drifting region genuinely is a run of pixels that
+  held still. Dim, smoothly shaded regions are where it bites, because the same movement across the screen
+  changes a level far less there than on bright detail. The move memory does not close it either, in its
+  ordinary form: there is no single move to remember, only a drift. It reaches the case only where the
+  memory outlasts the interval between the drift's level crossings — each crossing knocks the pixels back,
+  and the memory sets whether they heal before the next one, which is why sweeping it from `120` to `600`
+  frames removes the credit outright. The drift channel is the reading built for movement this slow, since
+  its baseline is long enough for the drift to accumulate into whole levels; but it also feeds the
+  world-drawn count, and on the scene measured a longer horizon made the credit *worse*, because catching
+  the drifting sky held the premise up. §5.5.1 of `docs/ui-isolation-options.md` carries the readings.
 - **Something animating in a stopped scene is given up.** A spinner, a flashing icon, a background loop:
   while the world is not being drawn those pixels are still changing, so they read as moving and fall out
   of the mask even though they may genuinely be interface. That is the price of the hold being one-sided,

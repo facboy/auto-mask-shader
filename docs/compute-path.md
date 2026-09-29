@@ -127,8 +127,12 @@ cannot take at all, because 1,024 taps cannot tell a level of dithering from a l
   up to the bound below — until the pixel sits visibly away from where it has been. The clip-rail
   exclusion applies to the average symmetrically, and stillness now requires both comparisons to
   read still, so the drift channel also feeds the world-drawn count and the premise with it: a
-  slowly panning sky can hold the premise up on its own. `PS_CopyDrift`, a pixel pass beside
-  `PS_Copy`, brings the average back to the side the next frame reads. The store is the one that
+  slowly panning sky can hold the premise up on its own. That second direction is measurable, and it
+  surprised the one check that looked for it: with a slowly drifting sky on screen, a longer horizon made
+  the mask credit *more* dim scenery rather than less, not because the channel granted it credit per
+  pixel — it can only remove that — but because catching the sky as changed held the premise up, and the
+  premise is what lets any still pixel earn (`docs/ui-isolation-options.md` §5.5.1). `PS_CopyDrift`, a pixel
+  pass beside `PS_Copy`, brings the average back to the side the next frame reads. The store is the one that
   cannot be half precision: the creep toward a one-level gap is a fraction of a level a frame — at
   the 2 s default, 0.0083 levels — which is under an `RGBA16F` half-ulp above level 31 (0.0156
   there, against 0.0078 in the band below), so the average sat frozen rather than following the

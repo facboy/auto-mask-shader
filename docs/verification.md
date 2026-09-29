@@ -344,10 +344,27 @@ whether the reading you are looking at is current.
   that view is the split and the threshold having drifted apart. **Nothing at or below zero may be tinted**,
   since the range a move's debt covers is wide and shading it made healing world read as a halo. It reads
   nothing in the mask, so toggling it must leave the mask and the final image identical. **Run in a game it
-  showed a thin band over UI interiors and a much larger one over dark scenery with no interface in it** —
-  the shader crediting the world, because a change in a dark region is fewer levels and slips under the
-  deadband. That is the reading that closed §5.5.1, and it is a limit of the level comparison rather than a
-  bug: the clip exclusion voids a colour pinned at all 0 or 255, not one a few levels up in shadow.
+  showed a thin band over UI interiors and a much larger one over plain scenery with no interface in it**,
+  in the dim, smoothly shaded parts of the scenery. The mechanism was then read out with the same view and
+  a set of setting sweeps, and it is *not* the forgiving-deadband explanation this repo recorded first:
+  at the `AutoMaskEps` default of `1` there is no band — `maxDiff < 1` means the quantised change is
+  exactly zero — and the scenery is **drifting below the comparison's resolution**. A whole level a frame
+  is the comparison's unit and one frame is its baseline, so scenery sliding at a fraction of a level a
+  frame reads as perfectly still and is credited, because still is what the verdict asks for; the per-frame
+  change is roughly screen speed times local gradient, so dim regions cross a level least, which is why
+  the failure lands there. The checks that read it out, all of them existing settings:
+  the motion view shows those pixels **black** (unchanged this frame), so they are not being called
+  moving; the corner marker stays solid magenta, so the premise is not flickering; sweeping
+  **Frames a move is remembered** from `120` to `600` shrinks and then removes the band, because each
+  level the drift does cross floors the whole patch and the memory sets how long the walk back takes;
+  and the band's width tracks **Frames still before marked as interface**, which is what makes it charge
+  earned over time rather than any shape or colour rule. A **longer Drift horizon makes it worse**, which
+  is the channel feeding the world-drawn count rather than acting per pixel — the one reading here that
+  points the other way, and the one to re-run first if the mechanism is ever reopened. This is a limit of
+  the comparison's resolution rather than a bug: neither the premise, the move memory in its ordinary
+  form, the clip exclusion nor either spatial rule addresses it — the clip voids a colour pinned at all
+  0 or 255, not one that is bit-still at some level in shadow, and the spatial rules test *shape*, which
+  a band several pixels across passes.
 - **Admission, the speck rule, in the panel and in the mask.** The checkbox ships off, so the mask with
   it clear must be **byte-identical** to the pre-change mask: the branch around the four taps is absent
   while the uniform is false, so a mask that differs is the taps having been taken unconditionally. It

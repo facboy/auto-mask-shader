@@ -89,6 +89,11 @@ are listed under it.
   differ by a level or two frame to frame (`README.md`).
 - **sub-level** — a change smaller than one whole level, so the comparison rounds it to exactly zero.
   The case the drift channel exists for (`docs/compute-path.md`).
+- **sub-resolution drift** — scenery sliding across the screen slowly enough that the per-frame colour
+  change stays under one level, so the verdict's one-frame comparison reads it as perfectly still and
+  credits it as interface. The same arithmetic as sub-level, applied to the world rather than to a
+  flickering element; the drift channel is the reading built for it, and the move memory is the other
+  lever, since each level the drift does cross knocks the pixels back (`docs/core-model.md`).
 - **quiet interior / quiet majority** — a quiet interior is a scene with nothing animating, where
   stillness proves nothing; the quiet majority is the still bulk of the screen a noise floor can be read
   off (`docs/compute-path.md`).
@@ -357,9 +362,9 @@ durations — are the `Frame timing` section.
   the 0.5 protection line. It draws **two flat colours rather than a ramp** — cyan where the verdict would
   already claim the pixel, magenta where it is earning but has not crossed — and leaves everything at or
   below zero untinted, so the wide debt range a move leaves does not read as a halo. Read in a game it
-  found a thin band over UI interiors and a much larger one over dark scenery with no interface in it: a
-  change in a dark region is fewer levels and slips under the deadband, so the world is credited — §5.5.1
-  of `docs/ui-isolation-options.md`. The tile view overrides both per-pixel views.
+  found a thin band over UI interiors and a much larger one over dim scenery with no interface in it:
+  scenery drifting too slowly to change a pixel between two frames reads as still, and still is what the
+  verdict credits — §5.5.1 of `docs/ui-isolation-options.md`. The tile view overrides both per-pixel views.
 - **tile map / tile view** — the picture as a fixed 16×16 grid, each cell sampled at `AUTOMASK_TILE_TAPS`²
   points, reduced to region readings: the mask's component count and largest share, the enclosed share,
   and the count and area of contiguous wide-change patches *while the world is stopped* — a wide change
