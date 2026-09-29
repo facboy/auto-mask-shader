@@ -345,6 +345,31 @@ sampler AutoMap { Texture = texAutoMap; };
 	groupshared uint tileArea[AUTOMASK_TILE_GRID * AUTOMASK_TILE_GRID];
 	groupshared uint tileWide[AUTOMASK_TILE_GRID * AUTOMASK_TILE_GRID];
 	groupshared uint tileHole[AUTOMASK_TILE_GRID * AUTOMASK_TILE_GRID];
+
+	//The alpha reading of ui-isolation-options.md 5.8: a translucent panel composites as the world's
+	//change times its alpha, so its pixels move less than the world around them without holding still --
+	//a band the tile map's changed-tap count cannot tell from anything else.
+
+	//A tap clears this share of the graded ramp to enter the mean, so a quiet cell does not read as
+	//total attenuation; a cell below `AUTOMASK_ALPHA_BAND` of the frame's own rate is attenuated.
+	#define AUTOMASK_ALPHA_LIT 0.25
+	#define AUTOMASK_ALPHA_BAND 0.5
+	texture texAutoAlpha { Width = AUTOMASK_TILE_GRID; Height = AUTOMASK_TILE_GRID; Format = RGBA32F; };
+	storage2D<float4> AutoAlphaStore { Texture = texAutoAlpha; };
+	sampler AutoAlpha { Texture = texAutoAlpha; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
+	//What the reading is for is whether the attenuated band is large enough to be worth a mechanism, so
+	//its distribution is the answer: the share of the grid that is still, attenuated, attenuated and
+	//unmasked -- the leak -- and at the frame's own rate.
+	texture texAutoAlphaStat { Width = 1; Height = 1; Format = RGBA32F; };
+	storage2D<float4> AutoAlphaStatStore { Texture = texAutoAlphaStat; };
+	sampler AutoAlphaStat { Texture = texAutoAlphaStat; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
+	//One cell's mean motion over its lit taps, its lit count, whether the mask touches it, and the frame's
+	//own rate -- held so the ratio and the class shares can be reduced over them, and read by every thread
+	//as the denominator the ratio is taken against.
+	groupshared float alphaCell[AUTOMASK_TILE_GRID * AUTOMASK_TILE_GRID];
+	groupshared uint alphaLit[AUTOMASK_TILE_GRID * AUTOMASK_TILE_GRID];
+	groupshared uint alphaTouch[AUTOMASK_TILE_GRID * AUTOMASK_TILE_GRID];
+	groupshared float alphaMean;
 #endif
 
 //The shared verdict arithmetic, in its own header. It holds no coordinate, colour or table, only the
@@ -706,6 +731,89 @@ sampler AutoMap { Texture = texAutoMap; };
 				float(arrivalCells) * perCell, 0.0, 1.0));
 		}
 	}
+
+	//The alpha reading: each cell's mean graded motion over the taps that moved at all, against the
+	//frame's own. A translucent panel moves by its alpha times the world's change, so its pixels sit
+	//below the frame's rate without being still -- the band the per-pixel verdict reads as ordinary
+	//world. Taps under `AUTOMASK_ALPHA_LIT` leave both sides of the ratio.
+	[numthreads(AUTOMASK_TILE_GRID, AUTOMASK_TILE_GRID, 1)]
+	void CS_Alpha(uint3 tid : SV_DispatchThreadID)
+	{
+		uint G = AUTOMASK_TILE_GRID;
+		uint cells = G * G;
+		uint cell = tid.y * G + tid.x;
+		float2 span = float2(BUFFER_WIDTH, BUFFER_HEIGHT) / float(G);
+		float2 tapStep = span / float(AUTOMASK_TILE_TAPS);
+		float2 origin = float2(tid.xy) * span;
+
+		float motionSum = 0.0;
+		float lit = 0.0;
+		float masked = 0.0;
+		for (int ty = 0; ty < AUTOMASK_TILE_TAPS; ty++){
+			for (int tx = 0; tx < AUTOMASK_TILE_TAPS; tx++){
+				float2 uv = (origin + (float2(tx, ty) + 0.5) * tapStep) * float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT);
+				float motion = tex2Dlod(AutoAccumA, float4(uv, 0.0, 0.0)).b;
+				//Only the lit taps are summed, not every tap: dividing all of them by the lit count
+				//inflates a cell whose taps mostly sit under the floor, which reads a still cell as the
+				//frame's own rate. Both sides of the ratio are the same mean over the lit taps.
+				float litTap = step(AUTOMASK_ALPHA_LIT, motion);
+				motionSum += litTap * motion;
+				lit += litTap;
+				masked += step(0.5, tex2Dlod(AutoMap, float4(uv, 0.0, 0.0)).r);
+			}
+		}
+		float taps = float(AUTOMASK_TILE_TAPS * AUTOMASK_TILE_TAPS);
+		alphaCell[cell] = motionSum;
+		alphaLit[cell] = uint(lit);
+		alphaTouch[cell] = masked >= AUTOMASK_TILE_HITS ? 1u : 0u;
+		barrier();
+		//The frame's own rate is the world's movement, so it is taken over the lit taps of the cells the
+		//mask does not touch: a cell of interface in the sum would lower it and inflate every ratio.
+		if (cell == 0u){
+			float worldSum = 0.0;
+			float worldLit = 0.0;
+			for (uint wi = 0u; wi < cells; wi++){
+				if (alphaTouch[wi] == 0u){
+					worldSum += alphaCell[wi];
+					worldLit += float(alphaLit[wi]);
+				}
+			}
+			alphaMean = worldSum / max(worldLit, 1.0);
+		}
+		barrier();
+		//The cell's own mean is over its lit taps, the same unit the frame's rate is in: the sum is
+		//carried unscaled so the reduction above can divide by its own lit count.
+		float ratio = alphaLit[cell] > 0u
+			? alphaCell[cell] / (float(alphaLit[cell]) * max(alphaMean, 1e-5)) : 0.0;
+		tex2Dstore(AutoAlphaStore, int2(tid.xy), float4(ratio, float(alphaLit[cell]) / taps, float(alphaTouch[cell]), 1.0));
+
+		//The shares the instrument was built to read: no movement to attenuate, the band (counted whether
+		//or not the mask covers it, since a covered panel is still evidence the band exists), the part of
+		//it the mask misses -- the leak -- and the share moving at or above the frame's own rate.
+		if (cell == 0u){
+			float dim = 0.0;
+			float band = 0.0;
+			float leak = 0.0;
+			float litWorld = 0.0;
+			for (uint ci = 0u; ci < cells; ci++){
+				if (alphaLit[ci] == 0u){
+					dim += 1.0;
+					continue;
+				}
+				float r = alphaCell[ci] / (float(alphaLit[ci]) * max(alphaMean, 1e-5));
+				if (r < AUTOMASK_ALPHA_BAND){
+					band += 1.0;
+					if (alphaTouch[ci] == 0u)
+						leak += 1.0;
+				} else {
+					litWorld += 1.0;
+				}
+			}
+			float perCell = 1.0 / float(cells);
+			tex2Dstore(AutoAlphaStatStore, int2(0, 0), float4(dim * perCell,
+				band * perCell, leak * perCell, litWorld * perCell));
+		}
+	}
 #endif
 
 	//Drift ping-pong back-edge (copy B to A).
@@ -960,6 +1068,17 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 			ui_tooltip = "On, the overlay draws the screen as a 16 x 16 grid of squares, each square one colour for what the mask is doing in it: green mostly masked interface, black not masked, red changed widely with no mask on it while the world is quiet (a panel the shader has not caught), orange a hole the mask closes around.\nFive bars along the top are the region counts that grid produced: how many pieces the mask is in, the largest piece's share of it, the share of the screen inside a contour, how many wide-change patches there are, and the share of the screen they cover.\nOff, the overlay shows the motion or verdict view as usual";
 			ui_category = "Diagnostics";
 		> = false;
+
+		//The alpha reading of ui-isolation-options.md 5.8: a see-through element composites as the world's
+		//change times its own opacity, so its pixels move below the frame's rate without holding still.
+		//This view draws how far below per cell -- as a ramp, because a game showed the class boundary
+		//was not trustworthy: world at nine tenths of the rate read as bright as world over it.
+		uniform bool UIDebugAlpha <
+			__UNIFORM_SLIDER_BOOL1
+			ui_label = "Diagnostics: alpha view";
+			ui_tooltip = "On, the overlay tints the squares of a 16 x 16 grid that moved *slower* than the screen as a whole, which is the only band the shader has no way to claim: a see-through element moves at its own opacity times the world's change, so it sits below the screen's rate without holding still.\nBrightness is how far below the rate a square sits -- nearly off is barely slower, full is much slower -- and everything at or above the rate is left as the game drew it, so the picture you are not meant to look at is not painted.\nRed where the mask does not cover the square, blue where it does: a middling red is a see-through element being missed, which is the case this is for.\nFour bars along the top are the shares it counted: the screen with nothing to read, the band, the part of the band the mask misses, and the screen moving at its own rate.\nOverrides the tile view where both are on";
+			ui_category = "Diagnostics";
+		> = false;
 	#endif
 
 	//Motion visualization gain for diagnostics overlay.
@@ -1005,6 +1124,16 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 					return float4(0.0, 1.0, 0.0, screen);      //mask: green
 				return float4(0.0, 0.0, 0.0, screen);          //world: black
 			}
+			//Brightness is how far a cell falls below the frame's own rate, red where the mask misses it
+			//and blue where it covers it, the picture through everywhere else: a cell at the rate is
+			//world, most of the screen. A cell with no lit taps stores a ratio of zero, which would paint
+			//it full, so it must draw nothing -- a stopped scene is nearly all such cells.
+			if (UIDebugAlpha){
+				float4 cell = tex2D(AutoAlpha, texcoord);
+				float band = cell.g > 0.0 ? saturate(1.0 - cell.r / AUTOMASK_ALPHA_BAND) : 0.0;
+				float3 hue = cell.b > 0.5 ? float3(0.25, 0.5, 1.0) : float3(1.0, 0.1, 0.1);
+				return float4(hue * band, screen);
+			}
 		#endif
 		return float4(changed, verdict, confidence, screen);
 	}
@@ -1034,10 +1163,11 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 			tint = debug.b > 0.0 ? 1.0 : 0.0;
 		}
 		#if AutoMaskCompute == 1
-			//The tile view's own colour, packed by the map above, rather than a per-pixel mark: the
-			//blend is how strong that colour is, and the class is the mark. It overrides the
-			//confidence grade, which shares its blue channel.
-			if (UIDebugTile){
+			//The tile and alpha views carry their own colour rather than a per-pixel mark: the blend is
+			//how strong that colour is, and the class is the mark. Both override the confidence grade,
+			//which shares the blue channel, and both leave a cell that is nothing to read black, so the
+			//picture shows through where the reading has nothing to say.
+			if (UIDebugTile || UIDebugAlpha){
 				mark = saturate(debug.rgb);
 				tint = max(mark.r, max(mark.g, mark.b));
 			}
@@ -1066,6 +1196,27 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 				else if (slot == 3){ value = b.r; bar = float3(1.0, 0.0, 0.0); }
 				//5 magenta: the share of the screen those patches cover.
 				else if (slot == 4){ value = b.g; bar = float3(1.0, 0.0, 1.0); }
+				if (within < saturate(value))
+					color = lerp(color, bar, 0.9);
+			}
+			//The alpha view's four shares, in the same order the tooltip names them: the grid with
+			//nothing to read, the attenuated band, the part of that band with no mask on it -- the leak
+			//-- and the screen moving at the frame's own rate.
+			if (UIDebugAlpha && texcoord.y < 0.02){
+				float4 stat = tex2D(AutoAlphaStat, float2(0.5, 0.0));
+				float u = texcoord.x / 0.25;
+				int slot = int(u);
+				float within = frac(u);
+				float value = 0.0;
+				float3 bar = float3(0.0, 0.0, 0.0);
+				//1 grey: the screen with nothing to read.
+				if (slot == 0){ value = stat.r; bar = float3(0.5, 0.5, 0.5); }
+				//2 blue: the attenuated band, mask on it.
+				else if (slot == 1){ value = stat.g; bar = float3(0.0, 0.0, 1.0); }
+				//3 red: the attenuated band the mask misses.
+				else if (slot == 2){ value = stat.b; bar = float3(1.0, 0.0, 0.0); }
+				//4 white: the screen moving at the frame's own rate.
+				else if (slot == 3){ value = stat.a; bar = float3(1.0, 1.0, 1.0); }
 				if (within < saturate(value))
 					color = lerp(color, bar, 0.9);
 			}
@@ -1147,6 +1298,13 @@ technique AutoMask
 		//compares against the frame that pass is about to overwrite.
 		pass {
 			ComputeShader = CS_Tile;
+			DispatchSizeX = 1;
+			DispatchSizeY = 1;
+		}
+		//The alpha reading, off the accumulator and the published mask, so it sits in the same slot for
+		//the same reason: both are this frame's, and the store below would leave them describing the last.
+		pass {
+			ComputeShader = CS_Alpha;
 			DispatchSizeX = 1;
 			DispatchSizeY = 1;
 		}

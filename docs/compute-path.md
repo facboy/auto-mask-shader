@@ -60,6 +60,26 @@ cannot take at all, because 1,024 taps cannot tell a level of dithering from a l
   reported failure recurred whenever the share could not cross the threshold — a large black or
   letterboxed region capped it below the setting, the world read stopped while it was moving, and every
   wide cell then became an arrival. Nothing in the mask reads any of it.
+- The **alpha reading** rides in its own pass, `CS_Alpha`, guarded with the tile map and for the same
+  reason: it is an instrument, so it exists only where it can be seen. It answers the one case the mask has
+  no mechanism for — interface you can see the world through (`docs/ui-isolation-options.md` §5.8) — and it
+  does so by the quantity that case actually has: a translucent panel composites as the world's change
+  times its alpha, so its pixels move *below* the frame's own rate without holding still. The map's
+  changed-tap coverage cannot see that, which is why this is its own pass rather than a reading on it. Each
+  cell is a share of itself, sampled at the tile map's own tap grid; the frame's rate is the mean of those
+  means over the cells **the mask does not touch**, so interface already caught does not set the rate it is
+  read against; and a tap under `AUTOMASK_ALPHA_LIT` — a quarter of the graded ramp, below the third a
+  deadband-sized change lands on — is left out of both sides of the ratio, or a cell of genuinely still
+  pixels would read as total attenuation. A cell at `AUTOMASK_ALPHA_BAND` of that rate or more is world;
+  everything lit below it is the attenuated band, and the part of that band with no mask on it is the leak
+  the reading exists to size. The four shares go into a 1×1 target the overlay draws as bars and the band
+  is drawn per cell -- and only the band, since a cell at the rate *is* most of the screen and tinting it
+  paints a wash: a game reported exactly that, as red over ordinary world. Brightness is how far below the
+  rate a cell sits, hue the mask's coverage — red the leak, blue covered. Nothing in the mask
+  reads any of it. The rate is a mean over the grid and not a fixed
+  reference, so a panel large enough to dominate the screen pulls the rate toward its own attenuation and
+  reads as world — the ratio is against the picture, which is what makes it resolution-independent and also
+  what bounds it to a panel that leaves scenery around it to measure against.
 - The **change-size histogram** rides in the same pass and is guarded with it, and it counts the whole
   distribution of the frame's movement rather than only the pixels above a threshold — which is why an
   auto-deadband is possible at all. The walk's rule: **the measured step is the smallest change size 1–8
@@ -235,11 +255,12 @@ Follows from what each pass reads:
    `RGBA16F` and the copy has no statistics to do — and `PS_CopyDrift` is its twin on the compute path.
    The isolation gate rides in these two passes too, off their own target: it is a pixel-pass feature, so
    it reads the same on both variants and has no compute spelling.
-4. `CS_Tile` — the tile map and its region readings, only with `AutoMaskCompute` **and**
-   `AutoMaskDiagnostics` both on. It comes after the closing, so a cell is the mask the shader published
-   rather than the verdict under it, and before `PS_StoreFrame`, since the arrival reading is taken off the
-   accumulator's own graded motion and the premise share `CS_Finish` has just published — both of which
-   describe this frame, and both of which the store would otherwise leave describing the last one.
+4. `CS_Tile`, `CS_Alpha` — the tile map and its region readings, and the alpha reading beside them, only
+   with `AutoMaskCompute` **and** `AutoMaskDiagnostics` both on. Both come after the closing, so a cell is
+   the mask the shader published rather than the verdict under it, and before `PS_StoreFrame`, since the
+   arrival reading is taken off the accumulator's own graded motion and the premise share `CS_Finish` has
+   just published — both of which describe this frame, and both of which the store would otherwise leave
+   describing the last one.
 5. `PS_Store`, keeping the mapped pixels.
 6. `PS_StoreFrame`, copying the untouched frame into the history target for the next frame.
 7. `PS_AntiBloom` — black the masked pixels in the live frame so a bloom pass downstream has no UI to
@@ -248,7 +269,7 @@ Follows from what each pass reads:
 8. The diagnostics overlay, last, and only when `AutoMaskDiagnostics` is defined to 1 — a compile-time
    guard on the pass and the shader both, so with it off neither is compiled. It reads the accumulator
    directly rather than recomputing the difference, so it cannot report on itself instead of on the
-   shader. It draws one of three views: red where the graded
+   shader. It draws one of four views: red where the graded
    motion reads, green where the accumulator's own confidence crosses the protection threshold, or — on
    the second live toggle — two flat colours split at that threshold, one the mask already claims and one
    it does not, with everything at or below zero left plain, so no shade has to be compared — the view that
@@ -258,14 +279,19 @@ Follows from what each pass reads:
    the cell classes `CS_Tile` wrote: a square of the 16×16 grid drawn in its class — green mask, black
    world, red a wide change with no mask on it while the world is stopped, orange a world cell sealed off
    by mask — and the five
-   region readings as bars along the top.
+   region readings as bars along the top. A fourth, `UIDebugAlpha` (compute-only for the same reason, and
+   overriding the tile view where both are on), draws the attenuated band and nothing else: brightness how
+   far below the frame's rate a cell sits, red where the mask does not cover it, blue where it does, with
+   the four shares as bars along the top.
    The published mask is deliberately *not* used, so the verdict view shows an element's own area without
    the closing radius grown around it. Every per-pixel view tints the stored history frame and only where
    the chosen signal covers — the blend is scaled by the signal, so a pixel it does not name is passed
-   through untouched. The map packs the view's own channels into one target: red the graded motion, green
-   the verdict, blue the confidence grade, and alpha the screen state in two steps; the tile view's own
-   class takes rgb together where it draws, which is why the grade is read from blue only while the tile
-   view is off. The same blue carries it on the pixel path, where the tile view does not exist to use it.
+   through untouched. The alpha view is the exception, and deliberately so: it tints only the band, so a
+   cell at the frame's own rate passes the picture through rather than showing as a shade. The map packs the
+   view's own channels into one target: red the graded motion, green
+   the verdict, blue the confidence grade, and alpha the screen state in two steps; the tile view takes rgb
+   together where it draws, which is why the grade is read from blue only while it is off. The same blue
+   carries it on the pixel path, where no grid view exists to use it.
    The state is read from the same statistic the gate itself reads, one frame
    behind the frame it describes, so it shows the state that will shortly govern the mask rather than a
    value recomputed a second way, and its strictness must match the gate's: `> AutoMaskMotion`, not

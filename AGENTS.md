@@ -178,6 +178,21 @@ graded against it goes off screen-wide.
   the grid: a count of a few regions against 256 cells would move a bar by one percent of its length. It rides both the compute and diagnostics guards, since it exists only to be watched,
   and it is the first thing to build of `docs/ui-isolation-options.md` §6's readings, because the other
   two need it.
+- The **alpha reading is a second instrument of the same kind, and the one aimed at semi-transparent
+  interface** — §5.8 of `docs/ui-isolation-options.md`, the only limit here a hand-painted mask beats. A
+  translucent element composites as the world's change times its alpha, so its pixels move *below* the
+  frame's own rate without holding still, which the per-pixel verdict reads as ordinary world and the
+  coverage-based tile map cannot tell from anything else: this is the one reading that measures
+  *magnitude*, and it needs its own pass rather than a reading on that map. `CS_Alpha` is a cell's mean
+  graded motion against the grid's own rate over the cells the mask does not touch, with taps under
+  `AUTOMASK_ALPHA_LIT` left out of both sides (a quiet cell would otherwise read as total attenuation),
+  and a cell under `AUTOMASK_ALPHA_BAND` of the rate with no mask on it is the leak the reading sizes. It
+  owns a pass, a shader, a `RGBA32F` grid and a 1×1 share target, so it rides the compute *and*
+  diagnostics guards like the map, and is read by nothing in the mask. `UIDebugAlpha` draws the band and
+  nothing else -- brightness how far below the rate a cell sits, red where the mask misses it and blue
+  where it covers it, the picture through everywhere else. Tinting the rate itself paints most of the
+  screen, which is what a game reported as a red wash, and a fixed class boundary read world at nine
+  tenths of the rate as bright as world over it; the band alone is what both fixes leave.
 - The **confidence view is the same kind of instrument as the tile map, and deliberately not on it.**
   `UIDebugConfidence` grades every pixel by the accumulator's own confidence instead of deciding it, so
   the mass sitting just under the 0.5 line — what §5.5 of `docs/ui-isolation-options.md` would have

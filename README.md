@@ -87,6 +87,7 @@ fallback on a frame where the walk finds no floor.
 | **Diagnostics: motion view** | Which reading the overlay draws when it is switched on. On, it is the motion view: red where the frame sees a change, nothing where it does not. Off, it is the verdict view: green where a pixel has earned its place in the mask — the shader's own verdict, without the closing radius — nothing where it has not. Both tint only the pixels they name and leave the rest of the picture exactly as the game drew it; the bottom-left corner marker shows in both. |
 | **Diagnostics: confidence view** | The verdict view with its judgement *and* its shades taken out, leaving two flat colours that need no comparing. **Cyan** is a pixel the mask already claims. **Magenta** is a pixel that is earning its place but has not crossed the line yet — the band just under it. Anything in neither colour is left exactly as the game drew it, including a pixel still recovering from a move: that is drawn plain on purpose, so recovery never looks like evidence. It answers a question the verdict view cannot: whether a crowd of pixels is sitting just under the line, and whether that crowd is interface or scenery. **Magenta over dim scenery, with no interface there, is the reading that matters**: it is the shader part-way to protecting the world, because scenery drifting too slowly to change a pixel between two frames reads as perfectly still, and still is what the shader calls interface. That is a limit of the comparison's resolution rather than a bug, and the view is the way to see how much of it a particular game produces. It draws nothing and changes nothing. |
 | **Diagnostics: tile view** *(compute path only)* | A third overlay reading, and the one that measures rather than shows. It chops the screen into a 16×16 grid of squares and colours each square by what the mask is doing in it — so it draws a coarse map rather than a per-pixel one, and a whole square is one colour rather than a blend. **Green** is a square that is mostly masked interface, **black** a square that is not, **red** a square that changed a lot this frame and is *not* masked — a panel appearing that the shader has not caught yet, which is the case the screen-wide reading cannot see — and **orange** a square that is not masked but is walled in by mask on every side: a hole inside a protected element. Five bars along the top are the region counts, in the order below. It draws nothing and changes nothing, so flicking it on and off leaves the picture and the mask identical; it exists to be watched while deciding whether the region filters it measures are worth their cost. |
+| **Diagnostics: alpha view** *(compute path only)* | The fourth overlay reading, and the one aimed at the case a hand-painted mask still wins: interface you can see the world through. A see-through element composites as the world's change multiplied by the element's own opacity, so its pixels move *less than the world around them* without holding still — invisible to the shader, which only asks whether a pixel moved. This view asks the other question: it takes each square of the same 16×16 grid, works out how much its pixels moved against the rest of the screen, and **tints only the squares that moved less than that** — everything at or above the screen's own rate is left exactly as the game drew it. Brightness says how far below: nearly off is barely less, full red or blue is much less. **Red where the mask does not cover the square, blue where it does.** So a **red square at a middling brightness** is a see-through element the shader is missing, which is the case the reading is for; red at full brightness is a square far slower than the screen, which over dim scenery is the comparison's own floor. Four bars along the top are the summary shares: the screen with nothing to read, the attenuated band, the part of that band the mask misses, and moving at the screen's own rate. |
 
 There are three more switches that are not sliders — **anti-bloom** (on by default), the **diagnostics
 overlay** (off), and the **compute path** (off). They are compile-time switches, so turning one on or off
@@ -110,8 +111,9 @@ fail to build. On anything modern it is safe to switch on, and worth doing if yo
 screen-wide reading behave oddly — a mask that forms or refuses to form for no visible reason, or scenery
 that creeps in slowly while nothing appears to be moving.
 
-It carries four settings the pixel path cannot — **Drift horizon**, **Auto-detect RGB step** and its
-**Noise floor**, and **Diagnostics: tile view** — all described in the table above. The drift average is the most memory-hungry part of
+It carries five settings the pixel path cannot — **Drift horizon**, **Auto-detect RGB step** and its
+**Noise floor**, **Diagnostics: tile view** and **Diagnostics: alpha view** — all described in the table
+above. The drift average is the most memory-hungry part of
 the shader, and deliberately so: it has to creep toward the picture by a fraction of a level a frame,
 finer than half precision can resolve over the brighter half of the range, so it is the one buffer kept
 in full precision instead of half. The pair comes to about 120 MB at 1440p, and what that buys is the
@@ -128,23 +130,24 @@ in a pass that runs anyway, and those reads are skipped entirely while the box i
 delay rather than the arithmetic — a brand-new element with nothing near it arrives at half speed — which
 is why it ships off.
 
-The **tile view** is the one addition rather than a retune, and it is not free: while the overlay is
-switched on, the compute path also runs a small pass over a 16×16 grid, and that pass is a fixed 256
-threads doing a few thousand shared-memory reads apiece per frame. It is nothing beside the full-screen
-passes, and with the diagnostics overlay compiled out the pass, its shader and its two small buffers are
-not in the shader at all — the same rule every other guarded part of this follows. What it is for is
-deciding, with eyes on a real game, whether the region filters it measures are worth their cost; it does
-not touch the mask in any way.
+The **tile view** is one of two additions rather than retunes, and it is not free: while either is switched
+on, the compute path also runs a small pass over a 16×16 grid, and each pass is a fixed 256 threads doing a
+few thousand shared-memory reads apiece per frame. They are nothing beside the full-screen passes, and with
+the diagnostics overlay compiled out the passes, their shaders and their small buffers are not in the shader
+at all — the same rule every other guarded part of this follows. What they are for is deciding, with eyes on
+a real game, whether the region filters they measure are worth their cost; neither touches the mask in any
+way.
 
 ## Seeing what it decided
 
-Turn the diagnostics overlay on and it draws one reading over the picture, picked by two toggles:
+Turn the diagnostics overlay on and it draws one reading over the picture, picked by four toggles:
 **Diagnostics: motion view** chooses between red where the frame sees a change and green where the shader
 has decided a pixel is interface, and **Diagnostics: confidence view** replaces that green with two flat
 colours that split it — one for a pixel the mask claims, one for a pixel still earning its place. They tint
 *only* the pixels they name and leave every other pixel exactly as the game drew it, with no global wash.
 With the compute path on, **Diagnostics: tile view** replaces them both with the region reading described
-below.
+below, and **Diagnostics: alpha view** replaces the tile view in turn with the one that measures
+semi-transparent interface.
 
 - **Red** — the motion view: how much this pixel changed this frame, with nothing the frame forgave drawn
   at all. It is graded over a fixed three-level span: a change one step under the RGB-step setting is the
@@ -229,6 +232,34 @@ The five bars along the top are the numbers that map produced, filled left to ri
 
 None of it does anything. Nothing here is read by the mask, nothing changes the picture, and the whole
 reading is only compiled in when the overlay is on.
+
+### The alpha view, and the one case it is aimed at
+
+The alpha view is the same kind of coarse map, asked a different question. A see-through element — a faded
+health bar, a translucent map overlay — composites as the world's change times the element's own opacity,
+so its pixels move *less than the scenery around them* while still not holding still. The shader only asks
+whether a pixel moved, so it reads those pixels as ordinary world and leaves them unprotected. That is the
+one limit above a hand-painted mask genuinely beats, and this view is the reading for whether it is worth
+attacking.
+
+The view tints **only the squares that moved less than the screen as a whole**, and leaves everything at or
+above that rate exactly as the game drew it. That is deliberate: the screen as a whole *is* the reference,
+so tinting the squares at the reference would paint most of the picture and say nothing. Brightness is how
+far below the rate a square sits — nearly off is barely slower, full is much slower — and the colour on top
+is red where no mask covers the square and blue where one does. So a **middling red** square is a
+see-through element the shader is missing, which is what the reading is for; a full red one is a square far
+slower than the screen, which over dim scenery is the comparison's own floor rather than an element.
+
+The four bars along the top are the summary shares, in order — nothing to read, the attenuated band, the
+part of that band the mask misses, and moving at the screen's own rate. A camera pan over open scenery
+leaves the picture almost entirely untinted with the third bar empty; a see-through panel over that same
+scenery should hold a middling red patch for as long as it is up. Watch the red squares and check the game
+underneath them: red over something you can see through is the case this is for, while red over ordinary
+dim scenery is the comparison's floor rather than a target.
+
+It is a reading and nothing more. Like the tile view it draws a coarse map rather than a per-pixel one, it
+does not change the mask or the picture, and it exists so the size of that leak can be seen in a real game
+before any filter is built for it.
 
 The small block in the bottom-left corner is always drawn, and its colour tells you what the whole screen
 is doing — which decides whether what you are looking at is a current judgement or a held one:
