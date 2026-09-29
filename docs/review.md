@@ -6,7 +6,8 @@
 - Unused, dead, or redundant variables, parameters, constants, and render targets.
 - Algorithmic and memory efficiency across all passes (specifically the motion reduction pipeline).
 - Adherence to project conventions defined in `AGENTS.md`, with particular attention to comment verbosity.
-- Integration and correctness of the Center Deadzone logic for third-person games.
+- Integration and correctness of the Center Deadzone logic for third-person games. (That feature has
+  since been removed; §5 is kept as the record of the review that landed it.)
 
 ---
 
@@ -150,9 +151,9 @@ All design rationale, architectural history, and compiler quirks are already doc
 
 ---
 
-## 5. Review of the Center Deadzone Implementation
+## 5. Review of the Center Deadzone Implementation (since removed)
 
-The newly added Center Deadzone operates with clean separation:
+The Center Deadzone was reviewed as cleanly separated, and the feature has since been deleted as unused:
 - **Parameterization**: Controlled via `AutoMaskDeadzoneWidth`, `AutoMaskDeadzoneHeight`, `AutoMaskDeadzoneY`, and `AutoMaskDeadzoneMotionOnly`. Defaults to `0.0` (fully disabled, maintaining 100% backward compatibility).
 - **Branchless Math**: Elliptical inclusion check uses `dot(offset / radii, offset / radii) <= 1.0`, avoiding square root operations in `PS_Accum`.
 - **Confidence Clamp**: Forcing `conf = min(conf, 0.0)` and `held = 0.0` ensures any preexisting confidence in the region dissolves immediately without waiting for decay cycles.

@@ -33,8 +33,7 @@ annotation, the frame-count sliders' conversion, the prose budget, or the drift 
   This is also why the step settings are their own category rather than more rows under `AutoMask`:
   unticking the gate hides the rest of *its* category, so a gate placed among the main settings would
   hide every slider in the shader. The gated categories are therefore `RGB step detection` (the toggle,
-  then the floor it gates), `Center deadzone` (the gate, then the four settings it governs) and
-  `Isolated pixels` (the gate, then the count it governs), with the
+  then the floor it gates) and `Isolated pixels` (the gate, then the count it governs), with the
   ungated `AutoMask` and `Frame timing` staying visible whatever any gate says. `ui_category` is not a way
   to hide one setting conditionally on another in general — there is no annotation that does that, so a
   value that must stay visible whatever its neighbours are set to stays in an ungated category.
@@ -44,13 +43,11 @@ annotation, the frame-count sliders' conversion, the prose budget, or the drift 
   are already one contiguous run at the top of the uniform list, so the split costs nothing but a
   heading. Nothing that must stay visible whatever its neighbours say can be gated, but it can still be
   grouped — the durations are the settings a user tunes by watching, and the heading says so.
-- **A feature with a pass of its own is a definition; a branch inside a pass is a gate.** The deadzone is
-  the precedent for the second kind: it owns no pass, shader or target — it is a branch in
-  `PS_Accum`/`CS_Accum` and a ring in the restore — so a `#if AutoMaskDeadzone` would save a few
-  instructions in one entry point while costing a recompile every time someone ticks the box. It is
-  therefore a live `AutoMaskDeadzone` bool carrying `ui_category_toggle`, and the branch reads it. The
-  isolation gate is the second of the kind: a count and a branch inside the two closing passes, so it
-  takes the same live bool and rides in the closing's own target — and its radius is its own slider
+- **A feature with a pass of its own is a definition; a branch inside a pass is a gate.** The isolation
+  gate is the precedent: it owns no pass, shader or target — it is a count and a branch inside the two
+  closing passes — so a `#if` would save a few instructions in one entry point while costing a recompile
+  every time someone ticks the box. It is therefore a live `AutoMaskIsolated` bool carrying
+  `ui_category_toggle`, and the branch reads it. Its radius is its own slider
   (`AutoMaskIsolation`) rather than the closing's, because a count of still pixels is a different question
   from how far the mask is grown, and sharing one number would mean retuning the closing silently changed
   what the count means. Both radii sit inside the same fixed `AUTOMASK_DILATE_MAX` loop, so the second one
@@ -59,9 +56,7 @@ annotation, the frame-count sliders' conversion, the prose budget, or the drift 
   which ReShade would otherwise allocate forever.
 - **A category is a contiguous run of uniforms.** ReShade starts a new group where the `ui_category`
   value changes, so the same category named again further down the list renders as a second heading
-  with the same name. That is why the deadzone settings are declared as a block at the end of the
-  uniform list rather than where they are read: gathered mid-list they would split `AutoMask` in two.
-  Nothing else follows from the order — the panel is the only thing that sees it.
+  with the same name. Nothing else follows from the order — the panel is the only thing that sees it.
 - The compute group is named `RGB step detection`, after the `AutoMaskEps` slider it measures rather than
   after the act of measuring, and `AutoMaskEps` is declared as the last uniform of `AutoMask` so its row
   sits directly above that heading. The slider cannot move inside the group: it is read on the pixel path

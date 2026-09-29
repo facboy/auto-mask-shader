@@ -136,9 +136,9 @@ graded against it goes off screen-wide.
   never hidden. See `docs/editing-conventions.md`.
 - The **accumulator's state machine is written once**, in `Shaders/AutoMask.fxh`. `PS_Accum` and
   `CS_Accum` differ only in how a texture is sampled and in the drift channel the compute path alone
-  carries, so the parts that sample nothing — the deadzone test, the premise, the decay step, the
-  published-mask read, and the values they read (the deadzone offset, the deadband, the pinned-colour
-  count, the frame rate) — are those shared functions. Every helper takes what it needs **already
+  carries, so the parts that sample nothing — the premise, the decay step, the published-mask read and
+  the values they read (the deadband, the pinned-colour count, the frame rate) — are those shared
+  functions. Every helper takes what it needs **already
   sampled**, or the two paths' sampling forms would move onto each other's, and the drift terms stay
   behind `AutoMaskCompute` in the `.fx`. The include sits after the uniforms and targets the helpers
   read, since the dialect has no forward declaration. See `docs/refactor-candidates.md`.
@@ -158,12 +158,12 @@ graded against it goes off screen-wide.
   declared target, so a target left outside its guard is memory paid for a feature that is compiled out.
   Values tuned by watching stay live sliders; adding a fourth definition for one of those would cost a
   recompile per adjustment for no elision worth having.
-- The **center deadzone is gated by a live checkbox, not a fourth definition.** It owns no pass, shader or
-  target of its own — it is a branch inside `PS_Accum`/`CS_Accum` and a ring in the restore — so a
-  `#if` would buy a handful of instructions in one entry point while costing a recompile per toggle.
-  `AutoMaskDeadzone` instead opens `Center deadzone` with `ui_category_toggle`, which is what makes the
-  four settings below it live and hideable at once. A feature with a pass, a shader or a target to its
-  name still gets a definition; a branch inside an existing pass does not.
+- The **isolation gate is gated by a live checkbox, not a fourth definition.** It owns no pass, shader or
+  target of its own — it is a count and a branch inside the two closing passes — so a `#if` would buy a
+  handful of instructions in one entry point while costing a recompile per toggle. `AutoMaskIsolated`
+  instead opens `Isolated pixels` with `ui_category_toggle`, which is what makes the two settings below it
+  live and hideable at once. A feature with a pass, a shader or a target to its name still gets a
+  definition; a branch inside an existing pass does not.
 - The **tile map is an instrument, not a filter**: `CS_Tile` reads the picture as a fixed 16×16 grid,
   reduces it to a component count, an enclosed share and the wide-change patches, and nothing in the mask
   reads any of it. Three readings decide whether it means anything, and each was got wrong once: a cell is
@@ -191,7 +191,7 @@ graded against it goes off screen-wide.
   weighted gate would keep *more* of, and it comes from the comparison crediting scenery that drifts too
   slowly to change a pixel between two frames — sub-resolution drift, not a forgiving deadband. The same
   finding closed §5.5.2, which would charge exactly those bit-still pixels faster, so both halves are shut.
-- **The isolation gate follows the deadzone's rule** rather than getting a definition of its own: it owns
+- **The isolation gate follows admission's rule** rather than getting a definition of its own: it owns
   no pass, shader or target, its counts riding in the two channels `texAutoDilate` leaves unused on the two
   closing passes. `AutoMaskIsolated` opens `Isolated pixels` with `ui_category_toggle`, and the test it
   gates is a share of the box (`AutoMaskDensity`), the pixel itself counted, so one number means the same

@@ -27,7 +27,7 @@ does not change how long repayment takes.
 
 The one state machine this describes runs in two places — `PS_Accum` and, on the compute path,
 `CS_Accum` — so its parts that do not sample anything are shared helper functions in
-`Shaders/AutoMask.fxh`: the deadzone test with the offset it reads, the premise, the decay step, the
+`Shaders/AutoMask.fxh`: the premise, the decay step, the
 published-mask read, the deadband, the pinned-colour count and the frame rate. Each takes what it needs
 sampled already, because the two paths read their textures differently (`tex2D` against `tex2Dlod` with an
 explicit level) and a helper that sampled would move one path's sampling onto the other's. The drift terms
@@ -177,7 +177,7 @@ stroke between those slopes lies along no single line, and is rescued only while
 row or a column clear the floor; where that lapses depends on its slope and on the radius, which raises
 the floor with it. At the default radius 2 the one slope still dropped is 2 px across per 1 px down; by
 radius 3 the floor is 4, so the run-2 and run-3 slopes lapse too. It is a live checkbox rather than a
-fourth structural switch, by the same rule as the deadzone: it owns no pass, shader or target, riding in
+fourth structural switch, by the same rule as admission: it owns no pass, shader or target, riding in
 the two the closing already has.
 
 **The closing radius sets how much there is left to rescue.** The gate runs on the mask the closing

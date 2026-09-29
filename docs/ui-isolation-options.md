@@ -50,8 +50,9 @@ Named against the code, as §3.1 to §3.4 below.
    contour is protected; the interior is not.
 3. **A panel opening over an already-paused world.** Caught only if the opening lifts the *screen-wide*
    reading past `AutoMaskMotion`. A global test is being asked a local question.
-4. **The camera-tethered character** is handled by a hand-placed ellipse
-   (`AutoMaskDeadzoneWidth`/`Height`/`Y`) — a region set by eye where a measured one ought to be.
+4. **The camera-tethered character:** a character pinned to the camera's motion is taken for interface. A
+   hand-placed ellipse used to carve the region out; it was removed as unused (see §5.7), so the case is now
+   an open cost rather than a setting.
 
 ## 4. Avenues already closed
 
@@ -351,13 +352,16 @@ over that fixed grid, so their round count is `G × G`, a property of the grid r
 gated by the compute *and* diagnostics switches, because it is an instrument and exists only where it can
 be seen. It is read by nothing in the mask.
 
-### 5.7 Auto-place the center deadzone
+### 5.7 Auto-place the center deadzone — dropped with the manual region
 
-The deadzone is the shader's one *authored* region, and it exists because a camera-tethered character is
-indistinguishable from a HUD by the comparison. It is also three sliders a user tunes by eye. With the
-tile map in hand, the ellipse's position, width and height can be seeded from the largest centred still
-region that persists while the world is being drawn, with the existing sliders kept as an override. Low
-cost, modest value, and it removes the worst manual step in the shader.
+The center deadzone was the shader's one *authored* region, and it existed because a camera-tethered
+character is indistinguishable from a HUD by the comparison. It was a feature the maintainer never used,
+and it was **removed outright**: keeping it parked still ran the ellipse test on every pixel of the
+full-resolution accumulator — measured at 20 instructions in `PS_Accum` and 22 in `CS_Accum`, about a
+fifth of each — for a branch that was false on every frame. With the manual region gone this option has
+nothing to seed and is dropped with it: auto-placing a region nobody enables would be building on what
+was deleted. The case it addressed is now an open cost in §3.4, and a future answer has to earn a region
+from the mask rather than from a slider.
 
 ### 5.8 Exploratory, as a reading only: the alpha-composite signature
 
@@ -457,7 +461,7 @@ open are settled against the code:
 | 5.5.1 | confidence-weighted count | tuning sharpness | an overlay view off the accumulator, no pass or target | live checkbox inside the gate — **measured out: the band under the line is dim scenery drifting below the comparison's resolution, so weighting keeps more of it** |
 | 5.5.2 | magnitude weighting | tuning sharpness, and only where the deadband is 2+ | none for the rule; it charges the pixels 5.5.1 was measured on faster, and its own reading was dropped | none — **closed on 5.5.1's reading** |
 | 5.6 | tile map | enables §5.7 and §5.8 | a pass, a 16×16 target and a 2×1 reading target | compute-only — **shipped with §6** |
-| 5.7 | auto-placed deadzone | §3.4's manual tuning | off the tile map | override sliders stay |
+| 5.7 | auto-placed deadzone | §3.4's manual tuning | off the tile map | — **dropped: the manual region was removed as unused** |
 | 5.8 | alpha-composite ratio | reading only | off the tile map | diagnostics, compute-only |
 
 **The directional densities are shipped**, in the four-axis form that covers the diagonals too.

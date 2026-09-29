@@ -217,8 +217,8 @@ Follows from what each pass reads:
 1. `PS_Accum` — builds the new confidence against the *previous* frame, **before** the history store, and
    applies the world-drawn premise by reading the statistic the previous frame left behind. With
    `AutoMaskCompute` on this pass is `CS_Accum` instead: same slot, same work, plus the count — the
-   verdict arithmetic both accumulators share comes from `Shaders/AutoMask.fxh` (the deadzone offset and
-   its test, the premise, the decay step, the published-mask read, the deadband, the pinned-colour count
+   verdict arithmetic both accumulators share comes from `Shaders/AutoMask.fxh` (the premise, the decay
+   step, the published-mask read, the deadband, the pinned-colour count
    and the frame rate), so the two paths cannot drift apart in what they decide. Admission
    rides here — four taps on the verdict channel it already holds, behind `AutoMaskNeighbour`, and the
    same four on both paths.
@@ -269,8 +269,7 @@ Follows from what each pass reads:
    The state is read from the same statistic the gate itself reads, one frame
    behind the frame it describes, so it shows the state that will shortly govern the mask rather than a
    value recomputed a second way, and its strictness must match the gate's: `> AutoMaskMotion`, not
-   `step`, which is true at the threshold itself and would disagree on exactly the boundary frame. The
-   deadzone ring is drawn over either view.
+   `step`, which is true at the threshold itself and would disagree on exactly the boundary frame.
    The corner marker is **not** drawn here: it is the one thing `AutoMask_Restore` adds, reading that
    alpha channel, because a block drawn inside `AutoMask` is repainted by the restore pass over any pixel
    the mask covers and treated as picture by every effect in between. Two states, two flat colours and no

@@ -177,51 +177,6 @@ uniform float AutoMaskEps <
 	> = 0.5;
 #endif
 
-//Elliptical center deadzone suppressing accumulation on camera-tethered characters, active only
-//while the world is drawn when AutoMaskDeadzoneMotionOnly is set. Its own category, gated by the
-//checkbox first in it; one block at the end, since a category is a contiguous run.
-uniform bool AutoMaskDeadzone <
-	__UNIFORM_SLIDER_BOOL1
-	ui_label = "Enable center deadzone";
-	ui_tooltip = "On, the elliptical region below stops accumulating stillness, so a camera-tethered character is not captured as interface.\nOff, a configured deadzone is parked rather than zeroed";
-	ui_category = "Center deadzone";
-	ui_category_toggle = true;
-> = false;
-
-uniform float AutoMaskDeadzoneWidth <
-	__UNIFORM_SLIDER_FLOAT1
-	ui_label = "Center deadzone width (percent)";
-	ui_tooltip = "Width of the elliptical center region where stillness is not accumulated.\nSet above 0 to keep a third-person character from being captured as interface";
-	ui_category = "Center deadzone";
-	ui_min = 0.0; ui_max = 100.0;
-	ui_step = 0.5;
-> = 0.0;
-
-uniform float AutoMaskDeadzoneHeight <
-	__UNIFORM_SLIDER_FLOAT1
-	ui_label = "Center deadzone height (percent)";
-	ui_tooltip = "Height of the elliptical center deadzone";
-	ui_category = "Center deadzone";
-	ui_min = 0.0; ui_max = 100.0;
-	ui_step = 0.5;
-> = 0.0;
-
-uniform float AutoMaskDeadzoneY <
-	__UNIFORM_SLIDER_FLOAT1
-	ui_label = "Center deadzone vertical position (percent)";
-	ui_tooltip = "Vertical center of the deadzone (50 is screen center, higher moves it down toward the character's feet, lower moves it up)";
-	ui_category = "Center deadzone";
-	ui_min = 0.0; ui_max = 100.0;
-	ui_step = 0.5;
-> = 55.0;
-
-uniform bool AutoMaskDeadzoneMotionOnly <
-	__UNIFORM_SLIDER_BOOL1
-	ui_label = "Only suppress deadzone while world moves";
-	ui_tooltip = "On, the deadzone suppresses accumulation only while the world is being drawn,\nso full-screen menus can still build a mask over a stopped scene.\nOff, it suppresses at all times";
-	ui_category = "Center deadzone";
-> = false;
-
 //Keeps a masked pixel only while enough still pixels are around it, so a lone speck the comparison
 //cannot tell from a HUD is not protected. Its own category, gated by the checkbox first in it.
 uniform bool AutoMaskIsolated <
@@ -478,9 +433,8 @@ sampler AutoMap { Texture = texAutoMap; };
 
 		float live_share = tex2Dlod(MotionStat, float4(0.5, 0.5, 0.0, 0.0)).r;
 		bool drawn = AutoMaskDrawn(live_share);
-		bool inDeadzone = AutoMaskInDeadzone(texcoord, drawn);
 
-		float2 state = AutoMaskDecay(conf, held, stable > 0.5, drawn, inDeadzone, earn, cost);
+		float2 state = AutoMaskDecay(conf, held, stable > 0.5, drawn, earn, cost);
 		conf = state.x;
 		held = state.y;
 
@@ -804,9 +758,8 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	//Whether the world is being drawn, measured on the previous frame.
 	float live = tex2D(MotionStat, float2(0.5, 0.5)).r;
 	bool drawn = AutoMaskDrawn(live);
-	bool inDeadzone = AutoMaskInDeadzone(texcoord, drawn);
 
-	float2 state = AutoMaskDecay(conf, held, stable > 0.5, drawn, inDeadzone, earn, cost);
+	float2 state = AutoMaskDecay(conf, held, stable > 0.5, drawn, earn, cost);
 	conf = state.x;
 	held = state.y;
 
@@ -982,7 +935,7 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 	uniform bool UIDebugMotion <
 		__UNIFORM_SLIDER_BOOL1
 		ui_label = "Diagnostics: motion view";
-		ui_tooltip = "On, the overlay shows red where the frame sees a change.\nOff, it shows green where a pixel has earned protection, without the closing radius.\nThe deadzone ring and the corner marker show in both";
+		ui_tooltip = "On, the overlay shows red where the frame sees a change.\nOff, it shows green where a pixel has earned protection, without the closing radius.\nThe corner marker shows in both";
 		ui_category = "Diagnostics";
 	> = true;
 
@@ -1090,12 +1043,6 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 			}
 		#endif
 		color = lerp(color, mark, tint * 0.7);
-
-		if (AutoMaskDeadzone && AutoMaskDeadzoneWidth > 0.0 && AutoMaskDeadzoneHeight > 0.0){
-			float dist = length(AutoMaskDeadzoneOffset(texcoord));
-			float ring = 1.0 - saturate(abs(dist - 1.0) / max(fwidth(dist) * 1.5, 0.001));
-			color = lerp(color, float3(1.0, 1.0, 0.0), ring * 0.85);
-		}
 
 		//The five region readings as bars across the top, in their documented order and colour, each
 		//filled left to right to its own value. Read from the target the region pass filled, so a bar is

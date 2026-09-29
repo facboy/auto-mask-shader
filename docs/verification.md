@@ -266,14 +266,14 @@ whether the reading you are looking at is current.
   from where its own average had settled used to be locked out indefinitely, so put the overlay in its
   verdict view on a still HUD element and confirm the green is there and stays there over the horizon.
 - The panel's grouping, which the compile check cannot see at all: each heading must appear once, with
-  **Frame timing** holding the four frame-count durations, **Center deadzone** holding the four deadzone
-  settings and nothing else, the compute path's group reading **RGB step detection** rather than the old
-  **Step detection**, and the RGB step slider drawn as the last row of **AutoMask** so it sits directly
-  above that group. A category named twice in the uniform list draws two headings of the same name, so a
-  second **AutoMask** block is the failure to look for after any move of a uniform.
+  **Frame timing** holding the four frame-count durations, the compute path's group reading **RGB step
+  detection** rather than the old **Step detection**, and the RGB step slider drawn as the last row of
+  **AutoMask** so it sits directly above that group. A category named twice in the uniform list draws two
+  headings of the same name, so a second **AutoMask** block is the failure to look for after any move of a
+  uniform.
 - The isolation gate, in the panel and in the mask: the checkbox ships off, so on first load
   **Isolated pixels** must show the gate alone with the count and radius hidden under it, and it must be a
-  *third* gated category beside **RGB step detection** and **Center deadzone** — a second **AutoMask**
+  *second* gated category beside **RGB step detection** — a second **AutoMask**
   heading after any move of the uniform is the failure to look for. With it on, a still speck with no still
   neighbourhood — a stuck pixel, a flat patch in a noisy gradient — must vanish from the mask while a
   solid element keeps its. **Still neighbourhood density** is a typed field, not a slider, and must show

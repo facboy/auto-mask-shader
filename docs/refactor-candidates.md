@@ -27,27 +27,24 @@ below):
 
 | helper | folds |
 | --- | --- |
-| `AutoMaskInDeadzone(texcoord, drawn)` | the elliptical test in both accumulators |
 | `AutoMaskDrawn(share)` | the premise, previously stated five times in two spellings |
-| `AutoMaskDecay(conf, held, stable, drawn, inDeadzone, earn, cost)` | the hold, the credit, the bridge and the banked debt |
+| `AutoMaskDecay(conf, held, stable, drawn, earn, cost)` | the hold, the credit, the bridge and the banked debt |
 | `AutoMaskPublished(uv)` | the mask read in `PS_Store`, `PS_AntiBloom` and `PS_Restore` |
 
 Each takes what it needs **already sampled**, so neither path's sampling form moved onto the other's. The
 drift terms stay behind `#if AutoMaskCompute == 1` in the `.fx`, because its ramp and the two extra rail
 comparisons are the compute path's alone and the pixel path is documented as having no drift pass.
 
-A second reading, of the shader against its header, its two closing passes against each other and its
-restore pass against the deadzone test, folded the values each site was deriving for itself:
+A second reading, of the shader against its header and its two closing passes against each other,
+folds the values each site was deriving for itself:
 
 | helper | folds |
 | --- | --- |
-| `AutoMaskDeadzoneOffset(texcoord)` | the ellipse `AutoMaskInDeadzone` tests and the ring `PS_Restore` draws |
 | `AutoMaskDeadband()` | `max(ceil(AutoMaskEps), 1.0)` at the verdict, the walk's fallback and the walk's floor |
 | `AutoMaskClipped(now, before)` | the pinned-colour count, with the compute path's two drift terms added at its call site |
 | `AutoMaskRate(frames)` | the `0.504 / max(slider, 1.0)` pair, one copy for `AutoMaskRise` and `AutoMaskFall` |
 
-The deadzone pair is a correctness coupling rather than a tidy: the ring had to stay over the region the
-verdict excludes, and the two `0.005`/`0.01` scales were written in both files. `AutoMaskClipped` returns
+`AutoMaskClipped` returns
 `int`, not `float`: as a float the helper's `all()` terms summed in integer and the total was converted,
 which reordered `iadd`/`itof` against `and`/`add` in `CS_Accum` and moved its hash — returning `int`
 restores the assembly exactly.

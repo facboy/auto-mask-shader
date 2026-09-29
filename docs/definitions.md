@@ -135,9 +135,9 @@ are listed under it.
   credit a ceiling.
 - **state machine** — the branch structure of `PS_Accum`, whose shared parts `CS_Accum` calls as the same
   helpers declared in `Shaders/AutoMask.fxh` (`docs/compute-path.md`).
-- **shared helper** — one of the functions `Shaders/AutoMask.fxh` holds: the deadzone offset and the
-  test that reads it, the premise, the decay step, the published-mask read, the deadband, the
-  pinned-colour count and the frame rate. Each takes what it needs sampled already, so neither path's
+- **shared helper** — one of the functions `Shaders/AutoMask.fxh` holds: the premise, the decay step, the
+  published-mask read, the deadband, the pinned-colour count and the frame rate. Each takes what it needs
+  sampled already, so neither path's
   sampling form moves onto the other's (`docs/refactor-candidates.md`).
 - **bank** — two senses, told apart by the object. Of *scenery*: wrongly taken into the mask as
   interface, i.e. kept protected because neither comparison caught it — "the sky is banked". Of a *cost*
@@ -271,9 +271,6 @@ durations — are the `Frame timing` section.
 | `AutoMaskEps` | RGB step counted as a change | The deadband in whole levels out of 255; decides only whether a pixel moved. Last row of `AutoMask`, so it sits above the group that measures it. |
 | `AutoMaskAutoStep` | Auto-detect RGB step | Whether the deadband is measured rather than read from the slider. |
 | `AutoMaskNoiseFloor` | Noise floor (percent) | The share of the screen the walk's rule is set at; gated by the toggle above. |
-| `AutoMaskDeadzone` | Enable center deadzone | The gate the other four deadzone settings sit behind; cleared, the ellipse is off however they are set. |
-| `AutoMaskDeadzoneWidth` / `Height` / `Y` | Center deadzone width / height / vertical position | The ellipse in which stillness does not accumulate, and where its centre sits. |
-| `AutoMaskDeadzoneMotionOnly` | Only suppress deadzone while world moves | Whether the deadzone applies while the world is stopped. |
 | `AutoMaskIsolated` | Enable isolated pixel removal | The gate the isolation count sits behind; off, the mask is the closing radius alone. |
 | `AutoMaskDensity` | Still neighbourhood density (percent) | Share of the box that must be still, itself counted; a text box, stepped by 1. The other way to stay in is the line door. |
 | `AutoMaskIsolation` | Isolation radius in pixels | How far that density and the line door are measured; its own radius rather than the closing's. |
@@ -293,10 +290,9 @@ durations — are the `Frame timing` section.
   category at a time, off a boolean's `ui_category_toggle`, and it never hides that boolean itself — so
   a gated setting belongs in its own category with the gate first, and there is no per-uniform
   visibility annotation (`docs/editing-conventions.md`). A category is a contiguous run of uniforms, so
-  one named again further down the list draws a second heading with the same name; that is why
-  `Center deadzone` is declared as a block after the compute guard. The five names used are `Frame
-  timing`, `AutoMask`, `RGB step detection`, `Center deadzone` and `Diagnostics` — the last two inside
-  switches, so neither is drawn unless its switch is on.
+  one named again further down the list draws a second heading with the same name. The four names used
+  are `Frame timing`, `AutoMask`, `RGB step detection` and `Diagnostics` — the last inside the diagnostics
+  switch, so it is not drawn unless that is on.
 - **`AUTOMASK_STEP_MAX`** — `8`: the last level the walk measures in, and the end of the `AutoMaskEps`
   slider with it. Named because the histogram's width, the clear loop, the bin clamp and the walk's
   range must not drift apart.
@@ -350,10 +346,6 @@ durations — are the `Frame timing` section.
   `max(reach + 1, AUTOMASK_AXIS_MIN)`.
 - **luma step** — `AutoMaskEdge` compared against `dot(colour, float3(0.299, 0.587, 0.114))`, the Rec.601
   luma the dilation reads from the frame.
-- **center deadzone** — the ellipse, sized and placed by the deadzone sliders, where stillness does not
-  accumulate. For a player character tethered to the camera, which is indistinguishable from a HUD
-  element to the comparison. `AutoMaskDeadzone` gates it: cleared, the ellipse is off whatever the four
-  settings below say, and they keep their values.
 - **diagnostics overlay** — the `PS_DebugMap` pass, compiled only when `AutoMaskDiagnostics == 1`. It
   reads the accumulator directly, so it cannot report on itself instead of on the shader.
 - **motion view / verdict view / confidence view** — the overlay's per-pixel readings, picked by two
@@ -376,9 +368,6 @@ durations — are the `Frame timing` section.
 - **corner marker** — the bottom-left block drawn by `AutoMask_Restore`, not the overlay, so nothing
   downstream can paint over it: magenta while the world is drawn, yellow while it is not. It reads the
   state about to govern the mask, one frame ahead of the decision.
-- **deadzone ring** — the thin yellow ellipse outline, drawn in the restore pass while a deadzone is
-  enabled — `AutoMaskDeadzone` ticked and a size set — so the region can be seen while the sliders are
-  set.
 - **variant** — one compiled combination of the preprocessor switches; the offline check compiles eight
   (`AutoMaskAntiBloom` and `AutoMaskDiagnostics` each at 0 and 1, crossed with `AutoMaskCompute`).
 - **`BUFFER_WIDTH` / `BUFFER_HEIGHT`** — injected by ReShade at runtime, not defined here. Anything
