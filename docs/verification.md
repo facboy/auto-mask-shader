@@ -287,18 +287,18 @@ whether the reading you are looking at is current.
   with `AutoMaskDepthMotion` and `AutoMaskDiagnostics` both on, and draws a field rather than a mark: white
   where the surface faces up or down, black where it faces the direction of travel. Point it at a scene
   with a clear floor and an oblique wall and the floor must read white and the wall black, which is the
-  signature the exclusion would key on. The reading is a reconstruction — camera-space position from depth
+  signature the exclusion keys on. The reading is a reconstruction — camera-space position from depth
   and the screen ray, crossed between neighbours — so its *shading* is right while its absolute tilt moves
-  with **Diagnostics: depth fov (degrees)**: sweep that and the reading should tilt, not change which
+  with **Camera field of view (degrees)**: sweep that and the reading should tilt, not change which
   surfaces are bright. Two limits to state when reading it: the sign of the normal is arbitrary (only its
   magnitude is drawn), and the buffer must actually be carrying the geometry — where the depth is clamped
-  the reconstruction has no gradient and reads black regardless of the surface. What it decides, once a
-  game confirms the signature: a walking camera's motion is horizontal, so a surface whose normal is
-  vertical has a depth change of exactly zero and cannot ever count as the world moving — those pixels
-  would be dropped from the depth changed/active counts, the way a pinned colour already is, so a frame
-  full of floor stops diluting the share. The exclusion is deliberately only for the vertical normal: a
-  wall facing the motion is what a walk *does* move, and a sloped surface still changes, so both stay in.
-  No code makes that exclusion yet; the probe is what a game is asked before it is built.
+  the reconstruction has no gradient and reads black regardless of the surface. What it decides:
+  `AutoMaskDepthInvariant` drops the up-facing pixels from the depth changed count and its denominator —
+  a walking camera's motion is horizontal, so a floor or ceiling has a depth change of exactly zero and
+  could never witness the world being drawn, so counting it only dilutes the share. Only the vertical
+  normal is excluded: a wall facing the motion is what a walk *does* move, and a sloped surface still
+  changes, so both stay counted, with `AUTOMASK_DEPTH_UPRIGHT` bounding how up-facing counts. With the
+  depth switch off nothing is dropped and the `AutoMaskDepthMotion = 0` hashes above are the evidence.
 - **A still patch of world beside a large animating one, which is the premise's own false witness.** The
   share is a single screen-wide number, so it says the world is drawn whenever *enough* of it moves — and
   stillness is then credited over still world too. Watch the verdict view (or the mask) over a scene with a

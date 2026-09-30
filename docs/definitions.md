@@ -274,6 +274,7 @@ durations — are the `Frame timing` section.
 | `AutoMaskMotion` | Motion needed to trust stillness (percent) | Share of the screen that must change before stillness is credited. The premise. |
 | `AutoMaskDepthEps` | Depth step counted as a change (percent) | How much of its own distance a surface must move in one frame to count; a typed field, read only with `AutoMaskDepthMotion`. |
 | `AutoMaskDepthOnly` | Depth only (experiment) | Whether the world-drawn reading is depth alone rather than depth added to the picture; also read only with `AutoMaskDepthMotion`. |
+| `AutoMaskDepthFOV` | Camera field of view (degrees) | The vertical fov the surface orientation is reconstructed with, so a floor or ceiling can be left out of the depth reading; a wrong value tilts it rather than changing which surfaces those are. |
 | `AutoMaskDrift` | Drift horizon (seconds) | The drift average's memory, in seconds; `0` turns the comparison off. |
 | `AutoMaskNeighbour` | Stop specks entering the mask | Whether a pixel with no claimed neighbour earns at half rate, so a region starts only from a pixel still for twice the rise. |
 | `AutoMaskEps` | RGB step counted as a change | The deadband in whole levels out of 255; decides only whether a pixel moved. Last row of `AutoMask`, so it sits above the group that measures it. |
@@ -285,8 +286,7 @@ durations — are the `Frame timing` section.
 | `UIDebugMotion` | Diagnostics: motion view | Which reading the overlay draws: motion view (red) or verdict view (green). |
 | `UIDebugTile` | Diagnostics: tile view | Whether the overlay draws the tile map instead: a cell in its class, with the region readings as bars. Compute-only, since the map is. |
 | `UIDebugGain` | Diagnostics: motion gain | Multiplier making a small change visible in the overlay. |
-| `UIDebugDepthNormal` | Diagnostics: depth normals | Whether the overlay draws each surface's orientation instead — white where it faces up or down. Read only with `AutoMaskDepthMotion`, which is the only thing that can sample depth. |
-| `UIDebugDepthFOV` | Diagnostics: depth fov (degrees) | The vertical field of view the normals probe reconstructs with; it tilts the reading rather than changing which surfaces read as up-facing. |
+| `UIDebugDepthNormal` | Diagnostics: depth normals | Whether the overlay draws each surface's orientation instead — white where it faces up or down. Read only with `AutoMaskDepthMotion`, which is the only thing that can sample depth.
 
 - **structural switch** — a preprocessor definition that removes a feature from the compile: each is
   `#ifndef`-guarded and owns its pass, technique entry, shader and private targets. The four are

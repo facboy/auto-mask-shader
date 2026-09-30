@@ -95,6 +95,10 @@ uniform float AutoMaskMoveMemory <
 //Admission's seed rate: a pixel with no claimed neighbour earns this share of the usual rise, so a
 //region starts only from a pixel that holds still twice as long. Named so both accumulators halve alike.
 #define AUTOMASK_SEED_SHARE 0.5
+//How up-facing a surface's normal must be before depth leaves it out: a floor or ceiling faces straight
+//up or down and a sideways camera can never change its depth, while a wall facing the travel or a slope
+//still can and stays counted.
+#define AUTOMASK_DEPTH_UPRIGHT 0.6
 uniform float AutoMaskDilate <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Closing radius in pixels";
@@ -148,6 +152,17 @@ uniform float AutoMaskMotion <
 		ui_tooltip = "On, the world-drawn reading comes from the depth buffer alone, so animating textures no longer count as the world moving.\nOff, depth is added to the picture's own reading.\nNeeds the depth buffer: with none bound, the world never reads as drawn";
 		ui_category = "AutoMask";
 	> = false;
+
+	//The vertical field of view the surface orientation is reconstructed with. It only tilts that
+	//reconstruction: a floor or ceiling reads as up-facing whatever it is set to.
+	uniform float AutoMaskDepthFOV <
+		__UNIFORM_SLIDER_FLOAT1
+		ui_label = "Camera field of view (degrees)";
+		ui_tooltip = "The camera's vertical field of view, used to work out which way each surface faces so a floor or ceiling is left out of the depth reading.\nA wrong value tilts that reading rather than changing which surfaces read as up-facing";
+		ui_category = "AutoMask";
+		ui_min = 20.0; ui_max = 120.0;
+		ui_step = 1.0;
+	> = 60.0;
 #endif
 
 #if AutoMaskCompute == 1
@@ -445,6 +460,9 @@ sampler AutoMap { Texture = texAutoMap; };
 			: AutoMaskDeadband();
 		float motion = max(smoothstep(deadband - 1.0, deadband + 2.0, maxDiff),
 		                   smoothstep(deadband, deadband * AUTOMASK_DRIFT_LAG, maxDrift));
+		//Whether this pixel sits on a floor or ceiling, which the depth reading leaves out. Off the
+		//depth path nothing is dropped, so the two variants' counts stay identical without it.
+		bool upright = false;
 		#if AutoMaskDepthMotion == 1
 			//The world being drawn, measured on depth: the overlay writes no depth, so a panel cannot
 			//hide the drawing as it hides it in the picture. The step is a share of the surface's own
@@ -453,6 +471,15 @@ sampler AutoMap { Texture = texAutoMap; };
 			motion = AutoMaskDepthOnly
 				? AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps)
 				: max(motion, AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps));
+			//A floor or ceiling faces up, so a walk across it changes no pixel's depth there: the
+			//orientation is read from the neighbours, the same reconstruction the probe draws.
+			float2 halfFOV = tan(radians(AutoMaskDepthFOV) * 0.5) * float2(BUFFER_ASPECT_RATIO, 1.0);
+			float2 depthDx = float2(BUFFER_RCP_WIDTH, 0.0);
+			float2 depthDy = float2(0.0, BUFFER_RCP_HEIGHT);
+			float3 camP = AutoMaskCamPos(texcoord * 2.0 - 1.0, halfFOV, depthNow);
+			float3 camPx = AutoMaskCamPos((texcoord + depthDx) * 2.0 - 1.0, halfFOV, ReShade::GetLinearizedDepth(texcoord + depthDx));
+			float3 camPy = AutoMaskCamPos((texcoord + depthDy) * 2.0 - 1.0, halfFOV, ReShade::GetLinearizedDepth(texcoord + depthDy));
+			upright = AutoMaskDepthInvariant(camP, camPx, camPy);
 		#endif
 		float stable = (maxDiff < deadband && maxDrift < deadband && clipped == 0.0) ? 1.0 : 0.0;
 
@@ -516,11 +543,12 @@ sampler AutoMap { Texture = texAutoMap; };
 		if (gi < AUTOMASK_STEP_MAX)
 			groupHist[gi] = 0u;
 		barrier();
-		if (changed)
+		if (changed && !upright)
 			atomicAdd(groupChanged, 1u);
 		//`live` gates this one too: the dispatch rounds up, and an out-of-frame thread's samples are
-		//undefined, so counting them as active would dilute the share.
-		if (live && (clipped == 0.0 || changed))
+		//undefined, so counting them as active would dilute the share. A floor or ceiling is gated the
+		//same way, since the depth reading has no use for it: dropped rather than banked as unchanged.
+		if (live && !upright && (clipped == 0.0 || changed))
 			atomicAdd(groupActive, 1u);
 		if (binned)
 			atomicAdd(groupHist[bin], 1u);
@@ -792,6 +820,8 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	float deadband = AutoMaskDeadband();
 	float motion = smoothstep(deadband - 1.0, deadband + 2.0, maxDiff);
 	float stable = (maxDiff < deadband && clipped == 0.0) ? 1.0 : 0.0;
+	//Whether this pixel sits on a floor or ceiling, which the depth reading leaves out.
+	bool upright = false;
 	#if AutoMaskDepthMotion == 1
 		//The depth reading joins the motion the reduce below counts, not the verdict above: a change in
 		//depth is the world being redrawn, which the overlay cannot have written, so it can only raise
@@ -802,6 +832,15 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 		motion = AutoMaskDepthOnly
 			? AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps)
 			: max(motion, AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps));
+		//A floor or ceiling faces up, so a walk across it changes no pixel's depth there: the
+		//orientation is read from the neighbours, the same reconstruction the probe draws.
+		float2 halfFOV = tan(radians(AutoMaskDepthFOV) * 0.5) * float2(BUFFER_ASPECT_RATIO, 1.0);
+		float2 depthDx = float2(BUFFER_RCP_WIDTH, 0.0);
+		float2 depthDy = float2(0.0, BUFFER_RCP_HEIGHT);
+		float3 camP = AutoMaskCamPos(texcoord * 2.0 - 1.0, halfFOV, depthNow);
+		float3 camPx = AutoMaskCamPos((texcoord + depthDx) * 2.0 - 1.0, halfFOV, ReShade::GetLinearizedDepth(texcoord + depthDx));
+		float3 camPy = AutoMaskCamPos((texcoord + depthDy) * 2.0 - 1.0, halfFOV, ReShade::GetLinearizedDepth(texcoord + depthDy));
+		upright = AutoMaskDepthInvariant(camP, camPx, camPy);
 	#endif
 
 	float gain = AutoMaskRate(AutoMaskRise);
@@ -833,8 +872,10 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	held = state.y;
 
 	//.a carries whether the verdict could speak at all, which the two reduce passes below read: the
-	//share is taken over the pixels that flag, so a black or clipped region cannot dilute it.
-	return float4(clamp(conf, -cost * AutoMaskMoveMemory, 1.0), held, motion, clipped == 0.0 ? 1.0 : 0.0);
+	//share is taken over the pixels that flag, so a black or clipped region cannot dilute it -- a floor
+	//or ceiling is dropped the same way, since depth can never read a sideways camera move across it.
+	return float4(clamp(conf, -cost * AutoMaskMoveMemory, 1.0), held, motion,
+		(clipped == 0.0 && !upright) ? 1.0 : 0.0);
 }
 
 //Downsamples motion flags into coarse block coverage: .r the changed share, .g the share that could
@@ -1039,17 +1080,6 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 			ui_tooltip = "On, the overlay grades each pixel by how much the surface there faces up or down: white for the floor and ceiling, black for walls that face the way you walk.\nThose white pixels are the ones depth motion cannot see on a walk, so they are what a filter would discard.\nNeeds the depth motion switch, which is the only thing that can read depth";
 			ui_category = "Diagnostics";
 		> = false;
-
-		//The vertical field of view the reconstruction assumes. A wrong value tilts the reading but not
-		//which pixels are up-facing, which is all the probe is for, so a rough match is enough.
-		uniform float UIDebugDepthFOV <
-			__UNIFORM_SLIDER_FLOAT1
-			ui_label = "Diagnostics: depth fov (degrees)";
-			ui_tooltip = "The camera's vertical field of view, for the normals probe above.\nOnly the tilt of the reading depends on it, not which surfaces show as up-facing";
-			ui_category = "Diagnostics";
-			ui_min = 20.0; ui_max = 120.0;
-			ui_step = 1.0;
-		> = 60.0;
 	#endif
 
 	#if AutoMaskCompute == 1
@@ -1095,7 +1125,7 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 		//the depth of -- and black is a wall facing the way you walk, which it can.
 		#if AutoMaskDepthMotion == 1
 			if (UIDebugDepthNormal){
-				float2 halfAngle = tan(radians(UIDebugDepthFOV) * 0.5) * float2(BUFFER_ASPECT_RATIO, 1.0);
+				float2 halfAngle = tan(radians(AutoMaskDepthFOV) * 0.5) * float2(BUFFER_ASPECT_RATIO, 1.0);
 				float2 dx = float2(BUFFER_RCP_WIDTH, 0.0);
 				float2 dy = float2(0.0, BUFFER_RCP_HEIGHT);
 				float3 p = AutoMaskCamPos(texcoord * 2.0 - 1.0, halfAngle, ReShade::GetLinearizedDepth(texcoord));

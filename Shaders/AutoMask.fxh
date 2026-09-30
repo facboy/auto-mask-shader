@@ -43,6 +43,15 @@ float3 AutoMaskCamPos(float2 offset, float2 halfAngle, float depth)
 	float3 ray = float3(offset * halfAngle, 1.0);
 	return depth * ray / length(ray);
 }
+
+//Whether the surface here faces up or down, and so can never show a depth change to a camera moving
+//sideways: `n . t` is zero for it however fast the walk, so its stillness is not evidence the world has
+//stopped and it is left out of the depth share rather than counted against it. The sign of the normal is
+//arbitrary, so only its magnitude is read.
+bool AutoMaskDepthInvariant(float3 p, float3 px, float3 py)
+{
+	return abs(normalize(cross(px - p, py - p)).y) > AUTOMASK_DEPTH_UPRIGHT;
+}
 #endif
 
 //The sliders speak in frames; the accumulator is confidence against the 0.5 verdict step, so a frame

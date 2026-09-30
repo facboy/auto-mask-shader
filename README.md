@@ -115,8 +115,12 @@ catches near and mid geometry and a distant backdrop needs a lower step. Raise i
 holding the world as drawn over a stopped scene; lower it to reach scenery further off, which is safe
 because the screen-wide share the premise reads keeps a low step from turning noise into a drawn world.
 It does not help a menu opened over a world that has already stopped — the depth is stopped too — which
-stays the documented limit in the list below. Beside it sits **Depth only (experiment)**,
-off by default: with it on the world-drawn reading comes
+stays the documented limit in the list below. **Camera field of view (degrees)** is the other number it
+reads: the shader works out which way each surface faces, and one facing straight up or down — a floor or
+a ceiling — cannot change depth at all when you walk, so those pixels are left out of the depth reading
+rather than counted as "not moving", which would only hold it down. A wall you are walking toward, or a
+slope, still counts. **Depth only (experiment)** sits beside it, off by default: with it on the world-drawn
+reading comes
 from the depth buffer *alone* rather than from depth added to the picture. It exists to answer one
 question — whether a scene whose only movement is animation in the picture (flowing water, fire, a
 scrolling backdrop) should count as the world being drawn, which is the **still patch of world** limit
