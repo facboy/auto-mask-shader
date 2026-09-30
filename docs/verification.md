@@ -293,12 +293,13 @@ whether the reading you are looking at is current.
   surfaces are bright. Two limits to state when reading it: the sign of the normal is arbitrary (only its
   magnitude is drawn), and the buffer must actually be carrying the geometry — where the depth is clamped
   the reconstruction has no gradient and reads black regardless of the surface. What it decides:
-  `AutoMaskDepthInvariant` drops the up-facing pixels from the depth changed count and its denominator —
-  a walking camera's motion is horizontal, so a floor or ceiling has a depth change of exactly zero and
-  could never witness the world being drawn, so counting it only dilutes the share. Only the vertical
-  normal is excluded: a wall facing the motion is what a walk *does* move, and a sloped surface still
-  changes, so both stay counted, with `AUTOMASK_DEPTH_UPRIGHT` bounding how up-facing counts. With the
-  depth switch off nothing is dropped and the `AutoMaskDepthMotion = 0` hashes above are the evidence.
+  `AutoMaskDepthInvariant` drops the surfaces a walk cannot move from the depth changed count and its
+  denominator. Two tests, either of which is enough: a normal lying across the walk (`n.z` under
+  `AUTOMASK_DEPTH_ALIGNED`) — the floor, the ceiling and a wall walked alongside all have no forward depth
+  change — and a vertical normal (`n.y` over `AUTOMASK_DEPTH_UPRIGHT`), which holds for the floor even
+  when the camera is pitched. The wall ahead points down the walk and stays counted, as does a slope,
+  since both do change. With the depth switch off nothing is dropped and the `AutoMaskDepthMotion = 0`
+  hashes above are the evidence.
 - **A still patch of world beside a large animating one, which is the premise's own false witness.** The
   share is a single screen-wide number, so it says the world is drawn whenever *enough* of it moves — and
   stillness is then credited over still world too. Watch the verdict view (or the mask) over a scene with a

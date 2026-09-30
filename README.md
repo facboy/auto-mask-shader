@@ -116,10 +116,11 @@ holding the world as drawn over a stopped scene; lower it to reach scenery furth
 because the screen-wide share the premise reads keeps a low step from turning noise into a drawn world.
 It does not help a menu opened over a world that has already stopped — the depth is stopped too — which
 stays the documented limit in the list below. **Camera field of view (degrees)** is the other number it
-reads: the shader works out which way each surface faces, and one facing straight up or down — a floor or
-a ceiling — cannot change depth at all when you walk, so those pixels are left out of the depth reading
-rather than counted as "not moving", which would only hold it down. A wall you are walking toward, or a
-slope, still counts. **Depth only (experiment)** sits beside it, off by default: with it on the world-drawn
+reads: the shader works out which way each surface faces, and one lying across the direction you walk —
+the floor, the ceiling, a wall you walk alongside — cannot change depth at all going forward, so those
+pixels are left out of the depth reading rather than counted as "not moving", which would only hold it
+down. The wall you are walking toward points down the walk and still counts. **Depth only (experiment)**
+sits beside it, off by default: with it on the world-drawn
 reading comes
 from the depth buffer *alone* rather than from depth added to the picture. It exists to answer one
 question — whether a scene whose only movement is animation in the picture (flowing water, fire, a

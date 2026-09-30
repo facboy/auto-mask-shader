@@ -95,10 +95,13 @@ uniform float AutoMaskMoveMemory <
 //Admission's seed rate: a pixel with no claimed neighbour earns this share of the usual rise, so a
 //region starts only from a pixel that holds still twice as long. Named so both accumulators halve alike.
 #define AUTOMASK_SEED_SHARE 0.5
-//How up-facing a surface's normal must be before depth leaves it out: a floor or ceiling faces straight
-//up or down and a sideways camera can never change its depth, while a wall facing the travel or a slope
-//still can and stays counted.
+//How up-facing a surface's normal must be before depth leaves it out even on a pitched camera: a floor
+//faces straight up whatever the view is doing, so it never shows a walk moving it.
 #define AUTOMASK_DEPTH_UPRIGHT 0.6
+//How far across the walk a normal may lie before depth leaves the surface out. A floor, a ceiling and a
+//wall you walk alongside all have no depth change going forward; the wall ahead points down the walk and
+//stays in.
+#define AUTOMASK_DEPTH_ALIGNED 0.6
 uniform float AutoMaskDilate <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Closing radius in pixels";

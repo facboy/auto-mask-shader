@@ -44,13 +44,14 @@ float3 AutoMaskCamPos(float2 offset, float2 halfAngle, float depth)
 	return depth * ray / length(ray);
 }
 
-//Whether the surface here faces up or down, and so can never show a depth change to a camera moving
-//sideways: `n . t` is zero for it however fast the walk, so its stillness is not evidence the world has
-//stopped and it is left out of the depth share rather than counted against it. The sign of the normal is
-//arbitrary, so only its magnitude is read.
+//Whether the surface here can never show a depth change to a camera that walks: `n . t` is zero for it,
+//so its stillness is not evidence the world stopped and it is left out of the depth share. A normal
+//across the walk covers the floor, the ceiling and a wall walked alongside, while the wall ahead points
+//down the walk and stays in; a vertical normal holds that even when the camera is pitched.
 bool AutoMaskDepthInvariant(float3 p, float3 px, float3 py)
 {
-	return abs(normalize(cross(px - p, py - p)).y) > AUTOMASK_DEPTH_UPRIGHT;
+	float3 n = abs(normalize(cross(px - p, py - p)));
+	return n.z < AUTOMASK_DEPTH_ALIGNED || n.y > AUTOMASK_DEPTH_UPRIGHT;
 }
 #endif
 
