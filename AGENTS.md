@@ -272,6 +272,9 @@ These are inherent to the signal rather than tuning problems, and they belong in
 
 - Semi-transparent UI is never protected.
 - A quiet interior with no ambient animation can accumulate.
+- A still patch of world beside a large animating one is credited as interface: the premise is a single
+  screen-wide share, so any region large enough to clear `AutoMaskMotion` marks the world drawn and every
+  still pixel is then claimed, including world that never moved (`docs/ui-isolation-options.md` §5.10).
 - Scenery that drifts too slowly to change a pixel between two frames is credited as interface, in the
   dim regions where the same movement changes a level least.
 - Something animating in a stopped scene is given up.

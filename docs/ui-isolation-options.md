@@ -16,7 +16,8 @@ half **has since been closed on that same finding**, which names the very pixels
 What the instrument also settled is the shape of what is left: §5.7 is dropped with the manual region it
 would have seeded, and §5.8's own reading — built, watched and removed — is measured out too, because the
 quantity it needs is not in any target. §5.9 is where depth ended up: the mask use this document assumed
-away stays impossible, but the premise use works and **has since shipped** as `AutoMaskDepthMotion`.
+away stays impossible, but the premise use works and **has since shipped** as `AutoMaskDepthMotion`. §5.10
+is what that shipped premise still gets wrong — the witness it is measured with, not the cue it spends.
 
 Companions: `docs/core-model.md` (the verdict the isolation rides on), `docs/compute-path.md` (the
 compute path most of this would live in), `docs/optical-flow.md` (the one instrument already built,
@@ -56,6 +57,12 @@ Named against the code, as §3.1 to §3.4 below.
 4. **The camera-tethered character:** a character pinned to the camera's motion is taken for interface. A
    hand-placed ellipse used to carve the region out; it was removed as unused (see §5.7), so the case is now
    an open cost rather than a setting.
+5. **A still patch of world beside a large animating one.** The premise is a single screen-wide share, so a
+   river, a waterfall or fire large enough to clear `AutoMaskMotion` marks the world as *drawn* and stillness
+   is then credited over every still pixel — including a wall or a backdrop that has not moved at all. §3.3 is
+   the same global test failing on a different question (a panel over a *stopped* world); this is the form
+   where the world is not stopped, only the patch that gets taken. §5.10 is the option that would read
+   viewpoint change rather than picture change to tell them apart.
 
 ## 4. Avenues already closed
 
@@ -453,6 +460,49 @@ Unverified in a game: the whole of it. The mechanism and the fallback are off-GP
 DSR's depth is usable and what step it needs are questions only a game answers; `docs/verification.md`
 names the scenario.
 
+### 5.10 A viewpoint-change premise — the false witness §5.9 leaves standing
+
+§5.9 spends depth on the premise but keeps the premise's **witness** unchanged: `AutoMaskDrawn` reads the
+share of pixels whose *colour* changed, and that share cannot tell apart two different things. A camera
+that moves repaints the view, and a still pixel beside it is genuinely informative — it is not world. A
+static camera over animating **texture** — flowing water, fire, a scrolling UV, a video backdrop — repaints
+pixels too, but nothing about the viewpoint changed, so a wall, a closed door or the backdrop behind a menu
+is still ambiguous with a HUD exactly as it was. The changed-share fires and stillness is credited over
+world that never moved. This is the animated-neighbour form of §3.3's global-test failure, and it is the
+commoner presentation: a quiet room where *nothing* animates at least has a stopped premise, while a room
+with a river in it does not. `README.md` names it as a limit.
+
+`AutoMaskDepthMotion` does not close it, because it joins the same count: water as moving **geometry**
+changes depth too, so the `max` is more firmly on, not less. What would close it is a reading of
+**viewpoint change** rather than of picture change — and depth is the natural source, because texture
+animation moves pixels without moving depth. Under this option the premise would be taken from a
+depth-change share instead of (or in addition to) the colour share: a still camera over flowing water
+leaves depth flat, so the world reads as stopped and stillness is withheld; a camera pan or a scene change
+moves depth across the frame, so it reads as drawn.
+
+It is a **global** reading — one share, no per-pixel claim — for the reason §5.9 gives: depth speaks for
+the world, and a HUD over a static wall has the wall's own depth and the wall's own zero depth change, so
+no per-pixel depth test can separate them.
+
+**The trade is the mirror of the changed-share's, and it is not obviously a win.** Where the changed-share
+banks a static world, a depth-change premise *withholds* stillness in every scene whose only animation is
+textural — so the hold engages and a genuine HUD stops earning too. A persistent HUD survives this (it is
+captured while the camera moves and held after), but a fresh element appearing with the camera dead still —
+a notification fading in over static scenery — may not be captured until the view moves. It also still
+misses animated **geometry**: an NPC walking, foliage swaying, cloth; those move depth and would read as
+drawn. So it trades one false positive for one false negative and does not close the class; it decides
+which failure a given game lives with. That is the same asymmetry as §5.9 and the RGB-versus-depth
+question behind it — the two witnesses fail in opposite directions, so the honest shape of a fix is to
+*select* between them (a mode or a live toggle) rather than to replace one with the other.
+
+Not scoped and not built. What it needs before anything is mechanised: a game that exhibits the
+animated-neighbour false positive, with the tile map and the motion view watched over it to see how much
+of the mask a static backdrop is actually taking, and a measurement of how often a textural-only scene
+occurs in that game — because the cost is paid on exactly those frames. Off-GPU, one property is checkable
+by hand: with no depth bound the depth share is zero, so the reading is "never drawn" and the switch would
+have to fall back to the colour share rather than holding forever — the same degradation `AutoMaskDepthMotion`
+already relies on.
+
 ## 6. Measure first: the instrument
 
 The repo's method is that a claim is measured before it is mechanised — no noise floor without the
@@ -543,6 +593,7 @@ open are settled against the code:
 | 5.7 | auto-placed deadzone | §3.4's manual tuning | off the tile map | — **dropped: the manual region was removed as unused** |
 | 5.8 | alpha-composite ratio | reading only | a new per-cell magnitude statistic, built as a pass with a `RGBA32F` grid and a share target | compute + diagnostics — **measured out and removed: the graded channel saturates, so the ratio cannot separate a panel from moving world** |
 | 5.9 | depth premise | §3.3 in the common case (the panel no longer hides the drawing), not the panel over a stopped world | one `R32F` target and one full-screen store pass; degrades to the picture's own premise with no depth bound | preprocessor definition, off — **shipped as `AutoMaskDepthMotion`** |
+| 5.10 | viewpoint-change premise | the animated-neighbour form of §3.3 — a still patch banked because a *different* region repaints | a depth-change share in place of the colour share; still misses animated geometry, and withholds stillness in textural-only scenes | live mode or toggle — **options, not scoped** |
 
 **The directional densities are shipped**, in the four-axis form that covers the diagonals too.
 **§5.6's tile map and §6's readings are shipped as one instrument step**, which is the order §6 asks for:

@@ -274,6 +274,18 @@ whether the reading you are looking at is current.
   with the switch on a **depth**-only change shows there as red or as a wide cell. That is the frame's own
   change reading made honest, but it means the motion view can no longer be read as picture-only while the
   switch is on; the auto-deadband *measurement* is unaffected, since it bins the picture's own `maxDiff`.
+- **A still patch of world beside a large animating one, which is the premise's own false witness.** The
+  share is a single screen-wide number, so it says the world is drawn whenever *enough* of it moves — and
+  stillness is then credited over still world too. Watch the verdict view (or the mask) over a scene with a
+  river, a waterfall or fire covering a good part of the frame while the camera is still and a wall or a
+  menu backdrop sits in view: green appearing over the wall is this failure. It is the animated-neighbour
+  form of the large-dark-region case above — that one capped the share so the world read stopped while it
+  was moving, this one lets the world read drawn over a patch that never moved — and it is the option
+  `docs/ui-isolation-options.md` §5.10 records. Two things make it a game-only question: how much of the
+  mask a static backdrop actually takes, and how often a game presents a textural-only scene, since a
+  premise measured on depth change would withhold stillness on exactly those frames and hold a genuine HUD
+  out with them. Raising **Motion needed to trust stillness** is the only shipped lever and it only helps
+  while the animating region is small.
 - The exact comparison, at `AutoMaskEps = 1`, where it is a visible change rather than an arithmetic
   one: the motion view over a large smooth gradient — a sky, a wall lit by a lamp — must now show a
   red rim wherever the ramp crosses a level, since every one-level change trips the verdict where only

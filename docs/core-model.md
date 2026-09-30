@@ -243,6 +243,15 @@ These are inherent to the signal, not tuning problems, and belong in the README:
   the same reason: a wall the player has been facing throughout never moved in the picture and never
   changes, so there is nothing to remember and no drift away from its own average. The move memory does
   catch the wall that was *walked past* and then stopped in front of, which is the common case.
+- **A still patch of world beside a large animating one can accumulate too.** The premise is one screen-wide
+  share, so it answers "is anything being drawn", not "which part". A river, a waterfall or fire covering
+  enough of the view clears `AutoMaskMotion`, the world reads as drawn, and stillness is then credited
+  everywhere — including a wall, a closed door or the backdrop behind a menu, none of which moved. The
+  quiet interior above is the same failure with *nothing* animating; this is the form where the world is not
+  stopped, only the patch that gets taken, and it is the commoner one. Depth does not close it: as moving
+  geometry, water changes depth too, so `AutoMaskDepthMotion` holds the premise up rather than down. What
+  distinguishes the two cases is whether the *viewpoint* changed, not whether pixels changed — the option
+  `docs/ui-isolation-options.md` §5.10 records, unscoped.
 - **Scenery that drifts too slowly to change a pixel between two frames.** The comparison's baseline is one
   frame and its unit is one whole level, so scenery sliding across the screen at a fraction of a level a
   frame reads as *exactly* no change — and no change is the whole of the evidence the verdict asks for.

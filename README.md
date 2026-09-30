@@ -300,6 +300,17 @@ time:
   wall you walked past was moving in the picture, so it is remembered and cannot be grabbed when you stop;
   a wall you have been standing in front of the whole time never moved, so there is nothing to remember —
   and on the evidence available it is genuinely indistinguishable from a HUD.
+- **A still patch of world in a scene that is otherwise animating.** The reading above is one number for
+  the whole screen: it answers "is anything being drawn", not "which part". So if enough of the view is
+  repainting itself — a waterfall, a river, fire, trees in wind — the shader decides the world is being
+  drawn and starts taking stillness as interface wherever it finds it. A wall, a closed door, or the
+  backdrop behind a menu in that same frame is still, and is claimed exactly as a HUD would be. This is
+  the commoner shape of the quiet-room limit above: there nothing at all animates, here something does,
+  but it is nowhere near the patch that gets taken — which is the point, because a patch of stillness is
+  what a HUD is. The two cannot be told apart from the picture, since a still wall and a still HUD look
+  identical. Raising **Motion needed to trust stillness** demands more of the screen animate before
+  stillness counts, which helps only while the animating part is small: a river across a third of the
+  view cannot be raised past without switching the premise off for ordinary play.
 - **A frame that is fully black or fully white never counts as still.** A colour pressed against the top
   or bottom of its range may be saturated rather than motionless, so a letterbox bar, a hard fade or a
   clipped sky earns nothing while it holds, and a screenful of it converges toward no mask rather than
