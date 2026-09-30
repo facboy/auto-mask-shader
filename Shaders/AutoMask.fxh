@@ -33,6 +33,16 @@ float AutoMaskDepthMoved(float now, float before, float pct)
 {
 	return smoothstep(0.0, pct, abs(now - before) / max(now, 1e-4) * 100.0);
 }
+
+//Reconstructs the camera-space position of a pixel from its depth and its place on the screen, so the
+//surface's orientation can be read. Depth is a distance along the view axis, not along the ray, so the
+//ray's own z is the cosine of its angle to that axis: with the screen half-angle from the field of view,
+//that is one over the length of the unit ray the two screen offsets and the 1 make.
+float3 AutoMaskCamPos(float2 offset, float2 halfAngle, float depth)
+{
+	float3 ray = float3(offset * halfAngle, 1.0);
+	return depth * ray / length(ray);
+}
 #endif
 
 //The sliders speak in frames; the accumulator is confidence against the 0.5 verdict step, so a frame

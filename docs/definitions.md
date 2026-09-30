@@ -285,6 +285,8 @@ durations — are the `Frame timing` section.
 | `UIDebugMotion` | Diagnostics: motion view | Which reading the overlay draws: motion view (red) or verdict view (green). |
 | `UIDebugTile` | Diagnostics: tile view | Whether the overlay draws the tile map instead: a cell in its class, with the region readings as bars. Compute-only, since the map is. |
 | `UIDebugGain` | Diagnostics: motion gain | Multiplier making a small change visible in the overlay. |
+| `UIDebugDepthNormal` | Diagnostics: depth normals | Whether the overlay draws each surface's orientation instead — white where it faces up or down. Read only with `AutoMaskDepthMotion`, which is the only thing that can sample depth. |
+| `UIDebugDepthFOV` | Diagnostics: depth fov (degrees) | The vertical field of view the normals probe reconstructs with; it tilts the reading rather than changing which surfaces read as up-facing. |
 
 - **structural switch** — a preprocessor definition that removes a feature from the compile: each is
   `#ifndef`-guarded and owns its pass, technique entry, shader and private targets. The four are

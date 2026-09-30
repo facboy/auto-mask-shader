@@ -1029,6 +1029,29 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 		ui_category = "Diagnostics";
 	> = false;
 
+	#if AutoMaskDepthMotion == 1
+		//The probe the animated-neighbour case asks for before anything discards a surface: the depth
+		//buffer's own orientation, so the pixels a walking camera can never move -- the floor and ceiling,
+		//whose normal points up -- can be seen against the scene before a filter is built on them.
+		uniform bool UIDebugDepthNormal <
+			__UNIFORM_SLIDER_BOOL1
+			ui_label = "Diagnostics: depth normals";
+			ui_tooltip = "On, the overlay grades each pixel by how much the surface there faces up or down: white for the floor and ceiling, black for walls that face the way you walk.\nThose white pixels are the ones depth motion cannot see on a walk, so they are what a filter would discard.\nNeeds the depth motion switch, which is the only thing that can read depth";
+			ui_category = "Diagnostics";
+		> = false;
+
+		//The vertical field of view the reconstruction assumes. A wrong value tilts the reading but not
+		//which pixels are up-facing, which is all the probe is for, so a rough match is enough.
+		uniform float UIDebugDepthFOV <
+			__UNIFORM_SLIDER_FLOAT1
+			ui_label = "Diagnostics: depth fov (degrees)";
+			ui_tooltip = "The camera's vertical field of view, for the normals probe above.\nOnly the tilt of the reading depends on it, not which surfaces show as up-facing";
+			ui_category = "Diagnostics";
+			ui_min = 20.0; ui_max = 120.0;
+			ui_step = 1.0;
+		> = 60.0;
+	#endif
+
 	#if AutoMaskCompute == 1
 		//The one view that is compute-only, because the tile map the region readings are taken over
 		//exists only there. It replaces the other views while it is on, rather than tinting with them,
@@ -1065,6 +1088,24 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 		float changed = saturate(accum.b * UIDebugGain);
 		float drawn = AutoMaskDrawn(tex2D(MotionStat, float2(0.5, 0.5)).r);
 		float screen = drawn ? 1.0 : 0.0;
+
+		//The normals probe: reconstructs the camera-space position of this pixel and of its right and
+		//lower neighbours, crosses their differences for the surface's normal, and draws how much of it
+		//faces up or down. White is the floor and ceiling -- the surfaces a walking camera cannot change
+		//the depth of -- and black is a wall facing the way you walk, which it can.
+		#if AutoMaskDepthMotion == 1
+			if (UIDebugDepthNormal){
+				float2 halfAngle = tan(radians(UIDebugDepthFOV) * 0.5) * float2(BUFFER_ASPECT_RATIO, 1.0);
+				float2 dx = float2(BUFFER_RCP_WIDTH, 0.0);
+				float2 dy = float2(0.0, BUFFER_RCP_HEIGHT);
+				float3 p = AutoMaskCamPos(texcoord * 2.0 - 1.0, halfAngle, ReShade::GetLinearizedDepth(texcoord));
+				float3 px = AutoMaskCamPos((texcoord + dx) * 2.0 - 1.0, halfAngle, ReShade::GetLinearizedDepth(texcoord + dx));
+				float3 py = AutoMaskCamPos((texcoord + dy) * 2.0 - 1.0, halfAngle, ReShade::GetLinearizedDepth(texcoord + dy));
+				//The normal's sign depends on the winding, so only its magnitude means anything here.
+				float up = saturate(abs(normalize(cross(px - p, py - p)).y));
+				return float4(up.xxx, screen);
+			}
+		#endif
 
 		//The compute path packs the tile view's own colour in .rgb and the screen state in .a, so one map
 		//pass serves every view; the pixel path has no tile view and shares the .b below.
@@ -1122,6 +1163,13 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 			}
 		#endif
 		color = lerp(color, mark, tint * 0.7);
+
+		#if AutoMaskDepthMotion == 1
+			//The normals probe replaces the picture rather than tinting it: it is a field, not a mark,
+			//and only the shade carries the reading. The corner marker below still draws.
+			if (UIDebugDepthNormal)
+				color = debug.rgb;
+		#endif
 
 		//The five region readings as bars across the top, in their documented order and colour, each
 		//filled left to right to its own value. Read from the target the region pass filled, so a bar is
