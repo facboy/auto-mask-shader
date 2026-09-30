@@ -127,16 +127,16 @@ uniform float AutoMaskMotion <
 #if AutoMaskDepthMotion == 1
 	//The step as a share of its own distance: how much of the distance to a surface it must move in one
 	//frame to count as the world being redrawn. Depth is a distance, not an 8-bit channel, so a share of
-	//it is independent of the game's far plane -- and a near surface moves by more of its distance than a
-	//far one, which is where walking clears the default and a still surface does not.
+	//it is independent of the game's far plane -- and translation moves a near surface by more of its
+	//distance than a far one, so one step covers a metre at arm's length and misses a distant backdrop.
 	uniform float AutoMaskDepthEps <
 		__UNIFORM_INPUT_FLOAT1
 		ui_label = "Depth step counted as a change (percent)";
-		ui_tooltip = "How much of its own distance a surface must move in one frame to count as the world being redrawn, as a percentage.\nDepth is a distance, so a share of it is the same in every game; raise it if depth noise holds the world as drawn over a stopped scene, lower it if walking fails to.";
+		ui_tooltip = "How much of its own distance a surface must move in one frame to count as the world being redrawn, as a percentage of that distance.\nDepth is a distance, so a share of it is the same in every game; lower is more sensitive, and the screen-wide share the setting above reads is what keeps depth noise from counting.\nRaise it if depth noise holds the world as drawn over a stopped scene, lower it if walking fails to.";
 		ui_category = "AutoMask";
-		ui_min = 1.0; ui_max = 500.0;
+		ui_min = 1.0; ui_max = 100.0;
 		ui_step = 1.0;
-	> = 25.0;
+	> = 10.0;
 
 	//An experiment rather than a tuning value: takes the world-drawn reading from depth alone, so a scene
 	//whose only motion is texture -- water, fire, a scrolling backdrop -- reads as stopped instead of

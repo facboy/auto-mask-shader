@@ -267,10 +267,14 @@ whether the reading you are looking at is current.
   far-plane independent and a walk is the case to sweep it on: **walking forward over plain scenery with a
   HUD up must keep the corner marker magenta**, which is the case the old level-unit step could not reach
   at all — the depth change a walk makes is a fraction of a percent of the range, two orders below a step
-  counted in 1/255ths. Panning fires the term easily (rotation swings the sampled distance at every
-  silhouette), so a marker that responds to a pan but not to a walk is the far-plane mismatch this
-  replaced, not a tuning problem. Sweep it too high and depth noise (a TAA or dither wobble in the buffer)
-  holds the premise up over a stopped scene, shown as magenta when it should be yellow. The two off-GPU
+  counted in 1/255ths. The ramp is footed at zero, so the step is the whole threshold and a low one is not
+  discarded: sweep down from the `10` default and near and mid geometry should light first, with the far
+  backdrop coming in as it drops — a share is larger for a near surface, so distance-off scenery needs the
+  lower step. Panning fires the term easily (rotation swings the sampled distance at every silhouette), so
+  a marker that responds to a pan but not to a walk at any step is the per-pixel statistic's own limit and
+  not a threshold. A low step is safe from noise because the premise reads a **share** of the screen and
+  the changed flag is `step(0.001, motion)` per pixel; raise it only if depth noise still holds a stopped
+  scene as drawn, shown as magenta when it should be yellow. The two off-GPU
   properties the design rests on are checkable by hand: a buffer sampled where nothing is bound returns one
   constant on both sides of the comparison, so the term is exactly zero — the same as the switch being off
   — and the term is only ever added to the changed count, never the verdict, so it cannot protect a pixel
