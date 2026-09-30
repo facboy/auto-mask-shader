@@ -317,7 +317,9 @@ whether the reading you are looking at is current.
   while the animating region is small.
 - **The witness experiment, `AutoMaskDepthOnly`, inside the depth guard and on both paths.** It is the
   measurement §5.10 asks for in switch form: `motion` becomes the depth term alone rather than
-  `max(depth, picture)`, so the premise reads viewpoint change rather than picture change. The first check
+  `max(depth, picture)`, so the premise reads viewpoint change rather than picture change. The panel's
+  three states are the switch off (picture alone), the switch on with this off (both) and both on (depth
+  alone), so the check covers the labelling as well as the arithmetic. The off-GPU half
   is that it is **absent** with `AutoMaskDepthMotion = 0` and that the additive path is unchanged with it
   false — the `AutoMaskDepthMotion = 0` hashes cover the first, and a false switch that changed an
   entry-point hash would mean the branch was not free. The second is the failure to expect and to

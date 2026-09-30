@@ -174,10 +174,12 @@ graded against it goes off screen-wide.
   reads what it writes, and it is not the ping-pong the accumulator itself needs. `AutoMaskDepthOnly`, a
   live checkbox beside it inside the guard, is the measurement §5.10 of `docs/ui-isolation-options.md`
   asks for: it takes the world-drawn reading from the depth term alone rather than from depth added to the
-  picture, so the premise reads viewpoint change instead of picture change. It owns no pass, shader or
-  target — one `max` in each accumulator — so it is a checkbox and not a definition, and with it on a
-  depth-static scene reads as stopped, while no bound depth leaves the world never reading as drawn. See
-  `docs/core-model.md` and `docs/verification.md`.
+  picture, so the premise reads viewpoint change instead of picture change. Together with the switch it
+  draws the three states the two controls reach — picture alone (the switch off), both (on, this off) and
+  depth alone (on, this on) — as a labelled choice rather than one the reader has to infer. It owns no
+  pass, shader or target — one `max` in each accumulator — so it is a checkbox and not a definition, and
+  with it on a depth-static scene reads as stopped, while no bound depth leaves the world never reading as
+  drawn. See `docs/core-model.md` and `docs/verification.md`.
 - The **isolation gate is gated by a live checkbox, not a fourth definition.** It owns no pass, shader or
   target of its own — it is a count and a branch inside the two closing passes — so a `#if` would buy a
   handful of instructions in one entry point while costing a recompile per toggle. `AutoMaskIsolated`

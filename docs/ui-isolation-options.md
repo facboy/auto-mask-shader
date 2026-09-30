@@ -510,9 +510,10 @@ than to draw two: `AutoMaskDepthOnly`, inside the depth guard, makes `motion` th
 of `max(depth, picture)`. It owns no pass, shader or target, so by §7's rule it is a live checkbox and not
 a definition, and the arithmetic it changes is a single `max`. What it costs is nothing that was not
 already paid — `maxDiff` is computed for the verdict regardless, and the depth term for the premise — so
-the switch is free and flipping it in a game reads the comparison in one session. Its known failure is
-stated in `README.md`: with no bound depth the world reads as never drawn, which is the same degradation
-the additive form turns into a harmless zero.
+the switch is free and flipping it in a game reads the comparison in one session. Its label spells out the
+three states the pair reaches — picture alone, both, depth alone — so the choice is read off the panel
+rather than inferred. Its known failure is stated in `README.md`: with no bound depth the world reads as
+never drawn, which is the same degradation the additive form turns into a harmless zero.
 
 ## 6. Measure first: the instrument
 

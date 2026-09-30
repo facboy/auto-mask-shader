@@ -67,7 +67,8 @@ nothing otherwise — **Isolated pixels** for dropping lone specks that have no 
 because the pixel path reads it with no measurement at all and with auto-detect ticked it is still the
 fallback on a frame where the walk finds no floor. **Depth step counted as a change** is shown only when
 the **depth premise** switch below is compiled in, and lives in **AutoMask** beside the RGB step it is the
-coarser counterpart of; **Depth only (experiment)** sits beside it, shown with the same switch.
+coarser counterpart of; **Depth only, not added to the picture** sits beside it, shown with the same
+switch.
 
 | Setting | What it does |
 | --- | --- |
@@ -118,17 +119,18 @@ stays the documented limit in the list below. **Camera field of view (degrees)**
 reads: the shader works out which way each surface faces, and one lying across the direction you walk —
 the floor, the ceiling, a wall you walk alongside — cannot change depth at all going forward, so those
 pixels are left out of the depth reading rather than counted as "not moving", which would only hold it
-down. The wall you are walking toward points down the walk and still counts. **Depth only (experiment)**
-sits beside it, off by default: with it on the world-drawn
-reading comes
-from the depth buffer *alone* rather than from depth added to the picture. It exists to answer one
-question — whether a scene whose only movement is animation in the picture (flowing water, fire, a
-scrolling backdrop) should count as the world being drawn, which is the **still patch of world** limit
-below. Off, such a scene reads as drawn and a still wall beside it is claimed; on, the scene reads as
-stopped and the mask holds instead. It is not finished behaviour: with the depth buffer missing or wrong,
-the world reads as never drawn and the mask never forms, and it withholds stillness over any animating
-scenery, so a genuine element appearing while the camera is still may not be claimed until the view moves.
-Leave it off unless you are looking at that one question.
+down. The wall you are walking toward points down the walk and still counts. **Depth only, not added to
+the picture** sits beside it, off by default. The switch above picks whether depth is used at all; this
+one picks which witness the world-drawn reading is taken from once it is — depth *added* to the picture,
+or depth *alone*. Off, the reading is the union of the two; on, it is the depth buffer's own, so a scene
+whose only movement is animation in the picture (flowing water, fire, a scrolling backdrop) reads as
+stopped instead of drawn, which is the **still patch of world** limit below. Off, such a scene reads as
+drawn and a still wall beside it is claimed; on, the scene reads as stopped and the mask holds instead.
+The three states are the premise switch off (the picture alone), the switch on with this off (both), and
+the switch on with this on (depth alone). It is not finished behaviour: with the depth buffer missing or
+wrong, the world reads as never drawn and the mask never forms, and it withholds stillness over any
+animating scenery, so a genuine element appearing while the camera is still may not be claimed until the
+view moves. Leave it off unless you are looking at that one question.
 
 **The compute path** changes *how* the mask is worked out, not what it means, and everything in the table
 above still applies. On the pixel path the screen-wide reading the mask depends on is an approximation:

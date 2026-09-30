@@ -61,7 +61,8 @@ are listed under it.
   depth converts back to metres against the far plane ReShade supplies). It can only add
   to that count, never touch the verdict, and with no depth bound the difference is zero. Depth is the
   world's, since the overlay writes none, so it is a second witness to the premise and never a mask
-  (`docs/core-model.md`).
+  (`docs/core-model.md`). With it compiled in, `AutoMaskDepthOnly` picks the witness the
+  reading is taken from — depth added to the picture, or depth alone — so the two can be compared.
 - **coverage** — the share of a block whose pixels changed at all. The statistic, deliberately not the
   magnitude: averaging magnitude let one small bright object in fast motion declare the whole view live.
 - **motion** — two senses. The *flag*: this pixel changed at all, which is what the gate counts. The
@@ -273,7 +274,7 @@ durations — are the `Frame timing` section.
 | `AutoMaskEdge` | Luma step counted as a boundary | The luma difference, 0–255, past which that growth stops. |
 | `AutoMaskMotion` | Motion needed to trust stillness (percent) | Share of the screen that must change before stillness is credited. The premise. |
 | `AutoMaskDepthEps` | Depth step counted as a change (metres) | How far a surface must move toward or away from the view in one frame to count; uniform across the screen, since the change converts back to metres against the far plane ReShade supplies. The depth ramp is footed at half this, so smaller changes add nothing. Read only with `AutoMaskDepthMotion`. |
-| `AutoMaskDepthOnly` | Depth only (experiment) | Whether the world-drawn reading is depth alone rather than depth added to the picture; also read only with `AutoMaskDepthMotion`. |
+| `AutoMaskDepthOnly` | Depth only, not added to the picture | Which witness the world-drawn reading is taken from with depth compiled in — depth added to the picture, or depth alone; also read only with `AutoMaskDepthMotion`. |
 | `AutoMaskDepthFOV` | Camera field of view (degrees) | The vertical fov the surface orientation is reconstructed with, so surfaces a walk cannot move can be left out of the depth reading; a wrong value tilts it rather than changing which surfaces those are. |
 | `AutoMaskDrift` | Drift horizon (seconds) | The drift average's memory, in seconds; `0` turns the comparison off. |
 | `AutoMaskNeighbour` | Stop specks entering the mask | Whether a pixel with no claimed neighbour earns at half rate, so a region starts only from a pixel still for twice the rise. |

@@ -31,12 +31,12 @@
 	#define AutoMaskTargetFPS		60	// [30 to 240] frame rate the frame-count caps are sized for
 #endif
 
-//Lets the depth buffer help decide when the world is being drawn. The overlay writes no depth, so a
-//panel cannot hide the drawing behind it the way it hides it in the picture. Needs depth buffer access
-//(ReShade's Depth Buffer settings), which online games often block; with no depth bound the picture's
-//own reading is used exactly.
+//Adds the depth buffer to the picture as the witness to the world being drawn. Off, the reading is the
+//picture's own; on, the tick below picks between depth added to the picture and depth alone. Needs
+//depth buffer access (ReShade's Depth Buffer settings), which online games often block; with no depth
+//bound the picture's own reading is used exactly.
 #ifndef AutoMaskDepthMotion
-	#define AutoMaskDepthMotion		0	// [0 or 1] 1 lets the depth buffer help measure the world being drawn
+	#define AutoMaskDepthMotion		0	// [0 or 1] 1 adds the depth buffer to the world-drawn reading; off, the picture alone
 #endif
 
 //Uniforms
@@ -145,14 +145,14 @@ uniform float AutoMaskMotion <
 		ui_step = 0.001;
 	> = 0.05;
 
-	//An experiment rather than a tuning value: takes the world-drawn reading from depth alone, so a scene
-	//whose only motion is texture -- water, fire, a scrolling backdrop -- reads as stopped instead of
-	//drawn. Off, depth is added to the picture's reading and can only raise it. It needs a bound depth
-	//buffer: with none the premise never fires and the corner marker stays yellow.
+	//Which witness the world-drawn reading is taken from with depth compiled in -- depth added to the
+	//picture, or depth alone, so the two can be compared in a game. Off, the reading is the union; on, a
+	//scene whose only motion is texture reads as stopped and the premise holds. Depth alone needs a bound
+	//depth buffer: with none the premise never fires and the corner marker stays yellow.
 	uniform bool AutoMaskDepthOnly <
 		__UNIFORM_SLIDER_BOOL1
-		ui_label = "Depth only (experiment)";
-		ui_tooltip = "On, the world-drawn reading comes from the depth buffer alone, so animating textures no longer count as the world moving.\nOff, depth is added to the picture's own reading.\nNeeds the depth buffer: with none bound, the world never reads as drawn";
+		ui_label = "Depth only, not added to the picture";
+		ui_tooltip = "On, the world-drawn reading comes from the depth buffer alone, so animating textures no longer count as the world moving.\nOff, the reading is depth added to the picture's own.\nNeeds the depth buffer: with none bound, the world never reads as drawn";
 		ui_category = "AutoMask";
 	> = false;
 
@@ -468,9 +468,9 @@ sampler AutoMap { Texture = texAutoMap; };
 		bool upright = false;
 		#if AutoMaskDepthMotion == 1
 			//The world being drawn, measured on depth: the overlay writes no depth, so a panel cannot
-			//hide the drawing as it hides it in the picture. The step is a share of the surface's own
-			//distance, which keeps it independent of the game's far plane. Off, it only raises the
-			//graded reading the reduce counts; the depth-only experiment makes it the whole of it.
+			//hide the drawing as it hides it in the picture. The step is a distance in metres, so a metre
+			//is a metre at any range. The tick above takes the reading from depth alone instead of from
+			//depth added to the picture, which is how the two witnesses are compared.
 			motion = AutoMaskDepthOnly
 				? AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps)
 				: max(motion, AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps));
@@ -828,8 +828,8 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	#if AutoMaskDepthMotion == 1
 		//The depth reading joins the motion the reduce below counts, not the verdict above: a change in
 		//depth is the world being redrawn, which the overlay cannot have written, so it can only raise
-		//the share. The step is a share of the surface's own distance, so it is the same in every game.
-		//With no depth bound the difference is zero and the count is the picture's own.
+		//the share. Metres against the far plane ReShade supplies, so the step is the same in every game;
+		//with no depth bound the difference is zero and the count is the picture's own.
 		float depthNow = ReShade::GetLinearizedDepth(texcoord);
 		float depthBefore = tex2D(AutoDepth, texcoord).r;
 		motion = AutoMaskDepthOnly
