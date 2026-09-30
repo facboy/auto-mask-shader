@@ -47,6 +47,22 @@ magnitude just above zero (a still pixel scores exactly zero, so the flag comes 
 Averaging the magnitude instead let one small bright object in fast motion declare the whole view live —
 the opposite of treating the screen as mostly backdrop.
 
+**The depth buffer is a second witness to the premise, and only to the premise.** The overlay writes no
+depth — a panel drawn over the scene takes the scene's own depth — so depth describes the world and never
+the interface, which is why it cannot carry a per-pixel verdict: a pixel whose depth changed is every HUD
+pixel too, since the world behind the panel is what the depth shows, so a depth-change test would veto the
+whole mask whenever the camera moved. What that absence buys is a reading a panel cannot hide: a panel
+removes most of the changed pixels from the *picture*, so a large enough one pushes the share under
+`AutoMaskMotion` and the world stops reading as drawn precisely while the panel is open — the premise
+questioning a witness the panel itself is hiding. Depth is transparent to that, and to the overlay. So
+`AutoMaskDepthMotion` lets a pixel whose depth changed join the changed count the reduce publishes, in the
+same whole-level scale (`AutoMaskDepthEps` sets the step, since depth is coarser than the picture), and
+can only *add* to that count — never remove, never touch the verdict, never protect a pixel on its own. A
+depth buffer that is not bound reads as the same constant on both sides of the comparison, so the
+difference is zero, the count is the picture's own exactly, and the switch degrades to the pixel path
+rather than needing a separate fallback. What it does not fix: a panel over an already-stopped world,
+where the depth is stopped too and there is no drawing to point at.
+
 `AutoMaskEps` counts whole levels out of 255 — the only unit an 8-bit history has — so a fractional value
 is a position that cannot exist, and its minimum is 1: one level is the smallest movement there is and so
 the most sensitive position, while the old "0 means off" kept the motion channel, the debt and the overlay

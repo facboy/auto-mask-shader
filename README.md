@@ -65,7 +65,9 @@ nothing otherwise — **Isolated pixels** for dropping lone specks that have no 
 **Diagnostics** for the overlay's settings. The RGB step slider is the last row of
 **AutoMask**, so it sits directly above the group that measures it; it cannot move inside that group,
 because the pixel path reads it with no measurement at all and with auto-detect ticked it is still the
-fallback on a frame where the walk finds no floor.
+fallback on a frame where the walk finds no floor. **Depth step counted as a change** is shown only when
+the **depth premise** switch below is compiled in, and lives in **AutoMask** beside the RGB step it is the
+coarser counterpart of.
 
 | Setting | What it does |
 | --- | --- |
@@ -88,10 +90,26 @@ fallback on a frame where the walk finds no floor.
 | **Diagnostics: confidence view** | The verdict view with its judgement *and* its shades taken out, leaving two flat colours that need no comparing. **Cyan** is a pixel the mask already claims. **Magenta** is a pixel that is earning its place but has not crossed the line yet — the band just under it. Anything in neither colour is left exactly as the game drew it, including a pixel still recovering from a move: that is drawn plain on purpose, so recovery never looks like evidence. It answers a question the verdict view cannot: whether a crowd of pixels is sitting just under the line, and whether that crowd is interface or scenery. **Magenta over dim scenery, with no interface there, is the reading that matters**: it is the shader part-way to protecting the world, because scenery drifting too slowly to change a pixel between two frames reads as perfectly still, and still is what the shader calls interface. That is a limit of the comparison's resolution rather than a bug, and the view is the way to see how much of it a particular game produces. It draws nothing and changes nothing. |
 | **Diagnostics: tile view** *(compute path only)* | A third overlay reading, and the one that measures rather than shows. It chops the screen into a 16×16 grid of squares and colours each square by what the mask is doing in it — so it draws a coarse map rather than a per-pixel one, and a whole square is one colour rather than a blend. **Green** is a square that is mostly masked interface, **black** a square that is not, **red** a square that changed a lot this frame and is *not* masked — a panel appearing that the shader has not caught yet, which is the case the screen-wide reading cannot see — and **orange** a square that is not masked but is walled in by mask on every side: a hole inside a protected element. Five bars along the top are the region counts, in the order below. It draws nothing and changes nothing, so flicking it on and off leaves the picture and the mask identical; it exists to be watched while deciding whether the region filters it measures are worth their cost. |
 
-There are three more switches that are not sliders — **anti-bloom** (on by default), the **diagnostics
-overlay** (off), and the **compute path** (off). They are compile-time switches, so turning one on or off
-causes a short recompile rather than taking effect instantly. The trade is worth it: with a switch off,
-the work it would have done is not just skipped, it isn't in the shader at all.
+There are four more switches that are not sliders — **anti-bloom** (on by default), the **diagnostics
+overlay** (off), the **compute path** (off), and the **depth premise** (off). They are compile-time
+switches, so turning one on or off causes a short recompile rather than taking effect instantly. The trade
+is worth it: with a switch off, the work it would have done is not just skipped, it isn't in the shader at
+all.
+
+**The depth premise** lets the depth buffer help decide when the world is being drawn, which is the
+question the whole mask waits on. It helps because the overlay leaves no trace in the depth buffer — a
+panel drawn over the scene takes the scene's own depth — so depth sees the world and never the interface.
+The ordinary reading is taken from the picture, and a large opaque menu hides most of the picture's
+movement behind itself: the shader can conclude the world has stopped exactly while you have a menu open,
+and stop tracking. Depth cannot be hidden that way. It only ever *adds* to that reading. It is off by
+default for two reasons. Depth buffer access is not always there — online games often block it — and where
+none is found the reading is the ordinary one exactly, so there is nothing to switch back. And it needs
+ReShade's Depth Buffer settings to be right first: a buffer that is bound but configured wrongly feeds the
+premise nonsense rather than nothing, which no amount of turning the switch off will fix. When it is on,
+**Depth step counted as a change** sets how much of a depth change counts as the world moving, in whole
+levels out of 255, and is coarser than the RGB step because depth is. It does not help a menu opened over
+a world that has already stopped — the depth is stopped too — which stays the documented limit in the list
+below.
 
 **The compute path** changes *how* the mask is worked out, not what it means, and everything in the table
 above still applies. On the pixel path the screen-wide reading the mask depends on is an approximation:

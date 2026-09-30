@@ -122,12 +122,14 @@ BASE_VARIANTS = (
     ("diagnostics", {"AutoMaskDiagnostics": "1"}),
     ("antibloom-off-diagnostics", {"AutoMaskAntiBloom": "0", "AutoMaskDiagnostics": "1"}),
 )
-# The compute switch is crossed with all four rather than added to them: it swaps
-# a pass for one of another type instead of removing it, so a guard that drops or
-# misbinds a pass has to show at both settings and neither may hide the other.
+# The compute switch swaps a pass for one of another type instead of removing it,
+# and the depth switch adds a pass at full resolution, so both are crossed with
+# everything rather than added beside the four: a guard that drops or misbinds a
+# pass has to show at every setting and neither switch may hide the other's.
 VARIANTS = tuple(
-    (name + ("-compute" if compute else ""),
-     dict(definitions, AutoMaskCompute=str(compute)))
+    (name + ("-compute" if compute else "") + ("-depth" if depth else ""),
+     dict(definitions, AutoMaskCompute=str(compute), AutoMaskDepthMotion=str(depth)))
+    for depth in (0, 1)
     for compute in (0, 1)
     for name, definitions in BASE_VARIANTS
 )

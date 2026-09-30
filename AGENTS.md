@@ -151,13 +151,26 @@ graded against it goes off screen-wide.
   the draw still runs with the input undefined, so every pass samples one texel and the mask fills
   uniformly. `PS_MotionAvg` is the trap: its body has no `dcl_input_ps` at all and the parameter is still
   required, because linkage follows the *declared* signature.
-- Three structural switches are preprocessor definitions, not sliders: `AutoMaskAntiBloom`,
-  `AutoMaskDiagnostics` and `AutoMaskCompute`. Each is `#ifndef`-guarded with `// [0 or 1]` annotation
-  comments, as the pack does it, and each guards everything that feature owns — its **pass and technique
-  entry, its shader, and any `texture`/`sampler` only it uses** — because ReShade allocates every
-  declared target, so a target left outside its guard is memory paid for a feature that is compiled out.
-  Values tuned by watching stay live sliders; adding a fourth definition for one of those would cost a
-  recompile per adjustment for no elision worth having.
+- Four structural switches are preprocessor definitions, not sliders: `AutoMaskAntiBloom`,
+  `AutoMaskDiagnostics`, `AutoMaskCompute` and `AutoMaskDepthMotion`. Each is `#ifndef`-guarded with
+  `// [0 or 1]` annotation comments, as the pack does it, and each guards everything that feature owns —
+  its **pass and technique entry, its shader, and any `texture`/`sampler` only it uses** — because ReShade
+  allocates every declared target, so a target left outside its guard is memory paid for a feature that is
+  compiled out. Values tuned by watching stay live sliders; adding a definition for one of those would
+  cost a recompile per adjustment for no elision worth having. `AutoMaskTargetFPS` is a further
+  definition but not a structural switch — it elides nothing, and is named below.
+- **`AutoMaskDepthMotion` is the depth premise, not a depth mask.** The overlay writes no depth — it takes
+  the scene's — so depth describes the world and never the interface, and a per-pixel depth verdict would
+  veto the whole HUD whenever the camera moved. What depth *does* give is the world-drawn premise, the one
+  reading a large open panel hides from itself, and that is all this switch feeds: a pixel whose depth
+  changed joins the changed count the reduce publishes, on the same whole-level scale via `AutoMaskDepthEps`
+  (its own slider, since depth is coarser). It can only *add* to that share, never remove. A depth buffer
+  that is not bound reads as a constant on both sides of the comparison, so the difference is zero and the
+  premise is the picture's own exactly — which is why the online-game case degrades to the old behaviour
+  rather than needing a fallback path. It owns one `R32F` target and one full-resolution store pass, both
+  inside the guard; that target is read by the accumulator and written by a later store pass, so no pass
+  reads what it writes, and it is not the ping-pong the accumulator itself needs. See `docs/core-model.md`
+  and `docs/verification.md`.
 - The **isolation gate is gated by a live checkbox, not a fourth definition.** It owns no pass, shader or
   target of its own — it is a count and a branch inside the two closing passes — so a `#if` would buy a
   handful of instructions in one entry point while costing a recompile per toggle. `AutoMaskIsolated`
@@ -231,9 +244,9 @@ Nothing here is automatically testable, so verification is a review pass plus an
   instruction counts and opcode histograms. `--pass-list` prints the wiring, `--opcodes` the histogram
   per shader, `--hashes` the bytecode sha256 of each entry point. Keep the `tools/.work/` output out of
   commits. `pyproject.toml` lives in `tools/` so `uv run` finds it from the repo root.
-- The check compiles eight variants — `AutoMaskAntiBloom` and `AutoMaskDiagnostics` each at 0 and 1,
-  crossed with `AutoMaskCompute` at 0 and 1 — because a `#if` guard can drop a pass from a technique body,
-  and only compiling every combination shows that it did.
+- The check compiles sixteen variants — `AutoMaskAntiBloom` and `AutoMaskDiagnostics` each at 0 and 1,
+  crossed with `AutoMaskCompute` and `AutoMaskDepthMotion` at 0 and 1 — because a `#if` guard can drop a
+  pass from a technique body, and only compiling every combination shows that it did.
 - **A warning is a failure, not a note.** ReShade prints every warning its compile emits into the log the
   user reads at load, so `check` reports one as `WARN` and exits non-zero on it. The single filtered
   exception is `X3579`, the harness's own artefact.

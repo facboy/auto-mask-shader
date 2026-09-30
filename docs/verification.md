@@ -10,14 +10,15 @@ check:
 - `uv run tools/verify_shaders.py init` fetches the pinned ReShade headers, then
   `uv run tools/verify_shaders.py check` preprocesses and compiles every shader with `fxc` and reports
   instruction counts and opcode histograms. Keep the `tools/.work/` output out of commits.
-- The check compiles eight variants — `AutoMaskAntiBloom` and `AutoMaskDiagnostics` each at 0 and 1,
-  crossed with `AutoMaskCompute` at 0 and 1, set from the prelude exactly as a ReShade-level definition
-  would be — because a `#if` guard can drop a pass from a technique body, and only compiling every
-  combination shows that it did. The compute switch is crossed with the other two rather than added
-  beside them because it swaps a pass for one of another type instead of removing it, so a guard that
-  drops or misbinds a pass has to show at both settings. `--pass-list` prints the wiring, `--opcodes` the
-  histogram per shader, `--hashes` the bytecode sha256 of each entry point — which is how the
-  `AutoMaskCompute=0` variants are shown to compile byte-for-byte as before a change.
+- The check compiles sixteen variants — `AutoMaskAntiBloom` and `AutoMaskDiagnostics` each at 0 and 1,
+  crossed with `AutoMaskCompute` and `AutoMaskDepthMotion` at 0 and 1, set from the prelude exactly as a
+  ReShade-level definition would be — because a `#if` guard can drop a pass from a technique body, and only
+  compiling every combination shows that it did. The compute switch is crossed with the others rather than
+  added beside them because it swaps a pass for one of another type instead of removing it, and the depth
+  switch likewise adds a full-resolution store pass on both paths, so a guard that drops or misbinds a pass
+  has to show at every setting. `--pass-list` prints the wiring, `--opcodes` the histogram per shader,
+  `--hashes` the bytecode sha256 of each entry point — which is how the `AutoMaskDepthMotion=0` variants are
+  shown to compile byte-for-byte as before a change.
 - An entry point is compiled at the profile its shape calls for: `ps_5_0` for a `SV_Target` function,
   `cs_5_0` for a compute one, so a compute pass cannot slip through unread or be compiled as a pixel
   shader. A pass is read for `ComputeShader` as well as `PixelShader`, and a compute pass declaring fewer
@@ -252,6 +253,27 @@ whether the reading you are looking at is current.
   divides by a floor of one rather than zero. Note the limit of the fix — it excludes pixels pinned at a
   rail, not merely dark ones, since a static black backdrop is indistinguishable from a wall; a very dark
   view can still put a high setting out of reach, and that is a slider question rather than a bug.
+- **The depth premise, `AutoMaskDepthMotion`, on both paths.** It ships off as a definition, so the first
+  check is that the mask with it at `0` is **byte-identical** to the pre-change mask — the hashes above
+  cover that off-GPU. With it at `1`: open a *large* opaque menu over a moving world and the corner marker
+  must stay magenta while it is open and the mask must go on forming, which is the case the switch exists
+  for — without it, a panel covering most of the screen removes the changed pixels from the picture and the
+  share falls under **Motion needed to trust stillness**, so the world reads as stopped and the mask stops
+  tracking. Then the negative control: in a game with no depth bound (or a game whose depth ReShade has not
+  found) the mask must be exactly the `AutoMaskDepthMotion = 0` mask, since the unbound texture reads as a
+  constant and the depth term is zero. The panel over an already-stopped world is *not* fixed and must not
+  appear to be: with the world paused the depth stops too, so there is no drawing for either reading to
+  point at. The setting is a slider rather than a fixed step, so sweep **Depth step counted as a change**
+  over a moving scene: too low and depth noise (a TAA or dither wobble in the buffer) holds the premise up
+  over a stopped scene, which the corner marker shows as magenta when it should be yellow; too high and the
+  panel fails to keep the premise alive. The two off-GPU properties the design rests on are checkable by
+  hand: a buffer sampled where nothing is bound returns one constant on both sides of the comparison, so
+  the term is exactly zero — the same as the switch being off — and the term is only ever added to the
+  changed count, never the verdict, so it cannot protect a pixel by itself. One side effect to expect:
+  the depth change is folded into the same graded channel the motion view draws and the tile map reads, so
+  with the switch on a **depth**-only change shows there as red or as a wide cell. That is the frame's own
+  change reading made honest, but it means the motion view can no longer be read as picture-only while the
+  switch is on; the auto-deadband *measurement* is unaffected, since it bins the picture's own `maxDiff`.
 - The exact comparison, at `AutoMaskEps = 1`, where it is a visible change rather than an arithmetic
   one: the motion view over a large smooth gradient — a sky, a wall lit by a lamp — must now show a
   red rim wherever the ramp crosses a level, since every one-level change trips the verdict where only

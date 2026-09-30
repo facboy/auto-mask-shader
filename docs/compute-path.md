@@ -111,7 +111,7 @@ cannot take at all, because 1,024 taps cannot tell a level of dithering from a l
   8 writes from a 1-thread pass instead of 256) because a toggle flip with them left full would have the
   first measured step read off a stale frame. `AutoMaskAutoStep` and `AutoMaskNoiseFloor` are declared
   beside the horizon inside the compute guard for the same reason it is: the pixel path has no pass that
-  would read them. The auto-deadband is a live toggle rather than a fourth structural switch, so its
+  would read them. The auto-deadband is a live toggle rather than a structural switch, so its
   targets stay allocated while it is off — the convention is that a value tuned by watching stays a slider
   and costs nothing but the memory its guard already owns, and 1 KB is not worth a recompile per
   comparison.
@@ -241,10 +241,14 @@ Follows from what each pass reads:
    describe this frame, and both of which the store would otherwise leave describing the last one.
 5. `PS_Store`, keeping the mapped pixels.
 6. `PS_StoreFrame`, copying the untouched frame into the history target for the next frame.
-7. `PS_AntiBloom` — black the masked pixels in the live frame so a bloom pass downstream has no UI to
+7. `PS_StoreDepth` — only with `AutoMaskDepthMotion`, and last of the store group: it leaves this frame's
+   linearized depth for the next frame's comparison, and the accumulator read that target earlier in the
+   frame, so nothing samples what this writes. It is one full-resolution pass on both paths and writes the
+   `R32F` target the accumulator's depth term reads.
+8. `PS_AntiBloom` — black the masked pixels in the live frame so a bloom pass downstream has no UI to
    pick up. It comes after the store, which is what keeps the real UI for the restore pass; blacking
    earlier would bank the black instead.
-8. The diagnostics overlay, last, and only when `AutoMaskDiagnostics` is defined to 1 — a compile-time
+9. The diagnostics overlay, last, and only when `AutoMaskDiagnostics` is defined to 1 — a compile-time
    guard on the pass and the shader both, so with it off neither is compiled. It reads the accumulator
    directly rather than recomputing the difference, so it cannot report on itself instead of on the
    shader. It draws one of three views: red where the graded motion reads, green where the accumulator's

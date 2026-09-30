@@ -31,6 +31,14 @@
 	#define AutoMaskTargetFPS		60	// [30 to 240] frame rate the frame-count caps are sized for
 #endif
 
+//Lets the depth buffer help decide when the world is being drawn. The overlay writes no depth, so a
+//panel cannot hide the drawing behind it the way it hides it in the picture. Needs depth buffer access
+//(ReShade's Depth Buffer settings), which online games often block; with no depth bound the picture's
+//own reading is used exactly.
+#ifndef AutoMaskDepthMotion
+	#define AutoMaskDepthMotion		0	// [0 or 1] 1 lets the depth buffer help measure the world being drawn
+#endif
+
 //Uniforms
 //One of the four frame-count durations, kept together in the "Frame timing" section: still frames a
 //pixel needs before it is taken for interface. A pixel seen moving repays its move memory first, so
@@ -115,6 +123,20 @@ uniform float AutoMaskMotion <
 	ui_min = 0.0; ui_max = 100.0;
 	ui_step = 1.0;
 > = 50.0;
+
+#if AutoMaskDepthMotion == 1
+	//The step in the same whole levels of the linearized depth range. Only read to judge a pixel's depth
+	//change, so it sits well above the RGB step by default: depth is coarser, and its precision falls
+	//with distance.
+	uniform float AutoMaskDepthEps <
+		__UNIFORM_SLIDER_FLOAT1
+		ui_label = "Depth step counted as a change";
+		ui_tooltip = "The smallest change in depth levels out of 255 that counts as the world being redrawn.\nThe depth buffer is coarser than the picture, so this is normally well above the RGB step.";
+		ui_category = "AutoMask";
+		ui_min = 1.0; ui_max = 16.0;
+		ui_step = 1.0;
+	> = 2.0;
+#endif
 
 #if AutoMaskCompute == 1
 	//How long a colour lingers in the average the drift comparison reads, catching a shift too small
@@ -237,6 +259,14 @@ sampler AutoDilate { Texture = texAutoDilate; };
 //Published HUD map (.r is HUD mask).
 texture texAutoMap { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
 sampler AutoMap { Texture = texAutoMap; };
+
+#if AutoMaskDepthMotion == 1
+	//Last frame's linearized depth, for the change the depth premise counts. One target, not a pair: the
+	//accumulator reads it in its own pass and the store below writes it in a later one, so nothing reads
+	//what is being written. Full precision, since a level of 255 is well under a half-precision ulp here.
+	texture texAutoDepth { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = R32F; };
+	sampler AutoDepth { Texture = texAutoDepth; };
+#endif
 
 //The screen-motion gate as compute: a 1x1 integer counter every moved pixel adds to, handed to the
 //1x1 float share the pixel passes sample. The accumulator writes as storage, read and written only
@@ -373,6 +403,13 @@ sampler AutoMap { Texture = texAutoMap; };
 		float3 now = tex2Dlod(ReShade::BackBuffer, float4(texcoord, 0.0, 0.0)).rgb;
 		float3 before = tex2Dlod(AutoHistory, float4(texcoord, 0.0, 0.0)).rgb;
 		float3 drift = tex2Dlod(AutoDriftA, float4(texcoord, 0.0, 0.0)).rgb;
+		#if AutoMaskDepthMotion == 1
+			//The depth the world's drawing is read from, against the frame the store pass left. Both
+			//sides are the depth buffer's own constant when none is bound, so the difference is zero and
+			//this reading contributes nothing to the premise.
+			float depthNow = ReShade::GetLinearizedDepth(texcoord);
+			float depthBefore = tex2Dlod(AutoDepth, float4(texcoord, 0.0, 0.0)).r;
+		#endif
 		//The comparison subtracts the level counts, not the quantized colours: those differ by a float
 		//residue -- 0.9999999 for most of the 255 adjacent pairs -- which the deadband would forgive.
 		float3 nowLevels = round(now * 255.0);
@@ -396,6 +433,13 @@ sampler AutoMap { Texture = texAutoMap; };
 			: AutoMaskDeadband();
 		float motion = max(smoothstep(deadband - 1.0, deadband + 2.0, maxDiff),
 		                   smoothstep(deadband, deadband * AUTOMASK_DRIFT_LAG, maxDrift));
+		#if AutoMaskDepthMotion == 1
+			//The world being drawn, measured on depth where the game exposes one: the overlay writes no
+			//depth, so a panel cannot hide the drawing behind it as it hides it in the picture. It joins
+			//the graded reading below, which the reduce counts, and can only raise it; with no depth bound
+			//both sides are the same constant, so the difference is zero and the reading is unchanged.
+			motion = max(motion, AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps));
+		#endif
 		float stable = (maxDiff < deadband && maxDrift < deadband && clipped == 0.0) ? 1.0 : 0.0;
 
 		//The average follows the frame a horizon's worth a frame, and snaps to it where the frame is a
@@ -734,6 +778,14 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	float deadband = AutoMaskDeadband();
 	float motion = smoothstep(deadband - 1.0, deadband + 2.0, maxDiff);
 	float stable = (maxDiff < deadband && clipped == 0.0) ? 1.0 : 0.0;
+	#if AutoMaskDepthMotion == 1
+		//The depth reading joins the motion the reduce below counts, not the verdict above: a change in
+		//depth is the world being redrawn, which the overlay cannot have written, so it can only raise
+		//the share. With no depth bound the difference is zero and the count is the picture's own.
+		float depthNow = ReShade::GetLinearizedDepth(texcoord);
+		float depthBefore = tex2D(AutoDepth, texcoord).r;
+		motion = max(motion, AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps));
+	#endif
 
 	float gain = AutoMaskRate(AutoMaskRise);
 	float cost = AutoMaskRate(AutoMaskFall);
@@ -919,6 +971,16 @@ float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_
 {
 	return tex2D(ReShade::BackBuffer, texcoord);
 }
+
+#if AutoMaskDepthMotion == 1
+	//Stores this frame's linearized depth for next frame's comparison, in its own pass: the accumulator
+	//reads the target earlier in the frame and a pass cannot read what it writes. A frame with no depth
+	//stores the depth buffer's own constant, so next frame's comparison of it against itself is no change.
+	float4 PS_StoreDepth(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+	{
+		return ReShade::GetLinearizedDepth(texcoord).xxxx;
+	}
+#endif
 
 #if AutoMaskAntiBloom == 1
 	//Blacks masked UI pixels in back buffer to suppress bloom bleeding.
@@ -1161,6 +1223,15 @@ technique AutoMask
 		PixelShader = PS_StoreFrame;
 		RenderTarget = texAutoHistory;
 	}
+	#if AutoMaskDepthMotion == 1
+		//After the accumulator's read and the history's store, so this frame's depth is left for the
+		//next frame's comparison rather than the one just made.
+		pass {
+			VertexShader = PostProcessVS;
+			PixelShader = PS_StoreDepth;
+			RenderTarget = texAutoDepth;
+		}
+	#endif
 
 	#if AutoMaskAntiBloom == 1
 		pass {

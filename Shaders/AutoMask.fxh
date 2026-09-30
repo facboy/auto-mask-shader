@@ -24,6 +24,17 @@ int AutoMaskClipped(float3 now, float3 before)
 	     + all(before == 0.0.xxx) + all(before == 1.0.xxx);
 }
 
+#if AutoMaskDepthMotion == 1
+//The premise's other witness: whether the world behind a pixel was redrawn, on the same whole-level
+//scale a colour change is counted in. It can only add to the changed count, never take away, because a
+//change in depth is world motion the overlay cannot have written -- and a buffer that is not bound
+//reads as a constant, so with no depth bound this adds nothing and the premise is the picture's exactly.
+float AutoMaskDepthMoved(float now, float before, float levels)
+{
+	return smoothstep(levels - 1.0, levels + 2.0, abs(now - before) * 255.0);
+}
+#endif
+
 //The sliders speak in frames; the accumulator is confidence against the 0.5 verdict step, so a frame
 //of credit is that step over the frame count, a hair above the exact share for half precision.
 float AutoMaskRate(float frames)

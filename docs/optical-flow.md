@@ -12,8 +12,11 @@ show an object moving from A to B" framing.
 
 Constraints taken as given:
 
-- **No depth.** Confirmed: the depth buffer is not available to this shader. The estimate must
-  come from image content alone.
+- **No depth for a per-pixel verdict.** `DepthBufferTex` is reachable, but in DSR the overlay writes no
+  depth — it takes the scene's — so every silhouette in it is real geometry and the interface is absent:
+  depth can speak for the world and never for the overlay. The estimate below must come from image
+  content alone. `AutoMaskDepthMotion` is what depth *is* spent on, the world-drawn premise rather than a
+  per-pixel verdict; see `docs/core-model.md`.
 - **The skybox is a flat plane with an animated texture**, so its motion is a coherent uniform 2D
   translation. This is the *favourable* case — see §2.
 - Cost is a real constraint: the drift channel was justified as "roughly cost-neutral" and it
@@ -77,10 +80,10 @@ built on a vector.
 
 **Decision taken: the probe is removed.** §6.3 was gated on a positive answer and got a negative one,
 so the experiment's own terms are what close it — the shader carries no switch, no ring, no search
-passes and no third overlay view, and `AGENTS.md` records the switch inventory back at three. §9's
-scoped follow-up is closed with it: the sub-level ring precision was to be built only if the probe was
-wanted as a *demonstration* instrument, and an instrument the mask does not read is not worth 14–28 MB
-and a search to demonstrate anything with. What remains of the idea is this document.
+passes and no third overlay view, and `AGENTS.md` records the switch inventory back at the ones that
+remain; §9's scoped follow-up is closed with it: the sub-level ring precision was to be built only if the
+probe was wanted as a *demonstration* instrument, and an instrument the mask does not read is not worth
+14–28 MB and a search to demonstrate anything with. What remains of the idea is this document.
 
 ---
 

@@ -2,7 +2,7 @@
 
 ## 1. Scope and standing
 
-What element-level isolation could do better, given that the depth buffer is not available. **Options, not
+What element-level isolation could do better. **Options, not
 a plan**: nothing here is scoped or approved. §5.1's directional densities **have since been implemented**
 — the four-axis form, described in that section and in `docs/core-model.md` — §5.6's tile map with
 §6's readings on it **has since been built**, as the instrument that decides the rest, and §5.3's
@@ -15,7 +15,8 @@ comparison's resolution, which a weighted sum would keep *more* of rather than l
 half **has since been closed on that same finding**, which names the very pixels it would charge fastest.
 What the instrument also settled is the shape of what is left: §5.7 is dropped with the manual region it
 would have seeded, and §5.8's own reading — built, watched and removed — is measured out too, because the
-quantity it needs is not in any target.
+quantity it needs is not in any target. §5.9 is where depth ended up: the mask use this document assumed
+away stays impossible, but the premise use works and **has since shipped** as `AutoMaskDepthMotion`.
 
 Companions: `docs/core-model.md` (the verdict the isolation rides on), `docs/compute-path.md` (the
 compute path most of this would live in), `docs/optical-flow.md` (the one instrument already built,
@@ -63,7 +64,10 @@ Named against the code, as §3.1 to §3.4 below.
   whole-pixel search floor, and a vector is not the same question as "is this HUD". The drift channel
   answers the same question per pixel, at full resolution, with no search, so a proposal that reopens this
   has to answer that loop failure first.
-- **Depth.** Confirmed unavailable.
+- **Depth, as a mask.** Confirmed unavailable: `DepthBufferTex` is reachable but the overlay writes no
+  depth, so depth speaks for the world and never for the interface, and a depth-change reading would veto
+  the whole HUD the moment the camera moved. Depth *is* spent on the premise, as
+  `AutoMaskDepthMotion` — the one place it helps, since a panel cannot hide the world's drawing there.
 - **Per-element identity.** `docs/core-model.md` accepts conflating health with inventory by design.
   Nothing below asks for a label per element. Pooling evidence over the region that *is* the element is
   a weaker and more useful goal than naming it.
@@ -418,6 +422,36 @@ and the semi-transparent case stays the documented limit it always was (`README.
 §"What the signal cannot do"). A future proposal has to start by saying where a **proportional** per-pixel
 or per-cell motion magnitude would come from, since the channel this one read saturates by construction.
 
+### 5.9 The depth premise — shipped, and the only depth use that survives
+
+Depth was the one cue this document opened by setting aside, and the setting-aside was too broad. The
+constraint is real but narrower than "unavailable": `DepthBufferTex` is reachable, and in DSR the overlay
+writes no depth — a panel takes the scene's — so depth describes the world and never the interface. That
+rules out a **mask**: a depth-change verdict would fire on every HUD pixel whenever the camera moved,
+because the world behind the panel is what the depth shows, and it would veto the whole element exactly
+when the mask has to form. It does not rule out the **premise**, because the premise is not about the
+overlay — it is "is the world being drawn", and depth answers that directly and cannot be hidden by a
+panel the way the picture can.
+
+The two are worth separating because they fail in opposite directions. A per-pixel depth test adds false
+claims (it is most active over the world, which is where a false claim is worst). The premise adds no
+per-pixel claim at all: it only feeds the screen-wide gate, so its worst case is a mis-set threshold on a
+setting that already ships with a fallback. That asymmetry is why a depth *premise* is affordable where
+the depth *mask* this document assumed was never on the table.
+
+**Shipped** as `AutoMaskDepthMotion`, a fourth structural switch, off by default. It adds a pixel's depth
+change to the changed count `CS_Finish` publishes, on the same whole-level scale via its own step
+(`AutoMaskDepthEps`, coarser than the RGB step because the buffer is). It can only add to that count, never
+remove, and never touches the verdict — which is what keeps it from being the mask refused above. With no
+depth bound the sampled texture is a constant on both sides, the difference is zero, and the reading is the
+picture's own exactly: the online-game case degrades rather than needing a second path. It owns one `R32F`
+target and one full-screen store pass, both inside the guard, and the store is ordered after the
+accumulator's read so no pass reads and writes the same target. It does nothing for a panel over an
+already-stopped world, where the depth is stopped too — that stays §3.3's cost.
+
+Unverified in a game: the whole of it. The mechanism and the fallback are off-GPU properties, but whether
+DSR's depth is usable and what step it needs are questions only a game answers; `docs/verification.md`
+names the scenario.
 
 ## 6. Measure first: the instrument
 
@@ -508,6 +542,7 @@ open are settled against the code:
 | 5.6 | tile map | its three readings; kept as the tuning instrument for the shipped spatial rules | a pass, a 16×16 target and a 2×1 reading target | compute + diagnostics — **shipped, and kept after the options it was built to decide were settled** |
 | 5.7 | auto-placed deadzone | §3.4's manual tuning | off the tile map | — **dropped: the manual region was removed as unused** |
 | 5.8 | alpha-composite ratio | reading only | a new per-cell magnitude statistic, built as a pass with a `RGBA32F` grid and a share target | compute + diagnostics — **measured out and removed: the graded channel saturates, so the ratio cannot separate a panel from moving world** |
+| 5.9 | depth premise | §3.3 in the common case (the panel no longer hides the drawing), not the panel over a stopped world | one `R32F` target and one full-screen store pass; degrades to the picture's own premise with no depth bound | preprocessor definition, off — **shipped as `AutoMaskDepthMotion`** |
 
 **The directional densities are shipped**, in the four-axis form that covers the diagonals too.
 **§5.6's tile map and §6's readings are shipped as one instrument step**, which is the order §6 asks for:

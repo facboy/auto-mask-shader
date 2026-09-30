@@ -56,6 +56,11 @@ are listed under it.
   taken as being drawn, and only then may stillness be credited as interface. The percent is of the
   pixels that *could* change, not of every pixel: a pinned region is counted out of it. A premise rather
   than a safety net under the verdict, so its default is not `0` (`docs/core-model.md`).
+- **depth premise** — `AutoMaskDepthMotion`, off by default: a pixel whose linearized depth changed joins
+  the changed count the gate reads, on the same whole-level scale via `AutoMaskDepthEps`. It can only add
+  to that count, never touch the verdict, and with no depth bound the difference is zero. Depth is the
+  world's, since the overlay writes none, so it is a second witness to the premise and never a mask
+  (`docs/core-model.md`).
 - **coverage** — the share of a block whose pixels changed at all. The statistic, deliberately not the
   magnitude: averaging magnitude let one small bright object in fast motion declare the whole view live.
 - **motion** — two senses. The *flag*: this pixel changed at all, which is what the gate counts. The
@@ -136,8 +141,9 @@ are listed under it.
 - **state machine** — the branch structure of `PS_Accum`, whose shared parts `CS_Accum` calls as the same
   helpers declared in `Shaders/AutoMask.fxh` (`docs/compute-path.md`).
 - **shared helper** — one of the functions `Shaders/AutoMask.fxh` holds: the premise, the decay step, the
-  published-mask read, the deadband, the pinned-colour count and the frame rate. Each takes what it needs
-  sampled already, so neither path's sampling form moves onto the other's (`docs/refactor-candidates.md`).
+  published-mask read, the deadband, the pinned-colour count, the depth-change test and the frame rate.
+  Each takes what it needs sampled already, so neither path's sampling form moves onto the other's
+  (`docs/refactor-candidates.md`).
 - **bank** — two senses, told apart by the object. Of *scenery*: wrongly taken into the mask as
   interface, i.e. kept protected because neither comparison caught it — "the sky is banked". Of a *cost*
   or *debt*: accrued — "the debt it banks". Both are about laying something away
@@ -265,6 +271,7 @@ durations — are the `Frame timing` section.
 | `AutoMaskDilate` | Closing radius in pixels | How far the mask is grown to close anti-aliased edges and thin text. |
 | `AutoMaskEdge` | Luma step counted as a boundary | The luma difference, 0–255, past which that growth stops. |
 | `AutoMaskMotion` | Motion needed to trust stillness (percent) | Share of the screen that must change before stillness is credited. The premise. |
+| `AutoMaskDepthEps` | Depth step counted as a change | The step in whole levels out of 255 for a depth change; read only with `AutoMaskDepthMotion`, and coarser than the RGB step because the buffer is. |
 | `AutoMaskDrift` | Drift horizon (seconds) | The drift average's memory, in seconds; `0` turns the comparison off. |
 | `AutoMaskNeighbour` | Stop specks entering the mask | Whether a pixel with no claimed neighbour earns at half rate, so a region starts only from a pixel still for twice the rise. |
 | `AutoMaskEps` | RGB step counted as a change | The deadband in whole levels out of 255; decides only whether a pixel moved. Last row of `AutoMask`, so it sits above the group that measures it. |
@@ -278,10 +285,10 @@ durations — are the `Frame timing` section.
 | `UIDebugGain` | Diagnostics: motion gain | Multiplier making a small change visible in the overlay. |
 
 - **structural switch** — a preprocessor definition that removes a feature from the compile: each is
-  `#ifndef`-guarded and owns its pass, technique entry, shader and private targets. The three are
-  `AutoMaskAntiBloom` (1), `AutoMaskDiagnostics` (0) and `AutoMaskCompute` (0). Off, the work is not
-  skipped but absent — and a target left outside its guard is memory paid for a feature that is compiled
-  out.
+  `#ifndef`-guarded and owns its pass, technique entry, shader and private targets. The four are
+  `AutoMaskAntiBloom` (1), `AutoMaskDiagnostics` (0), `AutoMaskCompute` (0) and `AutoMaskDepthMotion`
+  (0). Off, the work is not skipped but absent — and a target left outside its guard is memory paid for
+  a feature that is compiled out.
 - **`AutoMaskTargetFPS`** — the one further definition, a setup number rather than a tuning one: seconds
   × this gives the frame-count caps and the drift horizon in frames. A runtime `frametime` uniform
   cannot appear in an annotation, which is why it is a definition at all.
@@ -289,9 +296,9 @@ durations — are the `Frame timing` section.
   category at a time, off a boolean's `ui_category_toggle`, and it never hides that boolean itself — so
   a gated setting belongs in its own category with the gate first, and there is no per-uniform
   visibility annotation (`docs/editing-conventions.md`). A category is a contiguous run of uniforms, so
-  one named again further down the list draws a second heading with the same name. The four names used
-  are `Frame timing`, `AutoMask`, `RGB step detection` and `Diagnostics` — the last inside the diagnostics
-  switch, so it is not drawn unless that is on.
+  one named again further down the list draws a second heading with the same name. The five names used
+  are `Frame timing`, `AutoMask`, `RGB step detection`, `Isolated pixels` and `Diagnostics` — the last
+  inside the diagnostics switch, so it is not drawn unless that is on.
 - **`AUTOMASK_STEP_MAX`** — `8`: the last level the walk measures in, and the end of the `AutoMaskEps`
   slider with it. Named because the histogram's width, the clear loop, the bin clamp and the walk's
   range must not drift apart.
