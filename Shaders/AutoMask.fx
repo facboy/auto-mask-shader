@@ -132,18 +132,18 @@ uniform float AutoMaskMotion <
 > = 50.0;
 
 #if AutoMaskDepthMotion == 1
-	//The step as a share of its own distance: how much of the distance to a surface it must move in one
-	//frame to count as the world being redrawn. Depth is a distance, not an 8-bit channel, so a share of
-	//it is independent of the game's far plane. A walk moves a near surface by a percent of its distance
-	//and a distant one by hundredths, so the range is wide and the useful values sit at the low end.
+	//The step as a distance the surface moved toward or away from the view in one frame. The linearized
+	//depth is normalized by the far plane, so multiplying the change by that plane gives metres -- the
+	//same metres at any range, where a share of the distance would shrink with it. The far plane comes
+	//from ReShade's depth settings, which the user sets with the depth buffer.
 	uniform float AutoMaskDepthEps <
 		__UNIFORM_DRAG_FLOAT1
-		ui_label = "Depth step counted as a change (percent)";
-		ui_tooltip = "How much of its own distance a surface must move in one frame to count as the world being redrawn, as a percentage of that distance.\n0.1 reaches a hundred metres or so on a walk and 1 only a few, so the useful values sit near the bottom of the range.\nRaise it if depth noise holds the world as drawn over a stopped scene, lower it if walking fails to.";
+		ui_label = "Depth step counted as a change (metres)";
+		ui_tooltip = "How far, in metres, a surface must move toward or away from you in one frame to count as the world being redrawn.\nA walk covers a fraction of a metre a frame, so this is small; it means the same thing near and far, and the far plane it is measured against comes from your ReShade depth settings.\nRaise it if depth noise holds the world as drawn over a stopped scene, lower it if walking fails to.";
 		ui_category = "AutoMask";
-		ui_min = 0.02; ui_max = 20.0;
-		ui_step = 0.02;
-	> = 0.3;
+		ui_min = 0.001; ui_max = 2.0;
+		ui_step = 0.001;
+	> = 0.05;
 
 	//An experiment rather than a tuning value: takes the world-drawn reading from depth alone, so a scene
 	//whose only motion is texture -- water, fire, a scrolling backdrop -- reads as stopped instead of

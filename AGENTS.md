@@ -163,8 +163,10 @@ graded against it goes off screen-wide.
   the scene's — so depth describes the world and never the interface, and a per-pixel depth verdict would
   veto the whole HUD whenever the camera moved. What depth *does* give is the world-drawn premise, the one
   reading a large open panel hides from itself, and that is all this switch feeds: a pixel whose depth
-  changed joins the changed count the reduce publishes, on its own step (`AutoMaskDepthEps`, a share of the
-  surface's own distance rather than the picture's levels). It can only *add* to that share, never remove. A depth buffer
+  changed joins the changed count the reduce publishes, on its own step (`AutoMaskDepthEps`, a distance in
+  metres — the linearized depth is a distance over the far plane, which ReShade supplies, so the change
+  converts back to metres and is uniform across the screen). It can only *add* to that share, never remove.
+  A depth buffer
   that is not bound reads as a constant on both sides of the comparison, so the difference is zero and the
   premise is the picture's own exactly — which is why the online-game case degrades to the old behaviour
   rather than needing a fallback path. It owns one `R32F` target and one full-resolution store pass, both
@@ -230,9 +232,9 @@ graded against it goes off screen-wide.
   count would need a cap at the smallest box's area. The radius shares the closing's fixed loop, so it costs
   no extra tap and caps at `AUTOMASK_DILATE_MAX` with it; read as 1 at the bottom, so the setting cannot
   silently switch the gate off. `AutoMaskDensity` is an `__UNIFORM_INPUT_FLOAT1` — a typed field rather
-  than a track, because it names a share. `AutoMaskDepthEps` also names a share, but of a quantity that
-  ranges over three orders of magnitude, so it is a `__UNIFORM_DRAG_FLOAT1` instead: a drag reaches 0.02
-  and 20 with the same ease, and a track could not.
+  than a track, because it names a share. `AutoMaskDepthEps` names a distance in metres, small enough that
+  a walk's fraction of a metre a frame sits mid-range and the far field's noise sits under the foot; it is
+  also a `__UNIFORM_DRAG_FLOAT1`, since a stepped track cannot cover 0.001 to 2 and be usable at either end.
 - `AutoMaskTargetFPS` is the one further definition, a setup number rather than a tuning one: it multiplies
   seconds into frames for the `ui_max` caps and for the drift horizon. See `docs/editing-conventions.md`.
 - The reset's wide step is `max(deadband, 8.0)` rather than a bare literal, so it can never collapse back

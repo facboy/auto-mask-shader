@@ -447,8 +447,9 @@ setting that already ships with a fallback. That asymmetry is why a depth *premi
 the depth *mask* this document assumed was never on the table.
 
 **Shipped** as `AutoMaskDepthMotion`, a fourth structural switch, off by default. It adds a pixel's depth
-change to the changed count `CS_Finish` publishes, on its own step (`AutoMaskDepthEps`, a share of the
-surface's own distance rather than the picture's levels). It can only add to that count, never
+change to the changed count `CS_Finish` publishes, on its own step (`AutoMaskDepthEps`, a distance in metres
+rather than a share, since the far plane ReShade supplies lets the change convert back to the metres it
+was). It can only add to that count, never
 remove, and never touches the verdict — which is what keeps it from being the mask refused above. With no
 depth bound the sampled texture is a constant on both sides, the difference is zero, and the reading is the
 picture's own exactly: the online-game case degrades rather than needing a second path. It owns one `R32F`

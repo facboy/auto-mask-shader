@@ -106,15 +106,13 @@ default for two reasons. Depth buffer access is not always there — online game
 none is found the reading is the ordinary one exactly, so there is nothing to switch back. And it needs
 ReShade's Depth Buffer settings to be right first: a buffer that is bound but configured wrongly feeds the
 premise nonsense rather than nothing, which no amount of turning the switch off will fix. When it is on,
-**Depth step counted as a change (percent)** sets how much a surface has to move toward or away from you
-in one frame, as a share of its own distance to you, before depth counts as the world moving. Depth is a
-distance rather than a brightness, so a share of it means the same thing in every game, and the ramp is
-footed at zero so the step is the whole threshold. A share is also larger for a near surface than a far
-one — the same metre is a bigger fraction of three metres than of three hundred — so the range runs from
-`0.02` (roughly a hundred metres out on a walk) to `20` (a surface at arm's length), and the useful values
-sit near the bottom: the `0.3` default reaches about thirty metres. Raise it to stop depth noise holding
-the world as drawn over a stopped scene; lower it to reach scenery further off, which is safe because the
-screen-wide share the premise reads keeps a low step from turning noise into a drawn world.
+**Depth step counted as a change (metres)** sets how far a surface has to move toward or away from you in
+one frame before depth counts as the world moving, as a distance in metres. The shader measures depth as a
+distance against the far plane from your ReShade depth settings, so this is a real distance and means the
+same thing near and far — a metre is a metre whether the surface is ten metres off or three hundred. A walk
+covers a fraction of a metre a frame, so the `0.05` default is small; raise it to stop depth noise holding
+the world as drawn over a stopped scene, lower it if walking fails to register. Past the far field's own
+precision no setting helps, since the change there is smaller than the buffer can record.
 It does not help a menu opened over a world that has already stopped — the depth is stopped too — which
 stays the documented limit in the list below. **Camera field of view (degrees)** is the other number it
 reads: the shader works out which way each surface faces, and one lying across the direction you walk —

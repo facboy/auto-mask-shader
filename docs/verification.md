@@ -263,18 +263,16 @@ whether the reading you are looking at is current.
   found) the mask must be exactly the `AutoMaskDepthMotion = 0` mask, since the unbound texture reads as a
   constant and the depth term is zero. The panel over an already-stopped world is *not* fixed and must not
   appear to be: with the world paused the depth stops too, so there is no drawing for either reading to
-  point at. **Depth step counted as a change (percent)** is a share of the surface's own distance, so it is
-  far-plane independent and a walk is the case to sweep it on: **walking forward over plain scenery with a
-  HUD up must keep the corner marker magenta**, which is the case the old level-unit step could not reach
-  at all — the depth change a walk makes is a fraction of a percent of the range, two orders below a step
-  counted in 1/255ths. The ramp is footed at zero, so the step is the whole threshold and a low one is not
-  discarded: sweep down from the `0.3` default and near and mid geometry should light first, with the far
-  backdrop coming in as it drops — a share is larger for a near surface, so distance-off scenery needs the
-  lower step. Panning fires the term easily (rotation swings the sampled distance at every silhouette), so
-  a marker that responds to a pan but not to a walk at any step is the per-pixel statistic's own limit and
-  not a threshold. A low step is safe from noise because the premise reads a **share** of the screen and
-  the changed flag is `step(0.001, motion)` per pixel; raise it only if depth noise still holds a stopped
-  scene as drawn, shown as magenta when it should be yellow. The two off-GPU
+  point at. **Depth step counted as a change (metres)** is a real distance — the linearized depth is turned
+  back into metres against the far plane ReShade supplies — so it is uniform across the screen, where a
+  share of the depth fell off with range. Sweep it on a walk: **walking forward over plain scenery with a
+  HUD up must keep the corner marker magenta**, and now the same step should register near, mid and far
+  scenery alike, since a metre is a metre at any range — the case the old level-unit step could not reach
+  at all. Note the far limit that no step fixes: past the distance where a walk's change is smaller than
+  the buffer's own quantisation, those pixels can register either way, which is the flicker to expect out
+  there. Panning fires the term easily (rotation swings the sampled distance at every silhouette), so a
+  marker that responds to a pan but not to a walk is a far-plane mismatch, not a threshold. Raise the step
+  if depth noise holds a stopped scene as drawn, shown as magenta when it should be yellow. The two off-GPU
   properties the design rests on are checkable by hand: a buffer sampled where nothing is bound returns one
   constant on both sides of the comparison, so the term is exactly zero — the same as the switch being off
   — and the term is only ever added to the changed count, never the verdict, so it cannot protect a pixel

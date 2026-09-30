@@ -57,8 +57,8 @@ are listed under it.
   pixels that *could* change, not of every pixel: a pinned region is counted out of it. A premise rather
   than a safety net under the verdict, so its default is not `0` (`docs/core-model.md`).
 - **depth premise** — `AutoMaskDepthMotion`, off by default: a pixel whose linearized depth changed joins
-  the changed count the gate reads, on its own step (`AutoMaskDepthEps`, a share of the surface's own
-  distance, so the game's far plane drops out). It can only add
+  the changed count the gate reads, on its own step (`AutoMaskDepthEps`, a distance in metres, since the
+  depth converts back to metres against the far plane ReShade supplies). It can only add
   to that count, never touch the verdict, and with no depth bound the difference is zero. Depth is the
   world's, since the overlay writes none, so it is a second witness to the premise and never a mask
   (`docs/core-model.md`).
@@ -272,7 +272,7 @@ durations — are the `Frame timing` section.
 | `AutoMaskDilate` | Closing radius in pixels | How far the mask is grown to close anti-aliased edges and thin text. |
 | `AutoMaskEdge` | Luma step counted as a boundary | The luma difference, 0–255, past which that growth stops. |
 | `AutoMaskMotion` | Motion needed to trust stillness (percent) | Share of the screen that must change before stillness is credited. The premise. |
-| `AutoMaskDepthEps` | Depth step counted as a change (percent) | How much of its own distance a surface must move in one frame to count; a free range 0.02–20 since a walk's share falls with distance. The depth ramp is footed at half this, so smaller changes add nothing. Read only with `AutoMaskDepthMotion`. |
+| `AutoMaskDepthEps` | Depth step counted as a change (metres) | How far a surface must move toward or away from the view in one frame to count; uniform across the screen, since the change converts back to metres against the far plane ReShade supplies. The depth ramp is footed at half this, so smaller changes add nothing. Read only with `AutoMaskDepthMotion`. |
 | `AutoMaskDepthOnly` | Depth only (experiment) | Whether the world-drawn reading is depth alone rather than depth added to the picture; also read only with `AutoMaskDepthMotion`. |
 | `AutoMaskDepthFOV` | Camera field of view (degrees) | The vertical fov the surface orientation is reconstructed with, so surfaces a walk cannot move can be left out of the depth reading; a wrong value tilts it rather than changing which surfaces those are. |
 | `AutoMaskDrift` | Drift horizon (seconds) | The drift average's memory, in seconds; `0` turns the comparison off. |

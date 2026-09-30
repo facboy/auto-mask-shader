@@ -26,12 +26,13 @@ int AutoMaskClipped(float3 now, float3 before)
 
 #if AutoMaskDepthMotion == 1
 //The premise's other witness: whether the surface behind a pixel moved toward or away from the view.
-//Depth is a distance, not an 8-bit channel, so the change is the share of its own distance moved, which
-//drops the far plane out. Footed at half the step, unlike the colour witness: its units span three orders
-//of magnitude with distance and the far field is the buffer's own noise, so the floor keeps that out.
-float AutoMaskDepthMoved(float now, float before, float pct)
+//The linearized depth is a distance divided by the far plane, so multiplying the change by that plane --
+//which ReShade supplies, off the user's own depth settings -- gives metres: the same at any range, where
+//a share of the distance falls off and vanishes behind the far field's quantisation. Footed at half.
+float AutoMaskDepthMoved(float now, float before, float metres)
 {
-	return smoothstep(pct * 0.5, pct, abs(now - before) / max(now, 1e-4) * 100.0);
+	float moved = abs(now - before) * RESHADE_DEPTH_LINEARIZATION_FAR_PLANE;
+	return smoothstep(metres * 0.5, metres, moved);
 }
 
 //Reconstructs the camera-space position of a pixel from its depth and its place on the screen, so the

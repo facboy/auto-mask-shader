@@ -17,10 +17,9 @@ annotation, the frame-count sliders' conversion, the prose budget, or the drift 
   than a stepped track; a value that names a **share** is a typed field, and everything else is a slider.
   `AutoMaskDensity` is an input widget (`__UNIFORM_INPUT_FLOAT1`, `ui_type = "input"`), so a percentage
   can be entered exactly rather than dragged; `ui_min`/`ui_max`/`ui_step` still bound and step it, so
-  `ui_step = 1.0` is what keeps it whole. `AutoMaskDepthEps` names a share too, but of a quantity that
-  runs over three orders of magnitude — a walk's per-frame change falls with distance — so it is a
-  `__UNIFORM_DRAG_FLOAT1` instead: a drag covers 0.02 to 20 as easily as a text field, where a stepped
-  track could not. A mismatch between annotation family and declared type is a silent ReShade UI bug.
+  `ui_step = 1.0` is what keeps it whole. `AutoMaskDepthEps` names a distance in metres, over a range a
+  stepped track cannot cover — 0.001 to 2 — so it is a `__UNIFORM_DRAG_FLOAT1` instead. A mismatch between
+  annotation family and declared type is a silent ReShade UI bug.
 - **The panel has no per-uniform visibility annotation, only a per-category one.** ReShade reads
   `ui_category_toggle` off a boolean uniform and hides every *other* member of that category while the
   value is false — the value comes from the uniform itself, so it is a live toggle and not a

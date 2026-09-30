@@ -56,13 +56,14 @@ removes most of the changed pixels from the *picture*, so a large enough one pus
 `AutoMaskMotion` and the world stops reading as drawn precisely while the panel is open — the premise
 questioning a witness the panel itself is hiding. Depth is transparent to that, and to the overlay. So
 `AutoMaskDepthMotion` lets a pixel whose depth changed join the changed count the reduce publishes, on its
-own step — `AutoMaskDepthEps` is a *share* of the surface's own distance, since depth is a distance and not
-an 8-bit channel, which drops the far plane out and lets a walk reach the ramp — and
-can only *add* to that count — never remove, never touch the verdict, never protect a pixel on its own. Its
-ramp is footed at half that step, unlike the colour witness, which counts any change at all: a share of a
-distance spans three orders of magnitude with range, and past a certain distance the depth buffer's own
-noise is the same size as the walk's change, so the floor is what keeps that noise out of the share while a
-near walk still clears it. A
+own step — `AutoMaskDepthEps` is a distance in *metres*, since the linearized depth is a distance over the
+far plane and ReShade supplies that plane, so the change can be turned back into the distance it was — and
+can only *add* to that count — never remove, never touch the verdict, never protect a pixel on its own. A
+metric step is uniform: a metre is a metre at ten metres and at three hundred, where a *share* of the
+distance would fall off and vanish into the far field's quantisation. Its
+ramp is footed at half that step, unlike the colour witness, which counts any change at all: the far field
+is where the buffer's own noise matches the walk's change, and the floor is what keeps that noise out while
+a near walk still clears it. A
 depth buffer that is not bound reads as the same constant on both sides of the comparison, so the
 difference is zero, the count is the picture's own exactly, and the switch degrades to the pixel path
 rather than needing a separate fallback. What it does not fix: a panel over an already-stopped world,
