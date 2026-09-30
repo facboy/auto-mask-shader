@@ -272,7 +272,12 @@ whether the reading you are looking at is current.
   the buffer's own quantisation, those pixels can register either way, which is the flicker to expect out
   there. Panning fires the term easily (rotation swings the sampled distance at every silhouette), so a
   marker that responds to a pan but not to a walk is a far-plane mismatch, not a threshold. Raise the step
-  if depth noise holds a stopped scene as drawn, shown as magenta when it should be yellow. The two off-GPU
+  if depth noise holds a stopped scene as drawn, shown as magenta when it should be yellow. Expect the view
+  and the marker to disagree for a moment on settling: the marker reads the screen-wide share and goes
+  yellow as soon as the camera is effectively still, while the per-pixel red twitches over close geometry
+  for a second or two longer, because deceleration and head-bob are real movement of a few centimetres — a
+  large fraction of a near surface's distance and a rounding error of a far one. That is the view being
+  honest about a camera that has not quite stopped, and the mask follows the marker. The two off-GPU
   properties the design rests on are checkable by hand: a buffer sampled where nothing is bound returns one
   constant on both sides of the comparison, so the term is exactly zero — the same as the switch being off
   — and the term is only ever added to the changed count, never the verdict, so it cannot protect a pixel

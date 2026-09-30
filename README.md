@@ -211,6 +211,14 @@ below.
   everywhere at once. A whole scene change still reaches it; what it filters out is one scene's own
   movement drifting in and out of the measurement. Nothing except the motion view is graded against it,
   so the mask behaves as before.
+
+  The view can disagree with the corner marker for a moment, and that is not a fault. The marker reads the
+  **screen-wide** share, which settles as soon as the camera is effectively still, while the red is
+  **per pixel**: a camera still decelerating, or head-bobbing a couple of centimetres, is genuinely moving
+  each near surface, so the red goes on twitching over close geometry for a second or two after the marker
+  has gone yellow. Near surfaces lead it because a few centimetres is a large fraction of a metre and a
+  rounding error of a hundred. The mask follows the marker, not the view, so the twitch is the reading
+  being honest about a camera that has not quite stopped.
 - **Green** — the verdict view: the shader's judgement right now, that this pixel has earned its place in
   the mask. It is on or off, never a shade, because it is a decision — and it is the verdict *without*
   the closing radius, so an element shows exactly its own area and nothing grown around it. This is the
