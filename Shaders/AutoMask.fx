@@ -125,17 +125,18 @@ uniform float AutoMaskMotion <
 > = 50.0;
 
 #if AutoMaskDepthMotion == 1
-	//The step in the same whole levels of the linearized depth range. Only read to judge a pixel's depth
-	//change, so it sits well above the RGB step by default: depth is coarser, and its precision falls
-	//with distance.
+	//The step as a share of its own distance: how much of the distance to a surface it must move in one
+	//frame to count as the world being redrawn. Depth is a distance, not an 8-bit channel, so a share of
+	//it is independent of the game's far plane -- and a near surface moves by more of its distance than a
+	//far one, which is where walking clears the default and a still surface does not.
 	uniform float AutoMaskDepthEps <
-		__UNIFORM_SLIDER_FLOAT1
-		ui_label = "Depth step counted as a change";
-		ui_tooltip = "The smallest change in depth levels out of 255 that counts as the world being redrawn.\nThe depth buffer is coarser than the picture, so this is normally well above the RGB step.";
+		__UNIFORM_INPUT_FLOAT1
+		ui_label = "Depth step counted as a change (percent)";
+		ui_tooltip = "How much of its own distance a surface must move in one frame to count as the world being redrawn, as a percentage.\nDepth is a distance, so a share of it is the same in every game; raise it if depth noise holds the world as drawn over a stopped scene, lower it if walking fails to.";
 		ui_category = "AutoMask";
-		ui_min = 1.0; ui_max = 16.0;
+		ui_min = 1.0; ui_max = 500.0;
 		ui_step = 1.0;
-	> = 2.0;
+	> = 25.0;
 
 	//An experiment rather than a tuning value: takes the world-drawn reading from depth alone, so a scene
 	//whose only motion is texture -- water, fire, a scrolling backdrop -- reads as stopped instead of
@@ -446,8 +447,9 @@ sampler AutoMap { Texture = texAutoMap; };
 		                   smoothstep(deadband, deadband * AUTOMASK_DRIFT_LAG, maxDrift));
 		#if AutoMaskDepthMotion == 1
 			//The world being drawn, measured on depth: the overlay writes no depth, so a panel cannot
-			//hide the drawing as it hides it in the picture. Off, it only raises the graded reading the
-			//reduce counts, and with no depth bound it is zero; the experiment makes it the whole of it.
+			//hide the drawing as it hides it in the picture. The step is a share of the surface's own
+			//distance, which keeps it independent of the game's far plane. Off, it only raises the
+			//graded reading the reduce counts; the depth-only experiment makes it the whole of it.
 			motion = AutoMaskDepthOnly
 				? AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps)
 				: max(motion, AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps));
@@ -793,8 +795,8 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	#if AutoMaskDepthMotion == 1
 		//The depth reading joins the motion the reduce below counts, not the verdict above: a change in
 		//depth is the world being redrawn, which the overlay cannot have written, so it can only raise
-		//the share. With no depth bound the difference is zero and the count is the picture's own. Off
-		//is a raise; the depth-only experiment replaces it, so a depth-static scene reads as stopped.
+		//the share. The step is a share of the surface's own distance, so it is the same in every game.
+		//With no depth bound the difference is zero and the count is the picture's own.
 		float depthNow = ReShade::GetLinearizedDepth(texcoord);
 		float depthBefore = tex2D(AutoDepth, texcoord).r;
 		motion = AutoMaskDepthOnly

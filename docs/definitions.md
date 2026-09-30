@@ -57,7 +57,8 @@ are listed under it.
   pixels that *could* change, not of every pixel: a pinned region is counted out of it. A premise rather
   than a safety net under the verdict, so its default is not `0` (`docs/core-model.md`).
 - **depth premise** — `AutoMaskDepthMotion`, off by default: a pixel whose linearized depth changed joins
-  the changed count the gate reads, on the same whole-level scale via `AutoMaskDepthEps`. It can only add
+  the changed count the gate reads, on its own step (`AutoMaskDepthEps`, a share of the surface's own
+  distance, so the game's far plane drops out). It can only add
   to that count, never touch the verdict, and with no depth bound the difference is zero. Depth is the
   world's, since the overlay writes none, so it is a second witness to the premise and never a mask
   (`docs/core-model.md`).
@@ -271,7 +272,7 @@ durations — are the `Frame timing` section.
 | `AutoMaskDilate` | Closing radius in pixels | How far the mask is grown to close anti-aliased edges and thin text. |
 | `AutoMaskEdge` | Luma step counted as a boundary | The luma difference, 0–255, past which that growth stops. |
 | `AutoMaskMotion` | Motion needed to trust stillness (percent) | Share of the screen that must change before stillness is credited. The premise. |
-| `AutoMaskDepthEps` | Depth step counted as a change | The step in whole levels out of 255 for a depth change; read only with `AutoMaskDepthMotion`, and coarser than the RGB step because the buffer is. |
+| `AutoMaskDepthEps` | Depth step counted as a change (percent) | How much of its own distance a surface must move in one frame to count; a typed field, read only with `AutoMaskDepthMotion`. |
 | `AutoMaskDepthOnly` | Depth only (experiment) | Whether the world-drawn reading is depth alone rather than depth added to the picture; also read only with `AutoMaskDepthMotion`. |
 | `AutoMaskDrift` | Drift horizon (seconds) | The drift average's memory, in seconds; `0` turns the comparison off. |
 | `AutoMaskNeighbour` | Stop specks entering the mask | Whether a pixel with no claimed neighbour earns at half rate, so a region starts only from a pixel still for twice the rise. |

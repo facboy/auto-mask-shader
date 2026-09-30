@@ -25,13 +25,13 @@ int AutoMaskClipped(float3 now, float3 before)
 }
 
 #if AutoMaskDepthMotion == 1
-//The premise's other witness: whether the world behind a pixel was redrawn, on the same whole-level
-//scale a colour change is counted in. It can only add to the changed count, never take away, because a
-//change in depth is world motion the overlay cannot have written -- and a buffer that is not bound
-//reads as a constant, so with no depth bound this adds nothing and the premise is the picture's exactly.
-float AutoMaskDepthMoved(float now, float before, float levels)
+//The premise's other witness: whether the surface behind a pixel moved toward or away from the view.
+//Depth is a distance, not an 8-bit channel, so the change is the share of its own distance moved --
+//translation shifts a near surface by more of its distance than a far one, so the far plane drops out.
+//It only adds to the changed count, and with no depth bound the buffer reads as a constant and adds nothing.
+float AutoMaskDepthMoved(float now, float before, float pct)
 {
-	return smoothstep(levels - 1.0, levels + 2.0, abs(now - before) * 255.0);
+	return smoothstep(pct * 0.5, pct * 1.5, abs(now - before) / max(now, 1e-4) * 100.0);
 }
 #endif
 

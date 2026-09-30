@@ -163,8 +163,8 @@ graded against it goes off screen-wide.
   the scene's — so depth describes the world and never the interface, and a per-pixel depth verdict would
   veto the whole HUD whenever the camera moved. What depth *does* give is the world-drawn premise, the one
   reading a large open panel hides from itself, and that is all this switch feeds: a pixel whose depth
-  changed joins the changed count the reduce publishes, on the same whole-level scale via `AutoMaskDepthEps`
-  (its own slider, since depth is coarser). It can only *add* to that share, never remove. A depth buffer
+  changed joins the changed count the reduce publishes, on its own step (`AutoMaskDepthEps`, a share of the
+  surface's own distance rather than the picture's levels). It can only *add* to that share, never remove. A depth buffer
   that is not bound reads as a constant on both sides of the comparison, so the difference is zero and the
   premise is the picture's own exactly — which is why the online-game case degrades to the old behaviour
   rather than needing a fallback path. It owns one `R32F` target and one full-resolution store pass, both
@@ -229,8 +229,9 @@ graded against it goes off screen-wide.
   closing is retuned. The density is a share rather than a count, so it means one thing at every radius; a
   count would need a cap at the smallest box's area. The radius shares the closing's fixed loop, so it costs
   no extra tap and caps at `AUTOMASK_DILATE_MAX` with it; read as 1 at the bottom, so the setting cannot
-  silently switch the gate off. `AutoMaskDensity` is the one `__UNIFORM_INPUT_FLOAT1` in the shader — a
-  typed field rather than a track, because it names a share.
+  silently switch the gate off. `AutoMaskDensity` is an `__UNIFORM_INPUT_FLOAT1` — a typed field rather
+  than a track, because it names a share. `AutoMaskDepthEps` is the other one, for the same reason: it is a
+  percentage, and a share typed exactly beats a drag over it.
 - `AutoMaskTargetFPS` is the one further definition, a setup number rather than a tuning one: it multiplies
   seconds into frames for the `ui_max` caps and for the drift horizon. See `docs/editing-conventions.md`.
 - The reset's wide step is `max(deadband, 8.0)` rather than a bare literal, so it can never collapse back

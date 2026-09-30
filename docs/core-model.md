@@ -55,8 +55,9 @@ whole mask whenever the camera moved. What that absence buys is a reading a pane
 removes most of the changed pixels from the *picture*, so a large enough one pushes the share under
 `AutoMaskMotion` and the world stops reading as drawn precisely while the panel is open — the premise
 questioning a witness the panel itself is hiding. Depth is transparent to that, and to the overlay. So
-`AutoMaskDepthMotion` lets a pixel whose depth changed join the changed count the reduce publishes, in the
-same whole-level scale (`AutoMaskDepthEps` sets the step, since depth is coarser than the picture), and
+`AutoMaskDepthMotion` lets a pixel whose depth changed join the changed count the reduce publishes, on its
+own step — `AutoMaskDepthEps` is a *share* of the surface's own distance, since depth is a distance and not
+an 8-bit channel, which drops the far plane out and lets a walk reach the ramp — and
 can only *add* to that count — never remove, never touch the verdict, never protect a pixel on its own. A
 depth buffer that is not bound reads as the same constant on both sides of the comparison, so the
 difference is zero, the count is the picture's own exactly, and the switch degrades to the pixel path

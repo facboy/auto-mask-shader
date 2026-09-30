@@ -263,13 +263,18 @@ whether the reading you are looking at is current.
   found) the mask must be exactly the `AutoMaskDepthMotion = 0` mask, since the unbound texture reads as a
   constant and the depth term is zero. The panel over an already-stopped world is *not* fixed and must not
   appear to be: with the world paused the depth stops too, so there is no drawing for either reading to
-  point at. The setting is a slider rather than a fixed step, so sweep **Depth step counted as a change**
-  over a moving scene: too low and depth noise (a TAA or dither wobble in the buffer) holds the premise up
-  over a stopped scene, which the corner marker shows as magenta when it should be yellow; too high and the
-  panel fails to keep the premise alive. The two off-GPU properties the design rests on are checkable by
-  hand: a buffer sampled where nothing is bound returns one constant on both sides of the comparison, so
-  the term is exactly zero — the same as the switch being off — and the term is only ever added to the
-  changed count, never the verdict, so it cannot protect a pixel by itself. One side effect to expect:
+  point at. **Depth step counted as a change (percent)** is a share of the surface's own distance, so it is
+  far-plane independent and a walk is the case to sweep it on: **walking forward over plain scenery with a
+  HUD up must keep the corner marker magenta**, which is the case the old level-unit step could not reach
+  at all — the depth change a walk makes is a fraction of a percent of the range, two orders below a step
+  counted in 1/255ths. Panning fires the term easily (rotation swings the sampled distance at every
+  silhouette), so a marker that responds to a pan but not to a walk is the far-plane mismatch this
+  replaced, not a tuning problem. Sweep it too high and depth noise (a TAA or dither wobble in the buffer)
+  holds the premise up over a stopped scene, shown as magenta when it should be yellow. The two off-GPU
+  properties the design rests on are checkable by hand: a buffer sampled where nothing is bound returns one
+  constant on both sides of the comparison, so the term is exactly zero — the same as the switch being off
+  — and the term is only ever added to the changed count, never the verdict, so it cannot protect a pixel
+  by itself. One side effect to expect:
   the depth change is folded into the same graded channel the motion view draws and the tile map reads, so
   with the switch on a **depth**-only change shows there as red or as a wide cell. That is the frame's own
   change reading made honest, but it means the motion view can no longer be read as picture-only while the

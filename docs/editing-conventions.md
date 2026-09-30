@@ -15,10 +15,11 @@ annotation, the frame-count sliders' conversion, the prose budget, or the drift 
   the duration settings (`AutoMaskRise`, `AutoMaskFall`, `AutoMaskForget`, `AutoMaskMoveMemory`, and the
   compute path's `AutoMaskDrift`) use `__UNIFORM_DRAG_FLOAT1`, a drag widget over free values rather
   than a stepped track; a value that names a **share** is a typed field, and everything else is a slider.
-  `AutoMaskDensity` is the one input widget (`__UNIFORM_INPUT_FLOAT1`, `ui_type = "input"`), so a
-  percentage can be entered exactly rather than dragged; `ui_min`/`ui_max`/`ui_step` still bound and step
-  it, so `ui_step = 1.0` is what keeps it whole. A mismatch between annotation family and declared type is
-  a silent ReShade UI bug.
+  `AutoMaskDensity` is an input widget (`__UNIFORM_INPUT_FLOAT1`, `ui_type = "input"`), so a percentage
+  can be entered exactly rather than dragged; `ui_min`/`ui_max`/`ui_step` still bound and step it, so
+  `ui_step = 1.0` is what keeps it whole. `AutoMaskDepthEps` is the second, and for the same reason: it
+  names a share — of the surface's own distance — so a typed field beats a track. A mismatch between
+  annotation family and declared type is a silent ReShade UI bug.
 - **The panel has no per-uniform visibility annotation, only a per-category one.** ReShade reads
   `ui_category_toggle` off a boolean uniform and hides every *other* member of that category while the
   value is false — the value comes from the uniform itself, so it is a live toggle and not a

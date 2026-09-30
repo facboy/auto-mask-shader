@@ -106,10 +106,14 @@ default for two reasons. Depth buffer access is not always there — online game
 none is found the reading is the ordinary one exactly, so there is nothing to switch back. And it needs
 ReShade's Depth Buffer settings to be right first: a buffer that is bound but configured wrongly feeds the
 premise nonsense rather than nothing, which no amount of turning the switch off will fix. When it is on,
-**Depth step counted as a change** sets how much of a depth change counts as the world moving, in whole
-levels out of 255, and is coarser than the RGB step because depth is. It does not help a menu opened over
-a world that has already stopped — the depth is stopped too — which stays the documented limit in the list
-below. Beside it sits **Depth only (experiment)**, off by default: with it on the world-drawn reading comes
+**Depth step counted as a change (percent)** sets how much a surface has to move toward or away from you
+in one frame, as a share of its own distance to you, before depth counts as the world moving. Depth is a
+distance rather than a brightness, so a share of it means the same thing in every game; a near surface
+moves by more of its distance than a far one, which is why a walk clears the `25` default and a motionless
+wall does not. Raise it if depth noise holds the world as drawn over a stopped scene; lower it if walking
+fails to register. It does not help a menu opened over a world that has already stopped — the depth is
+stopped too — which stays the documented limit in the list below. Beside it sits **Depth only (experiment)**,
+off by default: with it on the world-drawn reading comes
 from the depth buffer *alone* rather than from depth added to the picture. It exists to answer one
 question — whether a scene whose only movement is animation in the picture (flowing water, fire, a
 scrolling backdrop) should count as the world being drawn, which is the **still patch of world** limit
