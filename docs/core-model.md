@@ -58,7 +58,11 @@ questioning a witness the panel itself is hiding. Depth is transparent to that, 
 `AutoMaskDepthMotion` lets a pixel whose depth changed join the changed count the reduce publishes, on its
 own step — `AutoMaskDepthEps` is a *share* of the surface's own distance, since depth is a distance and not
 an 8-bit channel, which drops the far plane out and lets a walk reach the ramp — and
-can only *add* to that count — never remove, never touch the verdict, never protect a pixel on its own. A
+can only *add* to that count — never remove, never touch the verdict, never protect a pixel on its own. Its
+ramp is footed at half that step, unlike the colour witness, which counts any change at all: a share of a
+distance spans three orders of magnitude with range, and past a certain distance the depth buffer's own
+noise is the same size as the walk's change, so the floor is what keeps that noise out of the share while a
+near walk still clears it. A
 depth buffer that is not bound reads as the same constant on both sides of the comparison, so the
 difference is zero, the count is the picture's own exactly, and the switch degrades to the pixel path
 rather than needing a separate fallback. What it does not fix: a panel over an already-stopped world,

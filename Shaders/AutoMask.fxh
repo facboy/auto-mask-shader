@@ -26,12 +26,12 @@ int AutoMaskClipped(float3 now, float3 before)
 
 #if AutoMaskDepthMotion == 1
 //The premise's other witness: whether the surface behind a pixel moved toward or away from the view.
-//Depth is a distance, not an 8-bit channel, so the change is the share of its own distance moved --
-//translation shifts a near surface by more of its distance than a far one, so the far plane drops out.
-//The ramp is footed at zero, so the step is the whole threshold: a foot at `pct` would discard the walk.
+//Depth is a distance, not an 8-bit channel, so the change is the share of its own distance moved, which
+//drops the far plane out. Footed at half the step, unlike the colour witness: its units span three orders
+//of magnitude with distance and the far field is the buffer's own noise, so the floor keeps that out.
 float AutoMaskDepthMoved(float now, float before, float pct)
 {
-	return smoothstep(0.0, pct, abs(now - before) / max(now, 1e-4) * 100.0);
+	return smoothstep(pct * 0.5, pct, abs(now - before) / max(now, 1e-4) * 100.0);
 }
 
 //Reconstructs the camera-space position of a pixel from its depth and its place on the screen, so the
