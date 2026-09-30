@@ -110,10 +110,11 @@ premise nonsense rather than nothing, which no amount of turning the switch off 
 in one frame, as a share of its own distance to you, before depth counts as the world moving. Depth is a
 distance rather than a brightness, so a share of it means the same thing in every game, and the ramp is
 footed at zero so the step is the whole threshold. A share is also larger for a near surface than a far
-one — the same metre is a bigger fraction of three metres than of three hundred — so the `10` default
-catches near and mid geometry and a distant backdrop needs a lower step. Raise it to stop depth noise
-holding the world as drawn over a stopped scene; lower it to reach scenery further off, which is safe
-because the screen-wide share the premise reads keeps a low step from turning noise into a drawn world.
+one — the same metre is a bigger fraction of three metres than of three hundred — so the range runs from
+`0.02` (roughly a hundred metres out on a walk) to `20` (a surface at arm's length), and the useful values
+sit near the bottom: the `0.3` default reaches about thirty metres. Raise it to stop depth noise holding
+the world as drawn over a stopped scene; lower it to reach scenery further off, which is safe because the
+screen-wide share the premise reads keeps a low step from turning noise into a drawn world.
 It does not help a menu opened over a world that has already stopped — the depth is stopped too — which
 stays the documented limit in the list below. **Camera field of view (degrees)** is the other number it
 reads: the shader works out which way each surface faces, and one lying across the direction you walk —

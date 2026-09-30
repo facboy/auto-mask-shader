@@ -230,8 +230,9 @@ graded against it goes off screen-wide.
   count would need a cap at the smallest box's area. The radius shares the closing's fixed loop, so it costs
   no extra tap and caps at `AUTOMASK_DILATE_MAX` with it; read as 1 at the bottom, so the setting cannot
   silently switch the gate off. `AutoMaskDensity` is an `__UNIFORM_INPUT_FLOAT1` — a typed field rather
-  than a track, because it names a share. `AutoMaskDepthEps` is the other one, for the same reason: it is a
-  percentage, and a share typed exactly beats a drag over it.
+  than a track, because it names a share. `AutoMaskDepthEps` also names a share, but of a quantity that
+  ranges over three orders of magnitude, so it is a `__UNIFORM_DRAG_FLOAT1` instead: a drag reaches 0.02
+  and 20 with the same ease, and a track could not.
 - `AutoMaskTargetFPS` is the one further definition, a setup number rather than a tuning one: it multiplies
   seconds into frames for the `ui_max` caps and for the drift horizon. See `docs/editing-conventions.md`.
 - The reset's wide step is `max(deadband, 8.0)` rather than a bare literal, so it can never collapse back

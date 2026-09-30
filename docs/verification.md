@@ -268,7 +268,7 @@ whether the reading you are looking at is current.
   HUD up must keep the corner marker magenta**, which is the case the old level-unit step could not reach
   at all — the depth change a walk makes is a fraction of a percent of the range, two orders below a step
   counted in 1/255ths. The ramp is footed at zero, so the step is the whole threshold and a low one is not
-  discarded: sweep down from the `10` default and near and mid geometry should light first, with the far
+  discarded: sweep down from the `0.3` default and near and mid geometry should light first, with the far
   backdrop coming in as it drops — a share is larger for a near surface, so distance-off scenery needs the
   lower step. Panning fires the term easily (rotation swings the sampled distance at every silhouette), so
   a marker that responds to a pan but not to a walk at any step is the per-pixel statistic's own limit and

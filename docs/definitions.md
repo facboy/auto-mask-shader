@@ -272,7 +272,7 @@ durations — are the `Frame timing` section.
 | `AutoMaskDilate` | Closing radius in pixels | How far the mask is grown to close anti-aliased edges and thin text. |
 | `AutoMaskEdge` | Luma step counted as a boundary | The luma difference, 0–255, past which that growth stops. |
 | `AutoMaskMotion` | Motion needed to trust stillness (percent) | Share of the screen that must change before stillness is credited. The premise. |
-| `AutoMaskDepthEps` | Depth step counted as a change (percent) | How much of its own distance a surface must move in one frame to count; a typed field, read only with `AutoMaskDepthMotion`. |
+| `AutoMaskDepthEps` | Depth step counted as a change (percent) | How much of its own distance a surface must move in one frame to count; a free range 0.02–20 since a walk's share falls with distance and most useful values sit near the floor. Read only with `AutoMaskDepthMotion`. |
 | `AutoMaskDepthOnly` | Depth only (experiment) | Whether the world-drawn reading is depth alone rather than depth added to the picture; also read only with `AutoMaskDepthMotion`. |
 | `AutoMaskDepthFOV` | Camera field of view (degrees) | The vertical fov the surface orientation is reconstructed with, so surfaces a walk cannot move can be left out of the depth reading; a wrong value tilts it rather than changing which surfaces those are. |
 | `AutoMaskDrift` | Drift horizon (seconds) | The drift average's memory, in seconds; `0` turns the comparison off. |
