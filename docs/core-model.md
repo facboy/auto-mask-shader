@@ -63,6 +63,18 @@ difference is zero, the count is the picture's own exactly, and the switch degra
 rather than needing a separate fallback. What it does not fix: a panel over an already-stopped world,
 where the depth is stopped too and there is no drawing to point at.
 
+**`AutoMaskDepthOnly` is the other question asked of the same cue:** whether the premise should read
+*viewpoint* change rather than *picture* change. `AutoMaskDepthMotion` adds depth to the picture's reading,
+so a scene whose only movement is texture — water, fire, a scrolling UV — still reads as drawn and a still
+patch of world beside it is claimed (the limit below). With the checkbox on, `motion` becomes the depth
+term alone, so a depth-static scene reads as stopped and the premise holds instead; only its geometry
+moving — a camera move, a scene change, an animated mesh — marks the world drawn. It owns no pass, shader
+or target, so it is a live checkbox inside the depth guard by the same rule as admission and the isolation
+gate, and the arithmetic it changes is one `max`. It is a measurement rather than a feature: it trades the
+colour share's failure for the depth share's — a textural-only scene now withholds stillness from a genuine
+HUD — and with no bound depth the term is zero, so the world never reads as drawn and the mask never forms.
+`README.md` states both, and `docs/ui-isolation-options.md` §5.10 is the option it measures.
+
 `AutoMaskEps` counts whole levels out of 255 — the only unit an 8-bit history has — so a fractional value
 is a position that cannot exist, and its minimum is 1: one level is the smallest movement there is and so
 the most sensitive position, while the old "0 means off" kept the motion channel, the debt and the overlay

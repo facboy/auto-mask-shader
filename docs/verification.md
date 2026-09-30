@@ -286,6 +286,18 @@ whether the reading you are looking at is current.
   premise measured on depth change would withhold stillness on exactly those frames and hold a genuine HUD
   out with them. Raising **Motion needed to trust stillness** is the only shipped lever and it only helps
   while the animating region is small.
+- **The witness experiment, `AutoMaskDepthOnly`, inside the depth guard and on both paths.** It is the
+  measurement §5.10 asks for in switch form: `motion` becomes the depth term alone rather than
+  `max(depth, picture)`, so the premise reads viewpoint change rather than picture change. The first check
+  is that it is **absent** with `AutoMaskDepthMotion = 0` and that the additive path is unchanged with it
+  false — the `AutoMaskDepthMotion = 0` hashes cover the first, and a false switch that changed an
+  entry-point hash would mean the branch was not free. The second is the failure to expect and to
+  recognise: with the game's depth buffer missing or mis-configured the **corner marker is stuck yellow**,
+  because the depth term is zero and the premise never fires — that is the switch being on with no usable
+  depth, not a broken mask. Then, in a scene whose only movement is texture with the camera still: with the
+  switch off the marker is magenta and still world is claimed (the case above), with it on the marker goes
+  yellow and the mask holds. The off-GPU property is the one §5.10 names, the unbound-depth zero, and it is
+  checkable by hand rather than by compiling.
 - The exact comparison, at `AutoMaskEps = 1`, where it is a visible change rather than an arithmetic
   one: the motion view over a large smooth gradient — a sky, a wall lit by a lamp — must now show a
   red rim wherever the ramp crosses a level, since every one-level change trips the verdict where only

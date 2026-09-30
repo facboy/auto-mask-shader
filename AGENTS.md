@@ -169,8 +169,13 @@ graded against it goes off screen-wide.
   premise is the picture's own exactly — which is why the online-game case degrades to the old behaviour
   rather than needing a fallback path. It owns one `R32F` target and one full-resolution store pass, both
   inside the guard; that target is read by the accumulator and written by a later store pass, so no pass
-  reads what it writes, and it is not the ping-pong the accumulator itself needs. See `docs/core-model.md`
-  and `docs/verification.md`.
+  reads what it writes, and it is not the ping-pong the accumulator itself needs. `AutoMaskDepthOnly`, a
+  live checkbox beside it inside the guard, is the measurement §5.10 of `docs/ui-isolation-options.md`
+  asks for: it takes the world-drawn reading from the depth term alone rather than from depth added to the
+  picture, so the premise reads viewpoint change instead of picture change. It owns no pass, shader or
+  target — one `max` in each accumulator — so it is a checkbox and not a definition, and with it on a
+  depth-static scene reads as stopped, while no bound depth leaves the world never reading as drawn. See
+  `docs/core-model.md` and `docs/verification.md`.
 - The **isolation gate is gated by a live checkbox, not a fourth definition.** It owns no pass, shader or
   target of its own — it is a count and a branch inside the two closing passes — so a `#if` would buy a
   handful of instructions in one entry point while costing a recompile per toggle. `AutoMaskIsolated`

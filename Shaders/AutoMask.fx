@@ -136,6 +136,17 @@ uniform float AutoMaskMotion <
 		ui_min = 1.0; ui_max = 16.0;
 		ui_step = 1.0;
 	> = 2.0;
+
+	//An experiment rather than a tuning value: takes the world-drawn reading from depth alone, so a scene
+	//whose only motion is texture -- water, fire, a scrolling backdrop -- reads as stopped instead of
+	//drawn. Off, depth is added to the picture's reading and can only raise it. It needs a bound depth
+	//buffer: with none the premise never fires and the corner marker stays yellow.
+	uniform bool AutoMaskDepthOnly <
+		__UNIFORM_SLIDER_BOOL1
+		ui_label = "Depth only (experiment)";
+		ui_tooltip = "On, the world-drawn reading comes from the depth buffer alone, so animating textures no longer count as the world moving.\nOff, depth is added to the picture's own reading.\nNeeds the depth buffer: with none bound, the world never reads as drawn";
+		ui_category = "AutoMask";
+	> = false;
 #endif
 
 #if AutoMaskCompute == 1
@@ -434,11 +445,12 @@ sampler AutoMap { Texture = texAutoMap; };
 		float motion = max(smoothstep(deadband - 1.0, deadband + 2.0, maxDiff),
 		                   smoothstep(deadband, deadband * AUTOMASK_DRIFT_LAG, maxDrift));
 		#if AutoMaskDepthMotion == 1
-			//The world being drawn, measured on depth where the game exposes one: the overlay writes no
-			//depth, so a panel cannot hide the drawing behind it as it hides it in the picture. It joins
-			//the graded reading below, which the reduce counts, and can only raise it; with no depth bound
-			//both sides are the same constant, so the difference is zero and the reading is unchanged.
-			motion = max(motion, AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps));
+			//The world being drawn, measured on depth: the overlay writes no depth, so a panel cannot
+			//hide the drawing as it hides it in the picture. Off, it only raises the graded reading the
+			//reduce counts, and with no depth bound it is zero; the experiment makes it the whole of it.
+			motion = AutoMaskDepthOnly
+				? AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps)
+				: max(motion, AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps));
 		#endif
 		float stable = (maxDiff < deadband && maxDrift < deadband && clipped == 0.0) ? 1.0 : 0.0;
 
@@ -781,10 +793,13 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	#if AutoMaskDepthMotion == 1
 		//The depth reading joins the motion the reduce below counts, not the verdict above: a change in
 		//depth is the world being redrawn, which the overlay cannot have written, so it can only raise
-		//the share. With no depth bound the difference is zero and the count is the picture's own.
+		//the share. With no depth bound the difference is zero and the count is the picture's own. Off
+		//is a raise; the depth-only experiment replaces it, so a depth-static scene reads as stopped.
 		float depthNow = ReShade::GetLinearizedDepth(texcoord);
 		float depthBefore = tex2D(AutoDepth, texcoord).r;
-		motion = max(motion, AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps));
+		motion = AutoMaskDepthOnly
+			? AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps)
+			: max(motion, AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps));
 	#endif
 
 	float gain = AutoMaskRate(AutoMaskRise);

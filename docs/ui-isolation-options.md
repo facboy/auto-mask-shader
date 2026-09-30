@@ -503,6 +503,16 @@ by hand: with no depth bound the depth share is zero, so the reading is "never d
 have to fall back to the colour share rather than holding forever — the same degradation `AutoMaskDepthMotion`
 already relies on.
 
+**The measurement is a live switch, not a probe.** A side-by-side reading would need a channel the
+accumulator does not have — its four are all spent — so the cheap form is to *select* the witness rather
+than to draw two: `AutoMaskDepthOnly`, inside the depth guard, makes `motion` the depth term alone instead
+of `max(depth, picture)`. It owns no pass, shader or target, so by §7's rule it is a live checkbox and not
+a definition, and the arithmetic it changes is a single `max`. What it costs is nothing that was not
+already paid — `maxDiff` is computed for the verdict regardless, and the depth term for the premise — so
+the switch is free and flipping it in a game reads the comparison in one session. Its known failure is
+stated in `README.md`: with no bound depth the world reads as never drawn, which is the same degradation
+the additive form turns into a harmless zero.
+
 ## 6. Measure first: the instrument
 
 The repo's method is that a claim is measured before it is mechanised — no noise floor without the
@@ -593,7 +603,7 @@ open are settled against the code:
 | 5.7 | auto-placed deadzone | §3.4's manual tuning | off the tile map | — **dropped: the manual region was removed as unused** |
 | 5.8 | alpha-composite ratio | reading only | a new per-cell magnitude statistic, built as a pass with a `RGBA32F` grid and a share target | compute + diagnostics — **measured out and removed: the graded channel saturates, so the ratio cannot separate a panel from moving world** |
 | 5.9 | depth premise | §3.3 in the common case (the panel no longer hides the drawing), not the panel over a stopped world | one `R32F` target and one full-screen store pass; degrades to the picture's own premise with no depth bound | preprocessor definition, off — **shipped as `AutoMaskDepthMotion`** |
-| 5.10 | viewpoint-change premise | the animated-neighbour form of §3.3 — a still patch banked because a *different* region repaints | a depth-change share in place of the colour share; still misses animated geometry, and withholds stillness in textural-only scenes | live mode or toggle — **options, not scoped** |
+| 5.10 | viewpoint-change premise | the animated-neighbour form of §3.3 — a still patch banked because a *different* region repaints | a depth-change share in place of the colour share; still misses animated geometry, and withholds stillness in textural-only scenes | live checkbox — **the selector shipped as `AutoMaskDepthOnly`; the premise itself is not scoped** |
 
 **The directional densities are shipped**, in the four-axis form that covers the diagonals too.
 **§5.6's tile map and §6's readings are shipped as one instrument step**, which is the order §6 asks for:
