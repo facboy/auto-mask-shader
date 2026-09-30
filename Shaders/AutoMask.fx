@@ -85,6 +85,55 @@ uniform float AutoMaskMoveMemory <
 	ui_step = 5.0;
 > = 2.0 * AutoMaskTargetFPS;
 
+//The premise: the readings that say whether the world is being drawn -- the picture's own share of the
+//screen changing, and the depth buffer's distance change. Compiled in together, so the switch that adds
+//depth is what opens the settings below it.
+uniform float AutoMaskMotion <
+	__UNIFORM_SLIDER_FLOAT1
+	ui_label = "Motion needed to trust stillness (percent)";
+	ui_tooltip = "How much of the screen must be changing before the world counts as being drawn and stillness can be taken for interface.";
+	ui_category = "Is the scene in motion?";
+	ui_min = 0.0; ui_max = 100.0;
+	ui_step = 1.0;
+> = 50.0;
+
+#if AutoMaskDepthMotion == 1
+	//The step as a distance the surface moved toward or away from the view in one frame. The linearized
+	//depth is normalized by the far plane, so multiplying the change by that plane gives metres -- the
+	//same metres at any range, where a share of the distance would shrink with it. The far plane comes
+	//from ReShade's depth settings, which the user sets with the depth buffer.
+	uniform float AutoMaskDepthEps <
+		__UNIFORM_DRAG_FLOAT1
+		ui_label = "Depth step counted as a change (metres)";
+		ui_tooltip = "How far, in metres, a surface must move toward or away from you in one frame to count as the world being redrawn.\nA walk covers a fraction of a metre a frame, so this is small; it means the same thing near and far, and the far plane it is measured against comes from your ReShade depth settings.\nRaise it if depth noise holds the world as drawn over a stopped scene, lower it if walking fails to.";
+		ui_category = "Is the scene in motion?";
+		ui_min = 0.001; ui_max = 2.0;
+		ui_step = 0.001;
+	> = 0.05;
+
+	//Which witness the world-drawn reading is taken from with depth compiled in -- depth added to the
+	//picture, or depth alone, so the two can be compared in a game. Off, the reading is the union; on, a
+	//scene whose only motion is texture reads as stopped and the premise holds. Depth alone needs a bound
+	//depth buffer: with none the premise never fires and the corner marker stays yellow.
+	uniform bool AutoMaskDepthOnly <
+		__UNIFORM_SLIDER_BOOL1
+		ui_label = "Depth only, not added to the picture";
+		ui_tooltip = "On, the world-drawn reading comes from the depth buffer alone, so animating textures no longer count as the world moving.\nOff, the reading is depth added to the picture's own.\nNeeds the depth buffer: with none bound, the world never reads as drawn";
+		ui_category = "Is the scene in motion?";
+	> = false;
+
+	//The vertical field of view the surface orientation is reconstructed with. It only tilts that
+	//reconstruction: a floor or ceiling reads as up-facing whatever it is set to.
+	uniform float AutoMaskDepthFOV <
+		__UNIFORM_SLIDER_FLOAT1
+		ui_label = "Camera field of view (degrees)";
+		ui_tooltip = "The camera's vertical field of view, used to work out which way each surface faces so a floor or ceiling is left out of the depth reading.\nA wrong value tilts that reading rather than changing which surfaces read as up-facing";
+		ui_category = "Is the scene in motion?";
+		ui_min = 20.0; ui_max = 120.0;
+		ui_step = 1.0;
+	> = 60.0;
+#endif
+
 #define AUTOMASK_DILATE_MAX 3
 //The isolation gate's counts ride in texAutoDilate's 8-bit channels, so a whole number is scaled by
 //this on the way in and back out, landing it on the same byte at either end.
@@ -119,54 +168,6 @@ uniform float AutoMaskEdge <
 	ui_min = 0.0; ui_max = 255.0;
 	ui_step = 1.0;
 > = 40.0;
-
-//Minimum screen motion coverage to credit stillness as interface. Below it the mask is held --
-//nothing added and only what moves lost; above it the mask advances.
-uniform float AutoMaskMotion <
-	__UNIFORM_SLIDER_FLOAT1
-	ui_label = "Motion needed to trust stillness (percent)";
-	ui_tooltip = "How much of the screen must be changing before the world counts as being drawn and stillness can be taken for interface.";
-	ui_category = "AutoMask";
-	ui_min = 0.0; ui_max = 100.0;
-	ui_step = 1.0;
-> = 50.0;
-
-#if AutoMaskDepthMotion == 1
-	//The step as a distance the surface moved toward or away from the view in one frame. The linearized
-	//depth is normalized by the far plane, so multiplying the change by that plane gives metres -- the
-	//same metres at any range, where a share of the distance would shrink with it. The far plane comes
-	//from ReShade's depth settings, which the user sets with the depth buffer.
-	uniform float AutoMaskDepthEps <
-		__UNIFORM_DRAG_FLOAT1
-		ui_label = "Depth step counted as a change (metres)";
-		ui_tooltip = "How far, in metres, a surface must move toward or away from you in one frame to count as the world being redrawn.\nA walk covers a fraction of a metre a frame, so this is small; it means the same thing near and far, and the far plane it is measured against comes from your ReShade depth settings.\nRaise it if depth noise holds the world as drawn over a stopped scene, lower it if walking fails to.";
-		ui_category = "AutoMask";
-		ui_min = 0.001; ui_max = 2.0;
-		ui_step = 0.001;
-	> = 0.05;
-
-	//Which witness the world-drawn reading is taken from with depth compiled in -- depth added to the
-	//picture, or depth alone, so the two can be compared in a game. Off, the reading is the union; on, a
-	//scene whose only motion is texture reads as stopped and the premise holds. Depth alone needs a bound
-	//depth buffer: with none the premise never fires and the corner marker stays yellow.
-	uniform bool AutoMaskDepthOnly <
-		__UNIFORM_SLIDER_BOOL1
-		ui_label = "Depth only, not added to the picture";
-		ui_tooltip = "On, the world-drawn reading comes from the depth buffer alone, so animating textures no longer count as the world moving.\nOff, the reading is depth added to the picture's own.\nNeeds the depth buffer: with none bound, the world never reads as drawn";
-		ui_category = "AutoMask";
-	> = false;
-
-	//The vertical field of view the surface orientation is reconstructed with. It only tilts that
-	//reconstruction: a floor or ceiling reads as up-facing whatever it is set to.
-	uniform float AutoMaskDepthFOV <
-		__UNIFORM_SLIDER_FLOAT1
-		ui_label = "Camera field of view (degrees)";
-		ui_tooltip = "The camera's vertical field of view, used to work out which way each surface faces so a floor or ceiling is left out of the depth reading.\nA wrong value tilts that reading rather than changing which surfaces read as up-facing";
-		ui_category = "AutoMask";
-		ui_min = 20.0; ui_max = 120.0;
-		ui_step = 1.0;
-	> = 60.0;
-#endif
 
 #if AutoMaskCompute == 1
 	//How long a colour lingers in the average the drift comparison reads, catching a shift too small

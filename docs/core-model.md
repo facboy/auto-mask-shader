@@ -81,7 +81,8 @@ the depth guard by the same rule as admission and the isolation gate, and the ar
 `max`. It is a measurement rather than a feature: it trades the colour share's failure for the depth
 share's — a textural-only scene now withholds stillness from a genuine HUD — and with no bound depth the
 term is zero, so the world never reads as drawn and the mask never forms. `README.md` states both, and
-`docs/ui-isolation-options.md` §5.10 is the option it measures.
+`docs/ui-isolation-options.md` §5.10 is the option it measures — played in a game, the case it serves
+turns up in very few views, which is what makes the selector the whole of the answer.
 
 `AutoMaskEps` counts whole levels out of 255 — the only unit an 8-bit history has — so a fractional value
 is a position that cannot exist, and its minimum is 1: one level is the smallest movement there is and so
@@ -271,7 +272,10 @@ These are inherent to the signal, not tuning problems, and belong in the README:
   stopped, only the patch that gets taken, and it is the commoner one. Depth does not close it: as moving
   geometry, water changes depth too, so `AutoMaskDepthMotion` holds the premise up rather than down. What
   distinguishes the two cases is whether the *viewpoint* changed, not whether pixels changed — the option
-  `docs/ui-isolation-options.md` §5.10 records, unscoped.
+  `docs/ui-isolation-options.md` §5.10 records, and it is already a live choice: `AutoMaskDepthOnly` reads
+  the premise off depth alone, which is what a preset for a game with these views uses. The reading taken
+  in a game is that the case is real but turns up in very few views, so the selector covers it and the
+  premise proper stays unbuilt.
 - **Scenery that drifts too slowly to change a pixel between two frames.** The comparison's baseline is one
   frame and its unit is one whole level, so scenery sliding across the screen at a fraction of a level a
   frame reads as *exactly* no change — and no change is the whole of the evidence the verdict asks for.

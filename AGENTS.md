@@ -132,8 +132,9 @@ graded against it goes off screen-wide.
   category with the gate first — never inside `AutoMask`, where unticking would hide every other slider.
   There is no per-uniform visibility annotation, and a category is a **contiguous run** of uniforms: the
   same name used again further down the list draws a second heading. A category can also carry no gate at
-  all, purely to name a group — `Frame timing` does that for the four frame-count durations, which are
-  never hidden. See `docs/editing-conventions.md`.
+  all, purely to name a group — `Frame timing` does that for the four frame-count durations, and `Is the
+  world being drawn?` for the motion threshold and the depth readings under it, none of which is ever
+  hidden. See `docs/editing-conventions.md`.
 - The **accumulator's state machine is written once**, in `Shaders/AutoMask.fxh`. `PS_Accum` and
   `CS_Accum` differ only in how a texture is sampled and in the drift channel the compute path alone
   carries, so the parts that sample nothing — the premise, the decay step, the published-mask read and

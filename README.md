@@ -58,17 +58,18 @@ they aren't. The tooltips in the panel give each setting in brief — this table
 lives.
 
 The panel groups them under headings: **Frame timing** for the four frame-count durations — how long a
-pixel takes to earn its mask, to lose it, to bridge a brief pause, and to be forgiven a move — **AutoMask**
-for the remaining settings that are always in play, **RGB step detection** for the auto-detect toggle and
-the noise floor it governs — the floor is only shown while the toggle is ticked, since it is read by
-nothing otherwise — **Isolated pixels** for dropping lone specks that have no still neighbourhood, and
-**Diagnostics** for the overlay's settings. The RGB step slider is the last row of
+pixel takes to earn its mask, to lose it, to bridge a brief pause, and to be forgiven a move — **Is the
+scene in motion?** for the readings that decide it, the picture's own share of the screen changing
+and the depth buffer's distance change, **AutoMask** for the remaining settings that are
+always in play, **RGB step detection** for the auto-detect toggle and the noise floor it governs — the
+floor is only shown while the toggle is ticked, since it is read by nothing otherwise — **Isolated
+pixels** for dropping lone specks that have no still neighbourhood, and **Diagnostics** for the
+overlay's settings. The RGB step slider is the last row of
 **AutoMask**, so it sits directly above the group that measures it; it cannot move inside that group,
 because the pixel path reads it with no measurement at all and with auto-detect ticked it is still the
-fallback on a frame where the walk finds no floor. **Depth step counted as a change** is shown only when
-the **depth premise** switch below is compiled in, and lives in **AutoMask** beside the RGB step it is the
-coarser counterpart of; **Depth only, not added to the picture** sits beside it, shown with the same
-switch.
+fallback on a frame where the walk finds no floor. **Depth step counted as a change** belongs to **Is the
+scene in motion?**, shown only when the **depth premise** switch below is compiled in; **Depth only,
+not added to the picture** sits beside it, shown with the same switch.
 
 | Setting | What it does |
 | --- | --- |
@@ -130,7 +131,11 @@ The three states are the premise switch off (the picture alone), the switch on w
 the switch on with this on (depth alone). It is not finished behaviour: with the depth buffer missing or
 wrong, the world reads as never drawn and the mask never forms, and it withholds stillness over any
 animating scenery, so a genuine element appearing while the camera is still may not be claimed until the
-view moves. Leave it off unless you are looking at that one question.
+view moves. Played in a game the case it helps turns out to be **rare** — a handful of views where the
+picture is busy but the viewpoint is not — so it is worth a preset of its own for a game you know has
+them rather than a setting to leave on. Leave it off otherwise, and do not reach for it when a *camera
+pan* shows no response: a panning view swings the distance to every surface, so a flat reading there is a
+depth buffer settings problem rather than this switch's business.
 
 **The compute path** changes *how* the mask is worked out, not what it means, and everything in the table
 above still applies. On the pixel path the screen-wide reading the mask depends on is an approximation:

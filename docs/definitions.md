@@ -261,8 +261,9 @@ are listed under it.
 
 Every tuning value the user adjusts is a live slider; the preprocessor definitions are the structural
 switches and the setup constants listed below. Tuning guidance is in `README.md`; what each setting is
-*for* is in the entry above it. The rows are in panel order, and the first four — the frame-count
-durations — are the `Frame timing` section.
+*for* is in the entry above it. The rows are in panel order: the first four, the frame-count durations,
+are the `Frame timing` section, and `AutoMaskMotion` opens `Is the scene in motion?` with the depth
+readings.
 
 | Uniform | Panel label | The term, in one line |
 | --- | --- | --- |
@@ -270,12 +271,12 @@ durations — are the `Frame timing` section.
 | `AutoMaskFall` | Frames moving before unmarked as interface | Duration of change before unmarking; sets the cost. |
 | `AutoMaskForget` | Frames of absence before decay starts | The bridge's window; animation inside it is never banked. |
 | `AutoMaskMoveMemory` | Frames a move is remembered | Duration of still frames a move is remembered for; the debt clamp. |
-| `AutoMaskDilate` | Closing radius in pixels | How far the mask is grown to close anti-aliased edges and thin text. |
-| `AutoMaskEdge` | Luma step counted as a boundary | The luma difference, 0–255, past which that growth stops. |
-| `AutoMaskMotion` | Motion needed to trust stillness (percent) | Share of the screen that must change before stillness is credited. The premise. |
+| `AutoMaskMotion` | Motion needed to trust stillness (percent) | Share of the screen that must change before stillness is credited. The premise; opens `Is the scene in motion?`. |
 | `AutoMaskDepthEps` | Depth step counted as a change (metres) | How far a surface must move toward or away from the view in one frame to count; uniform across the screen, since the change converts back to metres against the far plane ReShade supplies. The depth ramp is footed at half this, so smaller changes add nothing. Read only with `AutoMaskDepthMotion`. |
 | `AutoMaskDepthOnly` | Depth only, not added to the picture | Which witness the world-drawn reading is taken from with depth compiled in — depth added to the picture, or depth alone; also read only with `AutoMaskDepthMotion`. |
 | `AutoMaskDepthFOV` | Camera field of view (degrees) | The vertical fov the surface orientation is reconstructed with, so surfaces a walk cannot move can be left out of the depth reading; a wrong value tilts it rather than changing which surfaces those are. |
+| `AutoMaskDilate` | Closing radius in pixels | How far the mask is grown to close anti-aliased edges and thin text. |
+| `AutoMaskEdge` | Luma step counted as a boundary | The luma difference, 0–255, past which that growth stops. |
 | `AutoMaskDrift` | Drift horizon (seconds) | The drift average's memory, in seconds; `0` turns the comparison off. |
 | `AutoMaskNeighbour` | Stop specks entering the mask | Whether a pixel with no claimed neighbour earns at half rate, so a region starts only from a pixel still for twice the rise. |
 | `AutoMaskEps` | RGB step counted as a change | The deadband in whole levels out of 255; decides only whether a pixel moved. Last row of `AutoMask`, so it sits above the group that measures it. |
@@ -301,9 +302,9 @@ durations — are the `Frame timing` section.
   category at a time, off a boolean's `ui_category_toggle`, and it never hides that boolean itself — so
   a gated setting belongs in its own category with the gate first, and there is no per-uniform
   visibility annotation (`docs/editing-conventions.md`). A category is a contiguous run of uniforms, so
-  one named again further down the list draws a second heading with the same name. The five names used
-  are `Frame timing`, `AutoMask`, `RGB step detection`, `Isolated pixels` and `Diagnostics` — the last
-  inside the diagnostics switch, so it is not drawn unless that is on.
+  one named again further down the list draws a second heading with the same name. The six names used
+  are `Frame timing`, `Is the scene in motion?`, `AutoMask`, `RGB step detection`, `Isolated pixels`
+  and `Diagnostics` — the last inside the diagnostics switch, so it is not drawn unless that is on.
 - **`AUTOMASK_STEP_MAX`** — `8`: the last level the walk measures in, and the end of the `AutoMaskEps`
   slider with it. Named because the histogram's width, the clear loop, the bin clamp and the walk's
   range must not drift apart.

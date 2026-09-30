@@ -314,7 +314,12 @@ whether the reading you are looking at is current.
   mask a static backdrop actually takes, and how often a game presents a textural-only scene, since a
   premise measured on depth change would withhold stillness on exactly those frames and hold a genuine HUD
   out with them. Raising **Motion needed to trust stillness** is the only shipped lever and it only helps
-  while the animating region is small.
+  while the animating region is small. **The reading has since been taken in a game and the answer is
+  rare**: these views exist but are very few, so `AutoMaskDepthOnly` in a per-game preset covers them and
+  the premise proper stays unbuilt. A pan that shows large picture motion with a flat depth term is not
+  this case — a rotation swings the sampled distance at every silhouette, so the flat term there is a
+  far-plane or depth-settings fault, recognised by the opposite symptom: a genuine element failing to be
+  captured while the view moves.
 - **The witness experiment, `AutoMaskDepthOnly`, inside the depth guard and on both paths.** It is the
   measurement §5.10 asks for in switch form: `motion` becomes the depth term alone rather than
   `max(depth, picture)`, so the premise reads viewpoint change rather than picture change. The panel's
@@ -343,11 +348,13 @@ whether the reading you are looking at is current.
   from where its own average had settled used to be locked out indefinitely, so put the overlay in its
   verdict view on a still HUD element and confirm the green is there and stays there over the horizon.
 - The panel's grouping, which the compile check cannot see at all: each heading must appear once, with
-  **Frame timing** holding the four frame-count durations, the compute path's group reading **RGB step
-  detection** rather than the old **Step detection**, and the RGB step slider drawn as the last row of
+  **Frame timing** holding the four frame-count durations, **Is the scene in motion?** next holding the
+  motion threshold and the depth readings, the compute path's group reading **RGB step detection** rather
+  than the old **Step detection**, and the RGB step slider drawn as the last row of
   **AutoMask** so it sits directly above that group. A category named twice in the uniform list draws two
-  headings of the same name, so a second **AutoMask** block is the failure to look for after any move of a
-  uniform.
+  headings of the same name, so a second **AutoMask** block, or **Is the scene in motion?** drawn in
+  the midst of **AutoMask** with a second **AutoMask** heading under it, is the failure to look for after
+  any move of a uniform.
 - The isolation gate, in the panel and in the mask: the checkbox ships off, so on first load
   **Isolated pixels** must show the gate alone with the count and radius hidden under it, and it must be a
   *second* gated category beside **RGB step detection** — a second **AutoMask**

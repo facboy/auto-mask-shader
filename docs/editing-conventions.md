@@ -35,15 +35,20 @@ annotation, the frame-count sliders' conversion, the prose budget, or the drift 
   unticking the gate hides the rest of *its* category, so a gate placed among the main settings would
   hide every slider in the shader. The gated categories are therefore `RGB step detection` (the toggle,
   then the floor it gates) and `Isolated pixels` (the gate, then the count it governs), with the
-  ungated `AutoMask` and `Frame timing` staying visible whatever any gate says. `ui_category` is not a way
+  ungated `AutoMask`, `Frame timing` and `Is the scene in motion?` staying visible whatever any gate
+  says. `ui_category` is not a way
   to hide one setting conditionally on another in general — there is no annotation that does that, so a
   value that must stay visible whatever its neighbours are set to stays in an ungated category.
 - **An always-shown group can still be named for what it holds.** `Frame timing` splits the four
   frame-count durations — `AutoMaskRise`, `AutoMaskFall`, `AutoMaskForget` and `AutoMaskMoveMemory` —
   out of `AutoMask` purely to name them, with no gate on it: none of the four is ever hidden, and they
   are already one contiguous run at the top of the uniform list, so the split costs nothing but a
-  heading. Nothing that must stay visible whatever its neighbours say can be gated, but it can still be
-  grouped — the durations are the settings a user tunes by watching, and the heading says so.
+  heading. `Is the scene in motion?` does the same just below it for `AutoMaskMotion` and the depth
+  readings (`AutoMaskDepthEps`, `AutoMaskDepthOnly`, `AutoMaskDepthFOV`), gathered there because the
+  motion threshold and the depth term are the two witnesses to one question — the settings are named for
+  the question they answer.
+  Nothing that must stay visible whatever its neighbours say can be gated, but it can still be grouped —
+  the durations are the settings a user tunes by watching, and the heading says so.
 - **A feature with a pass of its own is a definition; a branch inside a pass is a gate.** The isolation
   gate is the precedent: it owns no pass, shader or target — it is a count and a branch inside the two
   closing passes — so a `#if` would save a few instructions in one entry point while costing a recompile

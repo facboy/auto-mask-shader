@@ -17,7 +17,9 @@ What the instrument also settled is the shape of what is left: §5.7 is dropped 
 would have seeded, and §5.8's own reading — built, watched and removed — is measured out too, because the
 quantity it needs is not in any target. §5.9 is where depth ended up: the mask use this document assumed
 away stays impossible, but the premise use works and **has since shipped** as `AutoMaskDepthMotion`. §5.10
-is what that shipped premise still gets wrong — the witness it is measured with, not the cue it spends.
+is what that shipped premise still gets wrong — the witness it is measured with, not the cue it spends —
+and **its reading has since been taken in a game**: the case is real but rare, so the selector shipped with
+§5.9 covers it and the premise proper stays unbuilt.
 
 Companions: `docs/core-model.md` (the verdict the isolation rides on), `docs/compute-path.md` (the
 compute path most of this would live in), `docs/optical-flow.md` (the one instrument already built,
@@ -461,7 +463,7 @@ Unverified in a game: the whole of it. The mechanism and the fallback are off-GP
 DSR's depth is usable and what step it needs are questions only a game answers; `docs/verification.md`
 names the scenario.
 
-### 5.10 A viewpoint-change premise — the false witness §5.9 leaves standing
+### 5.10 A viewpoint-change premise — the false witness §5.9 leaves standing, measured rare
 
 §5.9 spends depth on the premise but keeps the premise's **witness** unchanged: `AutoMaskDrawn` reads the
 share of pixels whose *colour* changed, and that share cannot tell apart two different things. A camera
@@ -496,13 +498,29 @@ which failure a given game lives with. That is the same asymmetry as §5.9 and t
 question behind it — the two witnesses fail in opposite directions, so the honest shape of a fix is to
 *select* between them (a mode or a live toggle) rather than to replace one with the other.
 
-Not scoped and not built. What it needs before anything is mechanised: a game that exhibits the
-animated-neighbour false positive, with the tile map and the motion view watched over it to see how much
-of the mask a static backdrop is actually taking, and a measurement of how often a textural-only scene
-occurs in that game — because the cost is paid on exactly those frames. Off-GPU, one property is checkable
-by hand: with no depth bound the depth share is zero, so the reading is "never drawn" and the switch would
-have to fall back to the colour share rather than holding forever — the same degradation `AutoMaskDepthMotion`
-already relies on.
+**Measured in a game, and the answer is rare.** The reading this section asked for — how often a
+textural-only scene occurs, and how much mask a static backdrop takes in one — has been taken with
+`AutoMaskDepthOnly` on a real scene: the views it names are reachable, but **very few**, so the cost above
+is paid on a handful of frames rather than a mode of play. Two things make that count decisive rather than
+merely small. The false positive fires on *every* frame of such a view, while the false negative it trades
+for needs a *fresh* element to appear during one with the camera dead still — a persistent HUD is captured
+while the view moves and held after, so it pays nothing there. And selection is already shipped: the two
+controls are a live choice, so the game that has these views keeps **Depth only** on for its own preset and
+every other game leaves it off. Building the premise proper — or the blend of the two witnesses this
+section calls the honest shape — would be a new unmeasured rule running on every frame to serve views that
+turn up a handful of times. So it lands where §5.2, §5.4 and §5.8 did: the case is real, the mechanism is
+not worth mechanising, and the free control stays.
+
+Two causes of "the picture moved and depth did not" look alike, and only one is this section. Animation
+that is *textural* — flowing water, fire, a scrolling UV, a video backdrop — under a still camera is the
+case, and **Depth only** is right there. A camera that is panning while the depth term stays flat is a
+depth configuration fault instead, not a win: a rotation swings the sampled distance at every silhouette,
+so a pan that reads as stopped is a far-plane or depth-settings mismatch, and the symptom is the other one
+— a genuine element failing to be captured while the view moves.
+
+Off-GPU, one property is checkable by hand: with no depth bound the depth share is zero, so the reading is
+"never drawn" and the switch would have to fall back to the colour share rather than holding forever — the
+same degradation `AutoMaskDepthMotion` already relies on.
 
 **The measurement is a live switch, not a probe.** A side-by-side reading would need a channel the
 accumulator does not have — its four are all spent — so the cheap form is to *select* the witness rather
@@ -605,7 +623,7 @@ open are settled against the code:
 | 5.7 | auto-placed deadzone | §3.4's manual tuning | off the tile map | — **dropped: the manual region was removed as unused** |
 | 5.8 | alpha-composite ratio | reading only | a new per-cell magnitude statistic, built as a pass with a `RGBA32F` grid and a share target | compute + diagnostics — **measured out and removed: the graded channel saturates, so the ratio cannot separate a panel from moving world** |
 | 5.9 | depth premise | §3.3 in the common case (the panel no longer hides the drawing), not the panel over a stopped world | one `R32F` target and one full-screen store pass; degrades to the picture's own premise with no depth bound | preprocessor definition, off — **shipped as `AutoMaskDepthMotion`** |
-| 5.10 | viewpoint-change premise | the animated-neighbour form of §3.3 — a still patch banked because a *different* region repaints | a depth-change share in place of the colour share; still misses animated geometry, and withholds stillness in textural-only scenes | live checkbox — **the selector shipped as `AutoMaskDepthOnly`; the premise itself is not scoped** |
+| 5.10 | viewpoint-change premise | the animated-neighbour form of §3.3 — a still patch banked because a *different* region repaints | a depth-change share in place of the colour share; still misses animated geometry, and withholds stillness in textural-only scenes | live checkbox — **the selector shipped as `AutoMaskDepthOnly` and the case measured rare in a game, so the selector is enough; the premise itself is not scoped** |
 
 **The directional densities are shipped**, in the four-axis form that covers the diagonals too.
 **§5.6's tile map and §6's readings are shipped as one instrument step**, which is the order §6 asks for:
@@ -643,3 +661,11 @@ motion **saturates at one**, so a panel is only separable from moving world wher
 by about 2–5 levels a frame, and a still panel has no ratio at all. Same class of result as §5.2 and §5.4,
 so the instrument was removed with the mechanism still unbuilt. The semi-transparent case stays a
 documented limit, and a future proposal owes the repo a **proportional** magnitude first.
+
+**§5.9's depth premise is shipped, and §5.10's question against it has been answered rare.** The depth
+premise closes §3.3 in the common case; the witness it spends — the picture's own changed share — is what
+§5.10 would replace, and the case it exists for is real but turns up in **very few** views in a played
+game. Since the two witnesses are already a live choice, `AutoMaskDepthOnly` covers those views in a preset
+and every other game leaves it off, so the premise proper and the blend this section called the honest
+shape both stay unbuilt: a rule running on every frame for views that turn up a handful of times is not
+worth its cost, the same verdict §5.2, §5.4 and §5.8 reached.
