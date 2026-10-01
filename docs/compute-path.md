@@ -9,9 +9,11 @@ that owns the shaders, the pass entries and every target only they use. The gate
 rather than an addition — the coarse grid and its two reduction passes are gone, not skipped. Two
 readings are *added* rather than replaced, both resting on the compute path's ability to see every pixel:
 the drift channel's two full-res `RGBA32F` ping-pong targets, which the pixel path has nowhere to put and
-deliberately does not carry, and the histogram's `AUTOMASK_STEP_MAX`×1 `r32u` plus the 1×1 `r32f` step it
-feeds — a few dozen bytes together, against 1 KB when the bins were one per level — which the coarse grid
-cannot take at all, because 1,024 taps cannot tell a level of dithering from a level of real motion.
+deliberately does not carry — `docs/performance-openings.md` §6 holds that question open for a title that
+only presents a D3D9 or D3D10 device — and the histogram's `AUTOMASK_STEP_MAX`×1 `r32u` plus the 1×1
+`r32f` step it feeds — a few dozen bytes together, against 1 KB when the bins were one per level — which
+the coarse grid cannot take at all, because 1,024 taps cannot tell a level of dithering from a level of
+real motion.
 
 - `CS_Accum` is `PS_Accum`'s state machine plus one count: every pixel it calls changed adds to
   a `groupshared` tally, and one thread per **group** adds that tally to a single 1×1 `r32u` counter, so

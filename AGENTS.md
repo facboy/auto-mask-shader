@@ -36,7 +36,7 @@ store/restore pattern and the anti-bloom suppression belongs to Kaiser (UIDetect
 | `docs/ui-isolation-options.md` | Options for reading interface as a region rather than per pixel, none of them scoped. What §6's instrument decides between. |
 | `docs/refactor-candidates.md` | The folds that landed in the shader and the check, what was considered and left, and what is deliberately not a candidate. |
 | `docs/performance.md` | Where the frame's cost sits, read off the compiled bytecode, the closing-loop, back-edge and centre-step savings it justified, and the openings left. |
-| `docs/performance-openings.md` | The full-resolution targets the open savings sit in — the store target, the published map, the channel the mask would ride — none of them built. |
+| `docs/performance-openings.md` | The full-resolution targets the open savings sit in — the store target, the published map, the channel the mask would ride — plus the pixel-path drift question held open for a D3D9/D3D10 title. None of it built. |
 
 The one companion header is **`Shaders/AutoMask.fxh`, and it holds code and nothing else**: the shared
 arithmetic both accumulators call, no uniform, `texture`, `sampler` or technique. A header of **authored

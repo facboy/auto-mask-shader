@@ -2,8 +2,10 @@
 
 What is left after `docs/performance.md`, whose §2–§6 are instruction-level and landed, and whose §7
 records the two openings that are closed. What remains is **traffic**: the full-resolution passes and
-targets the frame still moves where it does not have to. Nothing here is built and none of it has been
-in a game, so each entry names what it would save and what would have to be watched to accept it.
+targets the frame still moves where it does not have to. §6 is the one proposal here that adds cost
+rather than removing it, because its question is which games the pixel path serves rather than what the
+frame can stop doing. Nothing here is built and none of it has been in a game, so each entry names
+what it would save and what would have to be watched to accept it.
 
 Companions: `docs/performance.md` (the cost already measured, and §7's two closed items),
 `docs/refactor-candidates.md` (what a fold has to clear — an unmoved hash for every entry point it does
@@ -21,7 +23,7 @@ full-resolution — the two reduce passes are the sub-resolution pair. At the ch
 | `texAutoHistory`, `texAutoFrame`, `texAutoDilate`, `texAutoMap` | `RGBA8` | 14.7 MB each |
 
 118 MB allocated, and every full-resolution pass is at least one read and one write of a target that
-size, so the defaults move on the order of 400 MB a frame. The savings §2–§6 took are real and small
+size, so the defaults move on the order of 400 MB a frame. The folds §2–§5 describe are real and small
 against that; what is open is the target and pass count itself.
 
 ## 2. The store target holds what the history already holds
@@ -53,9 +55,9 @@ full-resolution samples to two.
 vertical closing does: the horizontal pass's `.b` is a centre verdict the growth has not finished with.
 A pass cannot read a target it writes, so frame and mask have to go into the history in one `float4` from
 one pass — `PS_DilateV`, which takes a back-buffer tap the store took, returns `float4(frame.rgb, mask)`
-into `texAutoHistory`, and `PS_Store` and its dispatch go with it. `PS_DilateH` cannot host the frame half
-alone: the vertical pass would then have to read the history to keep the rgb it did not write, and a pass
-may not sample what it writes (`3020`).
+into `texAutoHistory`, and `PS_Store` and its dispatch go with it. `PS_DilateH` cannot host the frame
+half alone: the vertical pass would then have to read the history to keep the rgb it did not write, and
+a pass may not sample what it writes (`3020`).
 
 Five full-resolution target touches a frame come off — the store's read of the map and write of the
 frame, the closing's write of the map, and the restore's two reads — and one goes on, the restore's read
@@ -81,7 +83,7 @@ the count, and drops only the frame one.
 
 The branch is the loop index against a uniform radius, so it is uniform across the wavefront and costs
 nothing at the shipped defaults, where the two radii are equal and every offset is in range. It is the
-cheapest of these three, and the only one that pays only at some settings rather than at all of them.
+cheapest of the folds above, and the only one that pays only at some settings rather than at all of them.
 
 ## 5. The depth store, folded
 
@@ -95,19 +97,76 @@ saves nothing at all with the switch off. The compute path does not avoid the pa
 the pass that reads the depth it would have to write, and a storage object cannot be read and written in
 one dispatch.
 
-## 6. Refused
+## 6. Not a saving: the drift channel on the pixel path
+
+`docs/compute-path.md` calls the drift channel the reading "the pixel path has nowhere to put and
+deliberately does not carry", and `README.md` sells it with the switch. Whether to mirror it into
+`PS_Accum` anyway is the one question here that is not about bytes saved: it is about the games the
+switch cannot reach. A title that presents a D3D9 or D3D10 device, or a D3D11 one below feature level
+11_0, runs ReShade and its `ps_4_0` effects but has no compute pass at all, so the switch buys nothing
+there and the pixel path is the only route to a feature the README advertises.
+
+Left for now: build it when a game like that turns up, with the scene in hand to judge it against. The
+sections below are what that delivery would cost and the shape it would take, so the start is a decision
+about the scene rather than about the arithmetic.
+
+Mechanically it is among the smallest changes here, and the design anticipated it. The compute plan puts
+a pixel-side mirror out of the first version's scope and calls it "a small mechanical lift, not a
+redesign": `PS_Accum` takes a second render target, `texAutoDriftB`, `PS_DilateH`'s guarded signature
+loses the guard for the drift back-edge it already carries on the compute path, the two targets move out
+of the compute block into the shared declarations, and the verdict grows `maxDrift < deadband`. Nothing
+about it needs compute.
+
+What it costs is the largest number in this document, and it is why the entry is here at all:
+
+| | added |
+| --- | --- |
+| `memory` | 118 MB — two `RGBA32F` full-resolution targets at 1440p |
+| `traffic` | ~236 MB a frame: the accumulator and the closing each read and write the pair |
+
+More than half again the whole rest of the default path, and it lands on the oldest renderers the shader
+runs under rather than on old hardware — the driver is a title that only ever presents a D3D9 or D3D10
+device. Behind its own definition the feature would cost nothing when off, so this is not a trade
+against the default path but a question about who pays.
+
+Three things decide it, and none is settled by the code:
+
+- **Whether the title can serve the target.** The channel stores `RGBA32F` because half precision
+  freezes it (`docs/compute-path.md`), and a D3D9 or D3D10 device is where the guarantees about float
+  render targets and about multi-target passes are thinnest. The default path already writes `RGBA16F`
+  beside `RGBA8` on the closing pass, so a mixed-format pass is not new — an `RGBA32F` member of that set
+  is — and the offline check compiles at `ps_5_0` and never sees a device.
+- **The deferral was costed at a number that no longer holds.** The compute plan expects a pixel mirror
+  to ride two `RGBA16F` targets, "~28 MB at 1440p" — which is half of what that pair actually costs
+  (a `RGBA16F` texel is eight bytes, so the pair is ~59 MB; the plan's figure is one target's worth). The
+  shipped channel is `RGBA32F`, ~118 MB at the same size, because at the 2 s default the creep is 0.0083
+  levels a frame against a half-ulp above level 31 of 0.0156, so a half-precision average sits frozen
+  rather than following the pixel. A mirror of what shipped is therefore twice the deferred format's true
+  size, and four times the figure the deferral wrote.
+- **Whether the cheap form works.** Storing `drift - now` rather than `drift` is bounded by
+  `AUTOMASK_DRIFT_LAG` deadbands, so it holds ample relative precision in half and would halve both
+  figures above. It is a change to the channel's arithmetic inside a feedback loop rather than a port,
+  so it needs the same measured proof the 32-bit store needed — but it is the only version of this
+  entry that suits the renderers in question, and the version worth measuring first.
+
+So the answer waits on a game rather than on the arithmetic: build it when a title like that is in hand,
+with the scene to judge the added reading against. When it is built the shape is a third structural
+definition owning the two targets, since a feature with targets to its name gets a definition rather
+than a checkbox — and the cheap re-centred form is what it should carry.
+
+## 7. Refused
 
 - **The pixel path's two reduce passes.** `PS_Motion` (16×16, four taps a texel) then `PS_MotionAvg`
   (1×1, 256 taps) is the shape the pixel path uses because it has no atomics — the tally `CS_Accum`
-  carries in `groupshared`. Collapsing the pair into one 1×1 pass would take the coarse stage's 1,024 taps
-  into a single invocation, or drop to one tap a cell and measure a different statistic; neither is
-  cheaper in a way that matters, since the pair costs 1,280 taps a frame against a full-resolution pass's
-  millions.
+  carries in `groupshared`. Collapsing the pair into one 1×1 pass would take the coarse stage's 1,024
+  taps into a single invocation, or drop to one tap a cell and measure a different statistic; neither
+  is cheaper in a way that matters, since the pair costs 1,280 taps a frame against a full-resolution
+  pass's millions.
 - **The two back-edges.** `docs/performance.md` §4: one side of the accumulator's pair must be read while
   the other is written, and the fixed pass list cannot alternate them.
 - **The isolation gate's four taps a loop step, and the accumulator's static footprint.**
-  `docs/performance.md` §7: the first is wrong at radius 2 or 3 as a flat gather, the second is a recorded
-  hash-stability decision.
+  `docs/performance.md` §7: the first is wrong at radius 2 or 3 as a flat gather, the second is a
+  recorded hash-stability decision.
 - **`PS_AntiBloom` folded into the closing.** The blacking has to land after the store, and a pass that
   names render targets does not write the back buffer — which is what every pass here that names one
   relies on.
