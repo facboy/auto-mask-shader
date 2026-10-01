@@ -136,3 +136,7 @@ scale, and none is free — `texAutoAccumB`'s `.a` is the pinned-colour flag `PS
 - **The accumulator's static footprint.** `CS_Accum` (254) and `PS_Accum` (151) carry the pinned-colour
   count's sixteen `eq`/`and` pairs. `AutoMaskClipped` returning `int` rather than `float` is a recorded
   decision (`docs/refactor-candidates.md`) that keeps the bytecode hash stable, so this is not a tidy.
+
+Both are instruction-level and closed. The openings that are not are full-resolution targets rather than
+instructions — the store target, the published map, and the channel the mask rides — and
+`docs/performance-openings.md` collects them.
