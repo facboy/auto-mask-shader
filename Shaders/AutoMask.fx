@@ -664,7 +664,7 @@ sampler AutoMap { Texture = texAutoMap; };
 				//The accumulator's own graded motion, read rather than recomputed: a panel appearing over
 				//a stopped scene is a contiguous patch of pixels the mask calls strongly moving with no
 				//mask on them, which is the case the screen-wide premise cannot see.
-				wide += step(AUTOMASK_TILE_WIDE, tex2Dlod(AutoAccumA, float4(uv, 0.0, 0.0)).b);
+				wide += step(AUTOMASK_TILE_WIDE, tex2Dlod(AutoAccumB, float4(uv, 0.0, 0.0)).b);
 			}
 		}
 		float taps = float(AUTOMASK_TILE_TAPS * AUTOMASK_TILE_TAPS);
@@ -919,12 +919,6 @@ float4 PS_MotionAvg(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_T
 }
 #endif
 
-//Ping-pong back-edge (copy B to A).
-float4 PS_Copy(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
-{
-	return tex2D(AutoAccumB, texcoord);
-}
-
 //The closing's luma, one copy for both passes, and the luma bound on a tap. `inRange` is passed to the
 //test rather than computed in it, so the loop index stays at the call site where it was.
 float AutoMaskLuma(float3 rgb)
@@ -939,15 +933,20 @@ float AutoMaskEdgeKeep(float luma, float lumaCentre, bool inRange)
 }
 
 //Horizontal closing bounded by luma edge, plus the row's still count for the isolation gate and the
-//centre verdict the vertical pass reads the column and the diagonals off.
-float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+//centre verdict the vertical pass reads the column and the diagonals off. It also writes the
+//accumulator's carry side, which is the back-edge the copy pass used to be: the read is the centre tap
+//this pass already takes, so the back-edge costs no extra sample.
+float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
+	out float4 carry : SV_Target1) : SV_Target
 {
 	float2 texel = BUFFER_PIXEL_SIZE;
 	float r = floor(AutoMaskDilate + 0.5);
 	//The box has its own radius, one pixel wide at least so the gate always has a share to read.
 	float reach = max(floor(AutoMaskIsolation + 0.5), 1.0);
-	float centre = tex2D(AutoAccumA, texcoord).r;
-	float mask = centre;
+	//The live side: this frame's verdict, which the accumulator wrote to B. Writing it back to A here
+	//is the back-edge, so next frame's accumulator reads this frame -- the pass that used to copy it.
+	float4 centre = tex2D(AutoAccumB, texcoord);
+	float mask = centre.r;
 	float lumaCentre = AutoMaskLuma(tex2D(ReShade::BackBuffer, texcoord).rgb);
 	float nearby = 0.0;
 	//A tap past both radii feeds neither term, so the loop spans only the larger radius.
@@ -958,14 +957,15 @@ float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 		bool inRange = abs(float(i)) <= r;
 		float luma = AutoMaskLuma(tex2D(ReShade::BackBuffer, uv).rgb);
 		float keep = AutoMaskEdgeKeep(luma, lumaCentre, inRange);
-		float neighbour = tex2D(AutoAccumA, uv).r;
+		float neighbour = tex2D(AutoAccumB, uv).r;
 		//The count is the verdict, unbounded by luma: a contour inside a HUD must not cost it support.
 		nearby += abs(float(i)) <= reach ? step(0.5, neighbour) : 0.0;
 		mask = max(mask, neighbour * keep);
 	}
 	//.b is the centre's own verdict, which the vertical pass needs to count a column or a diagonal:
 	//those runs cross this pass rather than lying along it, so a row count cannot supply them.
-	float still = step(0.5, centre);
+	float still = step(0.5, centre.r);
+	carry = centre;
 	return float4(mask, nearby / AUTOMASK_COUNT_SCALE, still, 1.0);
 }
 
@@ -1114,7 +1114,7 @@ float4 PS_Store(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
 	//in .a. The view selector decides nothing here; it only decides what `PS_Restore` draws from this map.
 	float4 PS_DebugMap(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	{
-		float4 accum = tex2D(AutoAccumA, texcoord);
+		float4 accum = tex2D(AutoAccumB, texcoord);
 		float verdict = step(0.5, accum.r);
 		//The accumulator's charge, clamped: the restore below splits it at the 0.5 verdict step into the
 		//two flat colours it draws, and below zero draws nothing. Stored raw rather than pre-classed so
@@ -1263,11 +1263,6 @@ technique AutoMask
 			RenderTarget = texAutoAccumB;
 		}
 	#endif
-	pass {
-		VertexShader = PostProcessVS;
-		PixelShader = PS_Copy;
-		RenderTarget = texAutoAccumA;
-	}
 	#if AutoMaskCompute == 1
 		//Brings the drift average back to the side the accumulator reads next frame.
 		pass {
@@ -1297,6 +1292,7 @@ technique AutoMask
 		VertexShader = PostProcessVS;
 		PixelShader = PS_DilateH;
 		RenderTarget = texAutoDilate;
+		RenderTarget1 = texAutoAccumA;
 	}
 	pass {
 		VertexShader = PostProcessVS;

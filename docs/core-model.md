@@ -239,9 +239,11 @@ agree on what 'all 0' and 'all 255' mean.
 ## The `.fx` constraints that shape the design
 
 - **A render target cannot be read while it is written.** So the accumulator has to **ping-pong**: read
-  `A`, write `B`, then a copy pass brings `B` back to `A`. Compute adds one more form of the same rule: a
-  texture written as storage in a pass cannot also be sampled in it, and a compute pass has no render
-  target at all — the accumulator's write in `CS_Accum` is a `storage2D` write to `texAutoAccumB`.
+  `A`, write `B`, then a write back brings `B` to `A`. The back-edge rides as a second render target on
+  `PS_DilateH`, which already reads the live side `B`, because a pass may sample a texture it does *not*
+  write. Compute adds one more form of the same rule: a texture written as storage in a pass cannot also
+  be sampled in it, and a compute pass has no render target at all — the accumulator's write in
+  `CS_Accum` is a `storage2D` write to `texAutoAccumB`.
 - **There are no shared textures.** `ReShade.fxh` declares only `BackBufferTex` and `DepthBufferTex`, so
   another effect's stored frame is unreachable. This shader needs its own store target; it cannot borrow
   `UIDetectMulti`'s `texColorBeforeMulti`.

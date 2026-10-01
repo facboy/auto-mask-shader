@@ -132,7 +132,7 @@ cannot take at all, because 1,024 taps cannot tell a level of dithering from a l
   the mask credit *more* dim scenery rather than less, not because the channel granted it credit per
   pixel — it can only remove that — but because catching the sky as changed held the premise up, and the
   premise is what lets any still pixel earn (`docs/ui-isolation-options.md` §5.5.1). `PS_CopyDrift`, a pixel
-  pass beside `PS_Copy`, brings the average back to the side the next frame reads. The store is the one that
+  pass beside the closing, brings the average back to the side the next frame reads. The store is the one that
   cannot be half precision: the creep toward a one-level gap is a fraction of a level a frame — at
   the 2 s default, 0.0083 levels — which is under an `RGBA16F` half-ulp above level 31 (0.0156
   there, against 0.0078 in the band below), so the average sat frozen rather than following the
@@ -227,13 +227,15 @@ Follows from what each pass reads:
    same share — and, off the same histogram, the measured step the next frame reads. The auto-deadband
    therefore lands in the same slot and keeps the same one-frame-behind timing as the share: the frame
    being judged is never the frame that set its own threshold.
-3. `PS_Copy`, `PS_Dilate` — the ping-pong back-edge and the boundary close, also before the store.
-   `PS_Dilate` is one pass: a 2D max over a tiny fixed neighbourhood, stopping where the luma step read
-   from `BackBuffer` exceeds `AutoMaskEdge`. Reading the frame there is safe only because it is before
-   every pass that writes it. `PS_Copy` stays a pixel pass in both variants — the accumulator is
-   `RGBA16F` and the copy has no statistics to do — and `PS_CopyDrift` is its twin on the compute path.
-   The isolation gate rides in these two passes too, off their own target: it is a pixel-pass feature, so
-   it reads the same on both variants and has no compute spelling.
+3. `PS_DilateH`, `PS_DilateV` — the boundary close, and the accumulator's back-edge. The horizontal
+   pass reads the live side `texAutoAccumB` and writes it back to `texAutoAccumA` as a second render
+   target: that write **is** the copy `PS_Copy` used to be, and its read is the centre tap the pass
+   already takes, so the back-edge costs no extra sample. `PS_Dilate` is one pass: a 2D max over a tiny
+   fixed neighbourhood, stopping where the luma step read from `BackBuffer` exceeds `AutoMaskEdge`.
+   Reading the frame there is safe only because it is before every pass that writes it. The isolation
+   gate rides in these two passes too, off their own target: it is a pixel-pass feature, so it reads the
+   same on both variants and has no compute spelling. `PS_CopyDrift` is the drift channel's own copy,
+   still its own pass on the compute path.
 4. `CS_Tile` — the tile map and its region readings, only with `AutoMaskCompute` **and**
    `AutoMaskDiagnostics` both on. It comes after the closing, so a cell is the mask the shader published
    rather than the verdict under it, and before `PS_Store`, since the arrival reading is taken off the

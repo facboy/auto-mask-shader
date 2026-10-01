@@ -208,10 +208,12 @@ are listed under it.
   testing that for zero would fire in one group only.
 - **atomic / atomic contention** — `atomicAdd` onto a global bin or counter. The worst case is a still
   scene, where nearly every pixel's add lands on the same bin; groupshared tallying is the answer to it.
-- **ping-pong** — read `A`, write `B`, then a copy pass brings `B` back to `A`. Required because a render
-  target cannot be read while it is written.
-- **back-edge** — the copy pass that closes the ping-pong: `PS_Copy` for the accumulator, `PS_CopyDrift`
-  for the drift pair.
+- **ping-pong** — read `A`, write `B`, then a write back brings `B` to `A`. Required because a render
+  target cannot be read while it is written, and ReShade runs one fixed pass list per frame, so the
+  read/write sides cannot simply alternate.
+- **back-edge** — the write that closes the ping-pong. The accumulator's rides as a second render target
+  on `PS_DilateH`, which already reads the live side, so it costs no extra sample; the drift pair's is
+  still its own pass, `PS_CopyDrift`.
 - **storage target / `storage2D`** — a texture the compute path writes as storage. It cannot be indexed:
   `tex2Dfetch` and `tex2Dstore` are the only legal access, and the bracket form ReShade rejects looks
   like ordinary HLSL (`docs/verification.md`).
