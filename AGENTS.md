@@ -35,7 +35,7 @@ store/restore pattern and the anti-bloom suppression belongs to Kaiser (UIDetect
 | `docs/review.md`, `docs/drift-snap-review.md`, `docs/optical-flow.md` | Recorded design history and closed investigations. |
 | `docs/ui-isolation-options.md` | Options for reading interface as a region rather than per pixel, none of them scoped. What §6's instrument decides between. |
 | `docs/refactor-candidates.md` | The folds that landed in the shader and the check, what was considered and left, and what is deliberately not a candidate. |
-| `docs/performance.md` | Where the frame's cost sits, read off the compiled bytecode, and the closing-loop bound it justified. |
+| `docs/performance.md` | Where the frame's cost sits, read off the compiled bytecode, and the closing-loop and store merges it justified. |
 
 The one companion header is **`Shaders/AutoMask.fxh`, and it holds code and nothing else**: the shared
 arithmetic both accumulators call, no uniform, `texture`, `sampler` or technique. A header of **authored
@@ -263,10 +263,12 @@ Nothing here is automatically testable, so verification is a review pass plus an
 - **A warning is a failure, not a note.** ReShade prints every warning its compile emits into the log the
   user reads at load, so `check` reports one as `WARN` and exits non-zero on it. The single filtered
   exception is `X3579`, the harness's own artefact.
-- **It must fail loudly on missing data.** Eight cases must keep exiting non-zero — an empty `Shaders/`,
+- **It must fail loudly on missing data.** Ten cases must keep exiting non-zero — an empty `Shaders/`,
   an unfindable technique pass list, a technique binding a missing shader, broken shader syntax, a
   compute pass missing a `DispatchSize`, two variants under one name, a call to an intrinsic `fxc` has
-  but ReShade does not, and an identifier ReShade's lexer reserves though HLSL does not.
+  but ReShade does not, an identifier ReShade's lexer reserves though HLSL does not, the header
+  `AutoMask.fx` includes deleted from `Shaders/`, and a render target a pass declares that the pass
+  reading does not carry.
   `docs/verification.md` names each and the construct that exercises it.
 - **Some spellings cannot be checked by compiling**, because the tool rewrites them before `fxc` sees
   them: the storage keywords, the `tex2Dfetch`/`tex2Dstore` intrinsics, and the bracket form they

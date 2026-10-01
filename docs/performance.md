@@ -1,7 +1,7 @@
 # Performance
 
 Where the frame's cost actually sits, measured off the compiled bytecode rather than the source, and
-the one change that measurement has justified. The pass count and the target count are fixed by
+the changes that measurement has justified. The pass count and the target count are fixed by
 `docs/core-model.md` and `docs/compute-path.md`: every pass is a full-resolution read and write, so
 what the frame pays is the bytes moved more than the instructions run.
 
@@ -35,17 +35,25 @@ for 3 taps at the defaults against 7. The explicit `AUTOMASK_DILATE_MAX` term is
 sliders cap at 3, so it never tightens the bound, and it is what keeps the loop tied to the constant
 rather than to the sliders alone.
 
-## 3. Openings left unmeasured
+## 3. The store's second render target
+
+`PS_Store` and `PS_StoreFrame` were two full-resolution passes reading the same `BackBuffer`, one
+multiplying by the mask and one copying to the history target. They are one pass now: `PS_Store`
+returns the masked pixels and writes the untouched frame to `texAutoHistory` through a second
+`SV_Target1`, so the pass count drops by one and a full-resolution back-buffer read goes with it. This
+is the one merge a static count could not hide — `PS_StoreFrame` was a whole pass — and the only
+change here a readback consumer could be sensitive to, since the accumulator's history read expects
+the bytes the merge writes. The offline check parses `RenderTarget1` for it, so a second target a
+later edit adds cannot hide from the wiring cross-check.
+
+## 4. Openings left unmeasured
 
 - **The two ping-pong back-edges.** `PS_Copy` and `PS_CopyDrift` are full-resolution passes whose only
-  job is one sample. A consumer could read the `B` target directly rather than the `A` side the copy
-  writes, eliding a full-resolution read and write — but the accumulator ping-pong is a hard dialect
-  constraint (`docs/core-model.md`), and any fold has to leave every pass reading a target no pass
-  writes in the same frame.
-- **`PS_Store` and `PS_StoreFrame` both re-read the back buffer.** Two full-resolution passes reading
-  the same texture; one multi-target pass would take a single read. `AutoMask.fx` has never used a
-  second render target and `tools/verify_shaders.py` does not parse `RenderTarget1`, so this is a
-  check change before it is a shader change.
+  job is one sample, but they cannot be deleted: the accumulator must read one target while writing
+  the other, and ReShade runs the same pass list every frame, so a frame-dependent read/write pairing
+  is not available and the state would be read stale. Only merging the copy into a neighbour as a
+  second target could pay, and the store merge above already shows how little a second target saves
+  when no read is shared.
 - **The isolation gate's four taps a loop step.** Its row, column and two diagonal counts ride the
   taps the closing already takes, which is the no-extra-tap design (`docs/core-model.md`); a flat 3×3
   gathering would cost less per tap but is only worth it beside the bound above.

@@ -1025,17 +1025,14 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	return float4(mask.xxx, 1.0);
 }
 
-//Stores masked UI pixels before downstream processing.
-float4 PS_Store(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+//Stores the masked UI pixels for the restore and the untouched frame for next frame in one pass: both
+//read the same back buffer, so the second render target saves a full-resolution read of it.
+float4 PS_Store(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
+	out float4 history : SV_Target1) : SV_Target
 {
-	float mask = AutoMaskPublished(texcoord);
-	return float4(tex2D(ReShade::BackBuffer, texcoord).rgb * mask, 1.0);
-}
-
-//Stores untouched frame for next frame's comparison.
-float4 PS_StoreFrame(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
-{
-	return tex2D(ReShade::BackBuffer, texcoord);
+	float4 frame = tex2D(ReShade::BackBuffer, texcoord);
+	history = frame;
+	return float4(frame.rgb * AutoMaskPublished(texcoord), 1.0);
 }
 
 #if AutoMaskDepthMotion == 1
@@ -1320,11 +1317,7 @@ technique AutoMask
 		VertexShader = PostProcessVS;
 		PixelShader = PS_Store;
 		RenderTarget = texAutoFrame;
-	}
-	pass {
-		VertexShader = PostProcessVS;
-		PixelShader = PS_StoreFrame;
-		RenderTarget = texAutoHistory;
+		RenderTarget1 = texAutoHistory;
 	}
 	#if AutoMaskDepthMotion == 1
 		//After the accumulator's read and the history's store, so this frame's depth is left for the

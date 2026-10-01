@@ -236,19 +236,20 @@ Follows from what each pass reads:
    it reads the same on both variants and has no compute spelling.
 4. `CS_Tile` — the tile map and its region readings, only with `AutoMaskCompute` **and**
    `AutoMaskDiagnostics` both on. It comes after the closing, so a cell is the mask the shader published
-   rather than the verdict under it, and before `PS_StoreFrame`, since the arrival reading is taken off the
+   rather than the verdict under it, and before `PS_Store`, since the arrival reading is taken off the
    accumulator's own graded motion and the premise share `CS_Finish` has just published — both of which
    describe this frame, and both of which the store would otherwise leave describing the last one.
-5. `PS_Store`, keeping the mapped pixels.
-6. `PS_StoreFrame`, copying the untouched frame into the history target for the next frame.
-7. `PS_StoreDepth` — only with `AutoMaskDepthMotion`, and last of the store group: it leaves this frame's
+5. `PS_Store` — one pass writing two targets: the mapped pixels into `texAutoFrame`, and the untouched
+   frame into `texAutoHistory` for the next frame. Both read the same `BackBuffer`, so the second target
+   costs one full-resolution pass fewer than a store pass and a history pass would.
+6. `PS_StoreDepth` — only with `AutoMaskDepthMotion`, and last of the store group: it leaves this frame's
    linearized depth for the next frame's comparison, and the accumulator read that target earlier in the
    frame, so nothing samples what this writes. It is one full-resolution pass on both paths and writes the
    `R32F` target the accumulator's depth term reads.
-8. `PS_AntiBloom` — black the masked pixels in the live frame so a bloom pass downstream has no UI to
+7. `PS_AntiBloom` — black the masked pixels in the live frame so a bloom pass downstream has no UI to
    pick up. It comes after the store, which is what keeps the real UI for the restore pass; blacking
    earlier would bank the black instead.
-9. The diagnostics overlay, last, and only when `AutoMaskDiagnostics` is defined to 1 — a compile-time
+8. The diagnostics overlay, last, and only when `AutoMaskDiagnostics` is defined to 1 — a compile-time
    guard on the pass and the shader both, so with it off neither is compiled. It reads the accumulator
    directly rather than recomputing the difference, so it cannot report on itself instead of on the
    shader. It draws one of three views: red where the graded motion reads, green where the accumulator's
