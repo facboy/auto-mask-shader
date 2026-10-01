@@ -1,15 +1,16 @@
 # Performance openings
 
-What is left after `docs/performance.md`, whose §2–§7 are instruction-level or pass folds that landed,
-and whose §8 records the two openings that are closed. §2 and §3 below **have since landed** as that
-§7 — the store target and the published map are gone, the closing writes the frame with the mask in its
-alpha — and what they argued is kept as the reasoning behind it. The remaining entries are **traffic**:
-the full-resolution passes and targets the frame still moves where it does not have to. §6 is the one
-proposal here that adds cost rather than removing it, because its question is which games the pixel path
-serves rather than what the frame can stop doing. Nothing still open is built and none of it has been in
-a game, so each entry names what it would save and what would have to be watched to accept it.
+What is left after `docs/performance.md`, whose §2–§8 are instruction-level or pass folds that landed,
+and whose §9 records the two openings that are closed. §2–§4 below **have since landed** — §2 and §3 as
+that §7, the store target and the published map gone and the closing writing the frame with the mask in
+its alpha, and §4 as that §8, the closing's dead out-of-radius frame taps guarded — and what they argued
+is kept as the reasoning behind it. The remaining entries are **traffic**: the full-resolution passes and
+targets the frame still moves where it does not have to. §6 is the one proposal here that adds cost
+rather than removing it, because its question is which games the pixel path serves rather than what the
+frame can stop doing. Nothing still open is built and none of it has been in a game, so each entry names
+what it would save and what would have to be watched to accept it.
 
-Companions: `docs/performance.md` (the cost already measured, and §8's two closed items),
+Companions: `docs/performance.md` (the cost already measured, and §9's two closed items),
 `docs/refactor-candidates.md` (what a fold has to clear — an unmoved hash for every entry point it does
 not touch), `docs/core-model.md` and `docs/compute-path.md` (the pass and target counts these would
 change), `docs/review.md` §2.2 (the redundancy §2 follows to its conclusion).
@@ -74,19 +75,20 @@ stays off. The accumulator's history read is unaffected — it is the same bytes
 written at a later point in the frame — and sampling lands on texel centres, so the alpha the restore
 reads is the mask and not a blend of it.
 
-## 4. The closing's out-of-radius luma fetches
+## 4. Landed: the closing's out-of-radius luma fetches
 
-The horizontal loop spans `min(max(r, reach), AUTOMASK_DILATE_MAX)` and samples the frame once per offset
-for that tap's luma. Every offset past the grow radius is dead to that sample: `AutoMaskEdgeKeep` returns
-zero for it whatever the luma reads, so the fetch is paid for a bound that cannot apply. At **Mask grow
-radius 0** — the documented pass-through — that is two dead frame taps a pixel at the default isolation
-radius, and at grow 1 with isolation 3 it is four, since the loop spans the larger radius and only the
-isolation count reads those taps. Guarding the sample on `inRange` leaves the accumulator read, which is
-the count, and drops only the frame one.
+The horizontal loop spans `min(max(r, reach), AUTOMASK_DILATE_MAX)` and sampled the frame once per offset
+for that tap's luma. Every offset past the grow radius is dead to that sample: `AutoMaskEdgeKeep` returned
+zero for it whatever the luma read, so the fetch was paid for a bound that could not apply. At **Mask grow
+radius 0** — the documented pass-through — that was two dead frame taps a pixel at the default isolation
+radius, and four at grow 1 with isolation 3, since the loop spans the larger radius and only the isolation
+count reads those taps. Guarding the sample on `inRange` leaves the accumulator read, which is the count,
+and drops only the frame one. `docs/performance.md` §8 is the landed account: only `PS_DilateH`'s bytecode
+moves, and the mask is identical because `keep` was already zero there.
 
 The branch is the loop index against a uniform radius, so it is uniform across the wavefront and costs
-nothing at the shipped defaults, where the two radii are equal and every offset is in range. It is the
-cheapest entry here, and the only one that pays only at some settings rather than at all of them.
+nothing at the shipped defaults, where the two radii are equal and every offset is in range. It was the
+cheapest entry here, and the only one that paid only at some settings rather than at all of them.
 
 ## 5. The depth store, folded
 

@@ -150,7 +150,25 @@ closing's own frame read and history write and the restore's single history read
 reads back one target fewer, the frame and the mask arriving in a single fetch. The check parses every
 `RenderTarget`, so a target a later edit adds to a pass cannot hide from the wiring cross-check.
 
-## 8. Openings left
+## 8. The closing's dead out-of-radius taps
+
+The horizontal loop spans `min(max(r, reach), AUTOMASK_DILATE_MAX)` and sampled the frame once per offset
+for that tap's luma. Every offset past the grow radius is dead to that sample: `AutoMaskEdgeKeep` returns
+zero for it whatever the luma reads, so the fetch bought a bound that cannot apply. The sample is now
+inside an `if (inRange)` — `keep` is 0 elsewhere, which is what the old `AutoMaskEdgeKeep` returned for
+those offsets anyway, so the mask is identical. The branch is the loop index against a uniform radius,
+so the wavefront stays agreed.
+
+What it pays depends on the settings, and there are none at the shipped defaults: with the two radii
+equal every offset of the span is within the grow radius, so the branch is taken throughout and the mask
+already matched. It pays where the loop spans past `r` — **Mask grow radius 0** (a documented
+pass-through), or isolation wider than growth — where the dead offsets' frame taps go. At grow 0 with the
+default isolation the loop keeps its two accumulator taps and drops both frame taps, so `PS_DilateH`'s
+loop goes from four samples a pixel to two; the price is 3 static slots, 50 → 53 at the defaults. It is
+the one measurement here that changes no pass, target or sample at the settings most users run. Only
+`PS_DilateH`'s bytecode moves; every other entry point is unchanged.
+
+## 9. Openings left
 
 - **The isolation gate's four taps a loop step — measured, and left.** The note this replaces proposed
   a flat 3×3 gathering "cheaper per tap". It is not available: the four counts are runs of `2·reach + 1`
@@ -166,5 +184,5 @@ reads back one target fewer, the frame and the mask arriving in a single fetch. 
   decision (`docs/refactor-candidates.md`) that keeps the bytecode hash stable, so this is not a tidy.
 
 Both are instruction-level and closed. The openings that are not are full-resolution passes rather than
-instructions — the closing's dead out-of-radius taps, a folded depth store, and the pixel-path drift
-question — and `docs/performance-openings.md` collects them.
+instructions — a folded depth store, and the pixel-path drift question — and `docs/performance-openings.md`
+collects them.

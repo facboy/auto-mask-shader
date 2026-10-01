@@ -406,6 +406,14 @@ whether the reading you are looking at is current.
   closed before. At `0` there is no growth to compare, and the pass-through must be exactly as it was. The
   off-GPU half is the hash set: every entry point but `PS_DilateH` and `PS_DilateV` must be byte-identical,
   which is what pins the change to those two.
+- **The closing skips the frame taps its own radius excludes.** `PS_DilateH` samples the frame for a tap's
+  luma only while that tap is within the grow radius; past it `keep` is zero by the same bound, so the
+  sample would buy nothing. The mask is therefore **identical at every setting** — this is the property to
+  check rather than the saving, and it is checkable off-GPU: at **Mask grow radius 0** the loop still reads
+  every accumulator tap for the isolation count, and the closing must produce exactly the mask the
+  unguarded form did, since those offsets never contributed a `keep` of 1. Sweep grow `0`–`3` against
+  **Isolation radius** 1–3 and confirm the mask does not change shape where the two radii differ. The
+  hash set pins it: only `PS_DilateH` may move, with every other entry point byte-identical.
 - **The tile map, which is the instrument rather than a filter.** It exists only with the compute path
   and the diagnostics overlay both on, so the first check is that the tile view (and its five bars) is
   absent, not merely inert, with either switch off. With it on: the map must show green over interface,

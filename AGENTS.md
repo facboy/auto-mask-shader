@@ -242,6 +242,14 @@ graded against it goes off screen-wide.
   tap within one level of the threshold can therefore land on the other side of it, which moves the
   closing's boundary by at most a pixel where a contour's own step is that wide — the same order as
   `AutoMaskDilate`'s own step. See `docs/performance.md` §6 and `docs/core-model.md`.
+- **The horizontal closing does not sample the frame where its own radius excludes the tap.** `PS_DilateH`
+  bounds each tap by its luma, so a tap past **Mask grow radius** contributes nothing whatever the luma
+  reads; the frame sample is therefore taken only while `inRange`, and `keep` is 0 otherwise — which is
+  exactly what `AutoMaskEdgeKeep` returned for those offsets, so the mask is unchanged. The accumulator
+  read stays unconditional, since the isolation count reads it across the wider radius. The branch is the
+  loop index against a uniform radius, so it is uniform across the wavefront; it saves nothing at the
+  shipped defaults and drops the dead frame taps wherever growth is narrower than isolation. See
+  `docs/performance.md` §8.
 - **The closing writes next frame's history, and the mask rides in its alpha.** `PS_DilateV` returns the
   frame it was drawn over with the settled mask in the alpha into `texAutoHistory` — the accumulator read
   that target earlier in the frame, so nothing samples what this writes — and the restore reads the frame

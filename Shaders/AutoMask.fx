@@ -964,8 +964,12 @@ float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
 			continue;
 		float2 uv = texcoord + float2(i * texel.x, 0.0);
 		bool inRange = abs(float(i)) <= r;
-		float luma = AutoMaskLuma(tex2D(ReShade::BackBuffer, uv).rgb);
-		float keep = AutoMaskEdgeKeep(luma, lumaCentre, inRange);
+		//A tap past the grow radius is dead to the luma bound however it reads, so the frame is not
+		//sampled for it: `keep` is zero by the same bound, and the fetch would buy a bound that cannot
+		//apply. The branch is on the loop index against a uniform radius, so the wavefront stays agreed.
+		float keep = 0.0;
+		if (inRange)
+			keep = AutoMaskEdgeKeep(AutoMaskLuma(tex2D(ReShade::BackBuffer, uv).rgb), lumaCentre, true);
 		float neighbour = tex2D(AutoAccumB, uv).r;
 		//The count is the verdict, unbounded by luma: a contour inside a HUD must not cost it support.
 		nearby += abs(float(i)) <= reach ? step(0.5, neighbour) : 0.0;
