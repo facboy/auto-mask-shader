@@ -145,7 +145,7 @@ On, the mask is more accurate: it picks up smaller and more local movement, so l
 protected and fine detail is caught more reliably. It also adds settings that do some tuning for you —
 measuring the picture's own noise automatically, and watching for scenery that drifts slowly.
 
-It is off by default because it costs a little more GPU time and roughly 120 MB more memory at 1440p.
+It is off by default because it costs a little more GPU time and roughly 60 MB more memory at 1440p.
 It also needs a Direct3D 11 or newer game, or Vulkan — on Direct3D 9 or 10 leave it off, as the effect
 will not build with it on. Turn it on if your card and frame rate can spare it.
 

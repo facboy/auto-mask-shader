@@ -57,6 +57,14 @@ about `ln(AUTOMASK_DRIFT_LAG)` horizons, against a whole horizon off a lag that 
 §2.1's floor is untouched: what an unbounded average bought that this gives up is a reading
 proportional to the total displacement, which nothing consumes.
 
+**The store has since been re-centred, and half precision is back.** It holds the average's **offset
+from the frame** rather than the average, and the read adds that frame back, so the pair is `RGBA16F`
+and half the size (`docs/performance.md` §10). §5.4's resolution defect is what a half-precision store
+could not carry while the average was held at its own magnitude; the offset holds the same value inside
+`AUTOMASK_DRIFT_LAG` deadbands of zero, where the half-ulp resolves the creep that a whole-value store
+froze. The analysis below is still reading the fixed 32-bit store, which is the arithmetic it was
+written against.
+
 ---
 
 ## 2. Both channels measure displacement, and a skybox returns

@@ -85,7 +85,7 @@ source rather than inferred: `effect_parser_stmt.cpp` accepts `RenderTarget0`..`
 `RenderTarget1` and `RenderTarget2` are honoured, not ignored. Two constraints come with it: every target
 in a pass must share its dimensions, which holds (`BUFFER_WIDTH × BUFFER_HEIGHT` throughout), and
 `SRGBWriteEnable` would require *every* target to be `RGBA8` — so it must stay **off** on this pass,
-because it writes `RGBA16F` (`texAutoAccumA`) and `RGBA32F` (`texAutoDriftA`). ReShade defaults it to
+because it writes `RGBA16F` (`texAutoAccumA` and `texAutoDriftA`). ReShade defaults it to
 false and the shader never sets it.
 
 ## 5. The loop's own centre step
@@ -179,7 +179,35 @@ stay, so nothing is saved in bytes, only in the pass and its dispatch. It costs 
 slots (68 → 72) and moves nothing else: only `PS_StoreDepth`'s removal and `PS_DilateV`'s bytecode change,
 across the eight variants that compile the depth check in. The off path is untouched.
 
-## 10. Openings left
+## 10. The drift store, re-centred into half precision
+
+`texAutoDriftA`/`B` stored the long-baseline average outright, which forced `RGBA32F`: an average sits
+wherever the pixel's colour sits, and the creep toward a one-level gap — 0.0083 levels a frame at the 2 s
+default — is under an `RGBA16F` half-ulp above level 31 (0.0156 there, against 0.0078 in the band below),
+so a half-precision average sat frozen rather than following the pixel. A frozen average failed both
+ways: it could not accumulate a sub-level shift, so the channel did nothing on the bright half of a sky,
+and it could not close on a static pixel either, so a pixel left a level away from it read as moving for
+as long as it held (`docs/compute-path.md`).
+
+The pair stores the average's **offset from the frame** instead — `drift - now` — and the average is
+reconstructed by adding the frame back. Every stored value is then inside `AUTOMASK_DRIFT_LAG` deadbands
+of zero, where the same half-ulp resolves the creep, so both targets are `RGBA16F` and the pair is half
+the size: ~59 MB at 1440p against ~118 MB, and ~118 MB a frame of traffic against ~236 MB. No new data
+is needed for the reconstruction. The base is the frame the offset was taken against, which is `now` in
+`CS_Accum`, and the closing stores that same frame as the history's `.rgb` — so next frame's read takes
+it from the `AutoHistory` tap it already makes and adds it to the offset it already reads. The closing's
+back-edge needs nothing at all: the offset it carries from B to A is already taken against the frame it
+is storing into the history, so the copy stays verbatim.
+
+Only `CS_Accum`'s bytecode moves, and it costs 2 static slots — 194 → 196 without the depth check and
+254 → 256 with it, across the four compute variants. `PS_DilateH`'s carry and every other entry point are
+hash-identical. The reconstruction inherits the history's `RGBA8` half-level quantization, so a pixel
+sitting exactly on the drift ramp's foot can land on the other side of it — the same order as the
+one-level move `PS_DilateV`'s luma hand-off already makes (§6). That makes it arithmetic inside a
+feedback loop rather than a format swap, so a game is what confirms the channel still reads as it did;
+the offline check confirms it compiles and moves nothing else.
+
+## 11. Openings left
 
 - **The isolation gate's four taps a loop step — measured, and left.** The note this replaces proposed
   a flat 3×3 gathering "cheaper per tap". It is not available: the four counts are runs of `2·reach + 1`
@@ -194,6 +222,5 @@ across the eight variants that compile the depth check in. The off path is untou
   count's sixteen `eq`/`and` pairs. `AutoMaskClipped` returning `int` rather than `float` is a recorded
   decision (`docs/refactor-candidates.md`) that keeps the bytecode hash stable, so this is not a tidy.
 
-Both are instruction-level and closed. `docs/performance-openings.md` collects the two that are not: §6's
-pixel-path drift question, the one opening that is a full-resolution pass rather than an instruction, and
-§7's re-centring of the shipped drift store, the one that is a target format rather than either.
+Both are instruction-level and closed. The one opening left is the pixel-path drift question, a
+full-resolution pass rather than an instruction, which `docs/performance-openings.md` §6 collects.

@@ -326,12 +326,12 @@ sampler AutoDilate { Texture = texAutoDilate; };
 	//Frames a measured step must stand before it is committed. Named, not a slider: it bounds how long
 	//a held reading lasts rather than naming a value anyone tunes.
 	#define AUTOMASK_STEP_DWELL (1.0 * AutoMaskTargetFPS)
-	//The drift ping-pong: the long-baseline average needs its own pair -- the accumulator has one
-	//spare channel, the average three -- and cannot be half precision, or the creep toward a
-	//one-level gap would sit frozen under an RGBA16F ulp.
-	texture texAutoDriftA { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA32F; };
-	texture texAutoDriftB { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA32F; };
-	//Point filtered: the average is data rather than a picture, so interpolating it would blend one
+	//The drift ping-pong, holding the average's offset from the frame it was taken against rather than
+	//the average: the offset is held inside AUTOMASK_DRIFT_LAG deadbands of zero, where half precision
+	//resolves the creep a whole-value store froze at this level, and the pair is half the size for it.
+	texture texAutoDriftA { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA16F; };
+	texture texAutoDriftB { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA16F; };
+	//Point filtered: the offset is data rather than a picture, so interpolating it would blend one
 	//pixel's history into its neighbour's.
 	sampler AutoDriftA { Texture = texAutoDriftA; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
 	sampler AutoDriftB { Texture = texAutoDriftB; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
@@ -431,7 +431,9 @@ sampler AutoDilate { Texture = texAutoDilate; };
 		float3 now = tex2Dlod(ReShade::BackBuffer, float4(texcoord, 0.0, 0.0)).rgb;
 		//The history carries the mask in its alpha, so only the rgb is the frame the comparison wants.
 		float3 before = tex2Dlod(AutoHistory, float4(texcoord, 0.0, 0.0)).rgb;
-		float3 drift = tex2Dlod(AutoDriftA, float4(texcoord, 0.0, 0.0)).rgb;
+		//The stored offset against the frame it was taken from, which is `before`: adding it back is
+		//the average the ramp reads, and the store never held the average itself.
+		float3 drift = tex2Dlod(AutoDriftA, float4(texcoord, 0.0, 0.0)).rgb + before;
 		#if AutoMaskDepthMotion == 1
 			//The depth the world's drawing is read from, against the frame the store pass left. Both
 			//sides are the depth buffer's own constant when none is bound, so the difference is zero and
@@ -571,7 +573,10 @@ sampler AutoDilate { Texture = texAutoDilate; };
 
 		if (live){
 			tex2Dstore(AutoAccumStore, int2(tid.xy), float4(clamp(conf, -cost * AutoMaskMoveMemory, 1.0), held, motion, 1.0));
-			tex2Dstore(AutoDriftStore, int2(tid.xy), float4(next, 1.0));
+			//The offset, not the average: `now` is this frame's colour, which the closing stores as
+			//`before` and next frame's read adds back, so the store never holds a value wide enough
+			//for half precision to lose the creep the channel exists for.
+			tex2Dstore(AutoDriftStore, int2(tid.xy), float4(next - now, 1.0));
 		}
 	}
 
@@ -948,8 +953,9 @@ float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
 	float4 centre = tex2D(AutoAccumB, texcoord);
 	float mask = centre.r;
 	#if AutoMaskCompute == 1
-		//The drift pair's own back-edge: this frame's average, which the accumulator stored to B, is
-		//carried back to A here. The drift target is `RGBA32F` and its copy pass is what this replaces.
+		//The drift pair's own back-edge: this frame's offset, which the accumulator stored to B, is
+		//carried back to A here. It is already taken against the frame this pass stores as `before`,
+		//so the copy is verbatim and the target is RGBA16F.
 		float4 drift = tex2D(AutoDriftB, texcoord);
 	#endif
 	float lumaCentre = AutoMaskLuma(tex2D(ReShade::BackBuffer, texcoord).rgb);

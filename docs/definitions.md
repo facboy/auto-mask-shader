@@ -229,7 +229,8 @@ are listed under it.
 - **drift channel / drift average** — the compute path's second reading: a long-baseline average of each
   pixel's colour, footed at the same deadband as the frame-to-frame difference and read over its own
   longer ramp. A pixel is moving when *either* comparison says so, and the drift side also feeds the
-  world-drawn count and the premise.
+  world-drawn count and the premise. The store holds the average's offset from the frame rather than the
+  average, and the read adds the frame back (`docs/compute-path.md`).
 - **EMA** — exponentially weighted moving average: what the drift average is, `drift' = lerp(now, drift,
   1 - 1/K)`.
 - **drift horizon / K** — `AutoMaskDrift` seconds × `AutoMaskTargetFPS` = `K` frames, the length of the
@@ -242,7 +243,7 @@ are listed under it.
   tail, which is how long a stopped view still reads as drawn — then takes a horizon to walk back.
 - **creep** — the average following the frame by a fraction of a level a frame while the short
   comparison reads still. The one-level gap the channel exists to close creeps at 0.0083 levels a frame
-  at the 2 s default, which is why the store cannot be half precision (`docs/drift-snap-review.md`).
+  at the 2 s default, which is why a whole-value store needed full precision (`docs/drift-snap-review.md`).
 - **snap / reset** — where the average *becomes* the frame instead of creeping, keyed to `maxDiff <
   max(deadband, 8.0)`: a change wide enough to be a new picture. Keyed to the deadband it would fire on
   every one-level change and leave the channel inert. The `8` is deliberately its own literal, not
@@ -250,11 +251,12 @@ are listed under it.
 - **cut** — a scene cut or a load: a change far wider than the reset floor. The average follows it at
   once, so the mask is never held off waiting for a stale average.
 - **store (the drift store)** — the target the average lives in; "the store's precision" means its
-  format and its ulp. It is the shader's only full-precision (`RGBA32F`) buffer and the most
-  memory-hungry part of it: the two targets come to about 120 MB at 1440p (`README.md`).
-- **ulp / half-ulp** — the spacing of a floating-point format and half of it. The reason the store is
-  `RGBA32F`: an `RGBA16F` half-ulp above level 31 is 0.0156 levels, wider than the 0.0083-level creep
-  step, so the average sat frozen there (`docs/compute-path.md`).
+  format and its ulp. It holds the average's offset from the frame, so the pair is `RGBA16F` and comes
+  to about 59 MB at 1440p (`README.md`).
+- **ulp / half-ulp** — the spacing of a floating-point format and half of it. Why the store is
+  `RGBA16F`: with the offset held near zero an `RGBA16F` half-ulp is ~0.001 of a level, under the
+  0.0083-level creep step, where a whole-value store at level 31 had 0.0156 and sat frozen
+  (`docs/compute-path.md`).
 - **binade** — a power-of-two band of floating-point values (1–2, 2–4, …). Its edges are the eight
   adjacent 8-bit pairs where subtracting stored colours rather than level counts read exactly `1.0`
   instead of `0.9999999` (`docs/drift-snap-review.md`).

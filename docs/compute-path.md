@@ -8,10 +8,9 @@ channel, or the pass order inside `AutoMask`.
 that owns the shaders, the pass entries and every target only they use. The gate half is a replacement
 rather than an addition — the coarse grid and its two reduction passes are gone, not skipped. Two
 readings are *added* rather than replaced, both resting on the compute path's ability to see every pixel:
-the drift channel's two full-res `RGBA32F` ping-pong targets, which the pixel path has nowhere to put and
+the drift channel's two full-res `RGBA16F` ping-pong targets, which the pixel path has nowhere to put and
 deliberately does not carry — `docs/performance-openings.md` §6 holds that question open for a title that
-only presents a D3D9 or D3D10 device, and §7 holds the re-centring that halves the pair the compute path
-already ships — and the histogram's `AUTOMASK_STEP_MAX`×1 `r32u` plus the 1×1
+only presents a D3D9 or D3D10 device — and the histogram's `AUTOMASK_STEP_MAX`×1 `r32u` plus the 1×1
 `r32f` step it feeds — a few dozen bytes together, against 1 KB when the bins were one per level — which
 the coarse grid cannot take at all, because 1,024 taps cannot tell a level of dithering from a level of
 real motion.
@@ -118,9 +117,12 @@ real motion.
   targets stay allocated while it is off — the convention is that a value tuned by watching stays a slider
   and costs nothing but the memory its guard already owns, and 1 KB is not worth a recompile per
   comparison.
-- The **drift channel** rides in the same pass and is guarded with it. Two full-res `RGBA32F` ping-
+- The **drift channel** rides in the same pass and is guarded with it. Two full-res `RGBA16F` ping-
   pong targets hold a long-baseline average of each pixel's colour (`drift' = lerp(now, drift, 1 -
-  1/K)`, `K = AutoMaskDrift × AutoMaskTargetFPS` frames), and a pixel is marked moving when
+  1/K)`, `K = AutoMaskDrift × AutoMaskTargetFPS` frames), stored as the average's **offset from the frame**
+  it was taken against and reconstructed by adding that frame back on the read: the offset is held inside
+  `AUTOMASK_DRIFT_LAG` deadbands of zero, where half precision resolves the creep a whole-value store froze,
+  so the pair is half the size it once needed. A pixel is marked moving when
   **either** the frame-to-frame difference or its distance from that average crosses its own ramp —
   footed at the same deadband the verdict uses, topping out at `AUTOMASK_DRIFT_LAG` deadbands, which
   is the bound the average is held inside below; the graded overlay carries the max, so red is still
@@ -136,19 +138,21 @@ real motion.
   pixel — it can only remove that — but because catching the sky as changed held the premise up, and the
   premise is what lets any still pixel earn (`docs/ui-isolation-options.md` §5.5.1). The average is
   carried back to the side the next frame reads by the closing pass, as a second render target: the
-  drift copy has no pass of its own. The store is the one that
-  cannot be half precision: the creep toward a one-level gap is a fraction of a level a frame — at
+  drift copy has no pass of its own. The store could not be half precision while it held the average:
+  the creep toward a one-level gap is a fraction of a level a frame — at
   the 2 s default, 0.0083 levels — which is under an `RGBA16F` half-ulp above level 31 (0.0156
   there, against 0.0078 in the band below), so the average sat frozen rather than following the
   pixel while the short comparison read still. A frozen average fails both ways: it cannot
   accumulate a sub-level shift (so the channel does nothing on the bright half of a sky) and it
   cannot close on a static pixel either, so a pixel left a level away from it read as moving for as
-  long as it held. `RGBA32F` is what lets the creep step move the store at every level, and its cost
-  is that the two drift targets double, ~59 MB to ~118 MB at 1440p. Re-centring the store on the frame the
-  delta was taken against removes that need, and with it the doubling: `docs/performance-openings.md` §7
-  holds it as a saving on this path rather than a deferred one, since the base is a frame both the store and
-  the next frame's read already have in hand. It is arithmetic inside a feedback loop, so it rests on the
-  same measured proof the 32-bit store needed.
+  long as it held. A whole-precision store is what let the creep step move the store at every level, and
+  its cost was that the two drift targets doubled, ~59 MB to ~118 MB at 1440p. Storing the offset keeps
+  the same resolution in half — the offset sits in the band an `RGBA16F` ulp of 0.0019 of a level covers,
+  at the shipped reach, against the 0.0156 half-ulp that froze the average at level 31 — and the pair is
+  ~59 MB at 1440p against ~118 MB
+  (`docs/performance.md` §10). The reconstruction inherits the history's `RGBA8` half-level quantization,
+  so a pixel exactly on the ramp's foot can land on the other side of it: arithmetic inside a feedback
+  loop, so a game is what confirms the channel reads as before.
 - **The average is held inside its own reach, and that is what bounds a move's tail.** A bounded ramp can
   only report the lag it can reach, so an average allowed past it stores lag that changes nothing but how
   long the tail lasts — and a *creeping* one lags by the rate times the horizon in levels, tens of them
@@ -239,7 +243,7 @@ Follows from what each pass reads:
    pass reads the live side `texAutoAccumB` and writes it back to `texAutoAccumA` as a second render
    target: that write **is** the copy `PS_Copy` used to be, and its read is the centre tap the pass
    already takes, so the back-edge costs no extra sample. On the compute path it takes a third target,
-   `texAutoDriftA`, and carries the drift average back the same way — the copy `PS_CopyDrift` used to
+   `texAutoDriftA`, and carries the drift average's offset back the same way — the copy `PS_CopyDrift` used to
    be — so the drift pair has no pass of its own either. `PS_Dilate` is one pass: a 2D max over a tiny
    fixed neighbourhood, stopping where the luma step exceeds `AutoMaskEdge` — the horizontal pass reads
    that luma from `BackBuffer`, and stores its centre into `texAutoDilate`'s `.a`, so the vertical pass

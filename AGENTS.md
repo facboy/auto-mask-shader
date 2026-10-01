@@ -36,7 +36,7 @@ store/restore pattern and the anti-bloom suppression belongs to Kaiser (UIDetect
 | `docs/ui-isolation-options.md` | Options for reading interface as a region rather than per pixel, none of them scoped. What §6's instrument decides between. |
 | `docs/refactor-candidates.md` | The folds that landed in the shader and the check, what was considered and left, and what is deliberately not a candidate. |
 | `docs/performance.md` | Where the frame's cost sits, read off the compiled bytecode, the closing-loop, back-edge, centre-step and store-target savings it justified, and the openings left. |
-| `docs/performance-openings.md` | The pass folds still open — the closing's dead out-of-radius taps, a folded depth store — plus the pixel-path drift question held open for a D3D9/D3D10 title and the drift store's re-centring into half precision. None of it built. |
+| `docs/performance-openings.md` | The savings after `docs/performance.md`: the closing's dead out-of-radius taps, the folded depth store and the drift store's re-centring into half precision, all landed, plus the pixel-path drift channel held open for a D3D9/D3D10 title. |
 
 The one companion header is **`Shaders/AutoMask.fxh`, and it holds code and nothing else**: the shared
 arithmetic both accumulators call, no uniform, `texture`, `sampler` or technique. A header of **authored
@@ -101,7 +101,7 @@ changing the verdict, the hold, the move memory, the clip exclusion or the accum
   it ships off too.
 
 `docs/compute-path.md` holds what `AutoMaskCompute=1` swaps in — the exact motion count, the change-size
-histogram and auto-deadband, the `RGBA32F` drift channel, and the pass order inside `AutoMask`. The drift
+histogram and auto-deadband, the `RGBA16F` drift channel, and the pass order inside `AutoMask`. The drift
 average is held within `AUTOMASK_DRIFT_LAG` deadbands of the frame — the reach divided onto the value's
 own scale, since `now` is normalized and the bound is a level count — and the ramp that reads it runs from
 the deadband to that same bound: a ramp can only say how far the frame has got from its average, so an
@@ -110,10 +110,10 @@ behind by a camera pan and takes a horizon to walk back, which is what keeps the
 being drawn after the view has stopped. The measured step is committed only after
 `AUTOMASK_STEP_DWELL` frames answer the same level, because the walk is fed by motion measured against
 that same step: a mover covering more than the floor holds it above the mover's own size, and the red
-graded against it goes off screen-wide. The store is `RGBA32F` because the average sits wherever the
-pixel's colour sits, which puts the creep toward a one-level gap under half precision; re-centring it on
-the frame the delta was taken against is the one saving `docs/performance-openings.md` §7 holds on this
-path, and it is not built.
+graded against it goes off screen-wide. The store holds the average's **offset from the frame** rather
+than the average itself, so the pair is `RGBA16F`: the offset sits inside `AUTOMASK_DRIFT_LAG` deadbands
+of zero, where half precision resolves the creep a whole-value store froze at this level, and the read
+adds the same frame back. See `docs/performance.md` §10.
 
 ## Editing conventions
 

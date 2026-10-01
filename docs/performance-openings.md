@@ -1,17 +1,17 @@
 # Performance openings
 
 What is left after `docs/performance.md`, whose §2–§9 are instruction-level or pass folds that landed,
-and whose §10 records the two openings that are closed. §2–§5 below **have since landed** — §2 and §3 as
-that §7 (the store target and the published map gone, the closing writing the frame with the mask in its
-alpha), §4 as that §8 (the closing's dead out-of-radius frame taps guarded) and §5 as that §9 (the depth
-store folded into the closing) — and what they argued is kept as the reasoning behind it. Two entries are
-still open. The pixel-path drift channel, §6, is the one proposal here that adds cost rather than removing
-it: it asks which games the pixel path serves rather than what the frame can stop doing. The drift store's
-re-centring, §7, is a saving on the channel the compute path already ships. Neither is built and neither
-has been in a game, so each names what it would cost or save and what would have to be watched to accept
-it.
+whose §10 is the drift store's re-centring into half precision, and whose §11 records the two openings
+that are closed. §2–§5 below **have since landed** — §2 and §3 as that §7 (the store target and the
+published map gone, the closing writing the frame with the mask in its alpha), §4 as that §8 (the
+closing's dead out-of-radius frame taps guarded), §5 as that §9 (the depth store folded into the closing)
+and §7 here as that §10 — and what they argued is kept as the reasoning behind it. The one entry still
+open is the pixel-path drift question, §6, which is the one proposal here that adds cost rather than
+removing it: it asks which games the pixel path serves rather than what the frame can stop doing. It is
+not built and has not been in a game, so it names what it would cost and what would have to be watched
+to accept it.
 
-Companions: `docs/performance.md` (the cost already measured, and §10's two closed items),
+Companions: `docs/performance.md` (the cost already measured, and §11's two closed items),
 `docs/refactor-candidates.md` (what a fold has to clear — an unmoved hash for every entry point it does
 not touch), `docs/core-model.md` and `docs/compute-path.md` (the pass and target counts these would
 change), `docs/review.md` §2.2 (the redundancy §2 follows to its conclusion).
@@ -113,8 +113,8 @@ switch cannot reach. A title that presents a D3D9 or D3D10 device, or a D3D11 on
 there and the pixel path is the only route to a feature the README advertises.
 
 Left for now: build it when a game like that turns up, with the scene in hand to judge it against. The
-shape below is what that delivery would take, and §7 is the store form it should carry, so the start is a
-decision about the scene rather than about the arithmetic.
+shape below is what that delivery would take, and the re-centred store §7 landed is what it should carry,
+so the start is a decision about the scene rather than about the arithmetic.
 
 Mechanically it is among the smallest changes here, and the design anticipated it. The compute plan puts
 a pixel-side mirror out of the first version's scope and calls it "a small mechanical lift, not a
@@ -123,68 +123,46 @@ loses the guard for the drift back-edge it already carries on the compute path, 
 of the compute block into the shared declarations, and the verdict grows `maxDrift < deadband`. Nothing
 about it needs compute.
 
-What it costs is the largest number in this document, and it is why the entry is here at all:
+What it costs is the largest number in this document, and it is why the entry is here at all. The pair is
+half precision now (§7 landed), so these are the half-size figures:
 
 | | added |
 | --- | --- |
-| `memory` | 118 MB — two `RGBA32F` full-resolution targets at 1440p |
-| `traffic` | ~236 MB a frame: the accumulator and the closing each read and write the pair |
+| `memory` | 59 MB — two `RGBA16F` full-resolution targets at 1440p |
+| `traffic` | ~118 MB a frame: the accumulator and the closing each read and write the pair |
 
-More than half again the whole rest of the default path, and it lands on the oldest renderers the shader
+Two thirds again the memory of the whole default path, and it lands on the oldest renderers the shader
 runs under rather than on old hardware — the driver is a title that only ever presents a D3D9 or D3D10
 device. Behind its own definition the feature would cost nothing when off, so this is not a trade
 against the default path but a question about who pays.
 
 Two things decide it, and neither is settled by the code:
 
-- **Whether the title can serve the target.** The channel stores `RGBA32F` because half precision
-  freezes it (`docs/compute-path.md`), and a D3D9 or D3D10 device is where the guarantees about float
+- **Whether the title can serve the target.** A D3D9 or D3D10 device is where the guarantees about float
   render targets and about multi-target passes are thinnest. The default path already writes `RGBA16F`
-  beside `RGBA8` on the closing pass, so a mixed-format pass is not new — an `RGBA32F` member of that set
-  is — and the offline check compiles at `ps_5_0` and never sees a device.
-- **The deferral was costed at a number that no longer holds.** The compute plan expects a pixel mirror
-  to ride two `RGBA16F` targets, "~28 MB at 1440p" — which is half of what that pair actually costs
-  (a `RGBA16F` texel is eight bytes, so the pair is ~59 MB; the plan's figure is one target's worth). The
-  shipped channel is `RGBA32F`, ~118 MB at the same size, because at the 2 s default the creep is 0.0083
-  levels a frame against a half-ulp above level 31 of 0.0156, so a half-precision average sits frozen
-  rather than following the pixel. A mirror of what shipped is therefore twice the deferred format's true
-  size, and four times the figure the deferral wrote.
-- **Whether the mirror carries the shipped store or §7's re-centred one.** Storing `drift - now` puts
-  the pair on the half-precision format §7 measures for the shipped channel, so it is the only version of
-  this entry that suits the renderers in question — a mirror of the shipped `RGBA32F` store is twice the
-  deferred format's true size — and the version worth measuring first.
+  beside `RGBA8` on the closing pass, and the drift pair is `RGBA16F` too now that §7 has landed, so a
+  mixed-format pass is not new — the offline check compiles at `ps_5_0` and never sees a device.
+- **The deferral's figure was low by one target.** The compute plan expects a pixel mirror to ride two
+  `RGBA16F` targets, "~28 MB at 1440p" — which is half of what that pair actually costs (a `RGBA16F`
+  texel is eight bytes, so the pair is ~59 MB; the plan's figure is one target's worth). That is the size
+  the mirror would be now that the shipped store is half precision, so the deferral's error is the
+  one-target one, not a format choice it could not have known.
 
 So the answer waits on a game rather than on the arithmetic: build it when a title like that is in hand,
 with the scene to judge the added reading against. When it is built the shape is a third structural
 definition owning the two targets, since a feature with targets to its name gets a definition rather
-than a checkbox — and §7's re-centred form is what it should carry.
+than a checkbox — and the store it carries is the re-centred one §7 landed.
 
-## 7. Saving: the drift store, re-centred into half precision
+## 7. Landed: the drift store, re-centred into half precision
 
-The shipped channel stores the average itself, so a pixel's value sits wherever its colour sits and the
-store must be `RGBA32F`: at the 2 s default the creep toward a one-level gap is 0.0083 levels a frame,
-under a half-ulp above level 31, so a half-precision average sits frozen rather than following the pixel
-(`docs/compute-path.md`). Storing `drift - now` instead puts every stored value inside
-`AUTOMASK_DRIFT_LAG` deadbands of zero — the reach the average is already held in — where half precision
-holds ample relative precision. The pair the compute path ships halves with it: ~118 MB to ~59 MB of VRAM
-at 1440p, and ~236 MB to ~118 MB a frame, since the store's write and the closing's read-and-write each
-halve, 32 to 16 bytes a pixel.
-
-It needs no new data, and it adds the reconstruction to one read. The base a delta is taken against is the
-frame itself: the accumulator's `before` is `AutoHistory`'s `.rgb`, which the closing stored as the frame
-it was drawn over (`PS_DilateV`'s return) — so the value `drift - now` subtracted is the same one next
-frame's read adds back, `drift = A.rgb + before`. The closing's carry needs no arithmetic at all: the
-delta it moves from B to A is already re-centred on the frame it is storing into the history, so it stays
-a verbatim copy. The clip rails move onto the reconstructed value, exact where they matter: a pixel pinned
-at 0 or 1 adds back the frame that was taken away and reads 0 or 1 again, while a rail the clamp reaches
-with the frame merely near zero lands near it.
-
-It is not a format swap. The reconstruction inherits the history's own `RGBA8` half-level quantization, so
-a pixel sitting exactly on the drift ramp's foot can flip — the same order as the one-level move
-`PS_DilateV`'s luma hand-off already makes (`docs/performance.md` §6). That makes it arithmetic inside a
-feedback loop rather than a port, so it needs the measured proof the 32-bit store needed, with a scene in
-hand; an offline compile cannot see it happen. Unlike §6 it changes the path that ships rather than a path
-nobody runs, which is what puts it first.
+The channel shipped storing the average itself, which forced `RGBA32F`: an average sits wherever the
+pixel's colour sits, and the creep toward a one-level gap — 0.0083 levels a frame at the 2 s default — is
+under an `RGBA16F` half-ulp above level 31, so a half-precision average sat frozen rather than following
+the pixel. The re-centring this entry proposed — store `drift - now` inside `AUTOMASK_DRIFT_LAG` deadbands
+of zero, and add the frame back on the read — is built: both targets are `RGBA16F` and the pair is half
+the size, ~59 MB and ~118 MB a frame against ~118 MB and ~236 MB. `docs/performance.md` §10 is the landed
+account, and the saving stands on its own rather than as §6's enabler, which is why §6 is smaller than the
+deferral costed it.
 
 ## 8. Refused
 
