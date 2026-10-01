@@ -29,7 +29,7 @@ below):
 | --- | --- |
 | `AutoMaskDrawn(share)` | the premise, previously stated five times in two spellings |
 | `AutoMaskDecay(conf, held, stable, drawn, earn, cost)` | the hold, the credit, the bridge and the banked debt |
-| `AutoMaskPublished(uv)` | the mask read in `PS_Store`, `PS_AntiBloom` and `PS_Restore` |
+| `AutoMaskPublished(uv)` | the mask read in `PS_AntiBloom`, `PS_Restore` and `CS_Tile` |
 
 Each takes what it needs **already sampled**, so neither path's sampling form moved onto the other's. The
 drift terms stay behind `#if AutoMaskCompute == 1` in the `.fx`, because its ramp and the two extra rail

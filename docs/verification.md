@@ -486,3 +486,16 @@ whether the reading you are looking at is current.
   shader's own still/moving reading, not of colour — a still element with a hard internal edge must be
   unaffected. The same four taps are written into the pixel and compute accumulators, so the two paths
   must agree.
+- **The mask rides the history's alpha, and the closing stores it.** The store pass and the map target are
+  gone: `PS_DilateV` writes `float4(frame.rgb, mask)` into `texAutoHistory`, the restore reads the frame
+  back off that alpha, and `PS_AntiBloom` and `CS_Tile` take the mask from the same. The pass list is the
+  first check — `AutoMask` must show no `PS_Store` and `texAutoFrame`/`texAutoMap` must appear in no pass's
+  targets — and the accumulator's history read must still compare against the frame, not the alpha that now
+  neighbours it, so a mask that builds over scenery or fails to build over HUD is the `.rgb` read having
+  been dropped. The output must be unchanged outside this: with the mask correct, the picture out of
+  `AutoMask_Restore` has to be identical to the pre-change one over both HUD and world, since the restore's
+  `lerp(live, stored, mask)` was the same expression before. The one ordering consequence is the tile map,
+  which now runs after the closing: its cell readings are of the mask the closing published, and a cell that
+  reads the wrong class is `CS_Tile` having been left before the pass whose output it now wants. The
+  off-GPU half is the hash set: `PS_DilateV`, `PS_Restore`, `PS_AntiBloom` and `CS_Tile` are expected to
+  move, and `PS_DilateH`, `CS_Accum` and the depth store are the ones that should not.

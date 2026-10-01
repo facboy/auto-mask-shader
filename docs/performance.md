@@ -15,8 +15,8 @@ shipped defaults, the samples a pixel actually costs:
 | pass | samples/px, gate off | gate on |
 | --- | --- | --- |
 | `PS_DilateH` | 6 | 6 |
-| `PS_DilateV` | 3 | 7 |
-| closing, both passes | **9** | 13 |
+| `PS_DilateV` | 4 | 8 |
+| closing, both passes | **10** | 14 |
 
 The closing is the heaviest part of the full-resolution chain at every shipped setting, against the
 accumulator's 8 samples a pixel and the other full-resolution passes at 1–3 each. The accumulator's
@@ -26,6 +26,8 @@ extra taps at all, `AutoMaskNeighbour`'s four admission ones, ships off. The fix
 closing began with cost `PS_DilateH` 16 and `PS_DilateV` 16 samples a pixel with the gate off, and 30
 for the vertical pass with it on — a figure neither the source nor the static count (51 and 71) shows.
 §2's bound takes that to 8 + 8, §5's skipped centre step to 6 + 6, and §6's luma hand-off to 6 + 3.
+§7's store fold hands the vertical pass one more back-buffer tap — the frame the store pass used to
+read — taking the closing to 6 + 4, in exchange for a whole full-resolution pass.
 
 ## 2. The taps neither radius wants
 
@@ -50,6 +52,9 @@ is the one merge a static count could not hide — `PS_StoreFrame` was a whole p
 change here a readback consumer could be sensitive to, since the accumulator's history read expects
 the bytes the merge writes. The offline check parses `RenderTarget1` for it, so a second target a
 later edit adds cannot hide from the wiring cross-check.
+
+§7 then took the pass itself: the store target turned out to hold what the history already held, so
+`PS_Store` and both its targets are gone and the closing writes the history.
 
 ## 4. Both back-edges, folded into the closing
 
@@ -122,7 +127,30 @@ at one contour is inside the feature's own resolution rather than outside it. Ca
 unquantized would remove even that, but needs a channel at least as precise as the luma's own 1/255
 scale, and none is free — `texAutoAccumB`'s `.a` is the pinned-colour flag `PS_Motion` reads.
 
-## 7. Openings left
+## 7. The store target, folded into the closing
+
+`PS_Store` wrote the untouched frame to `texAutoHistory` and `frame.rgb * mask` to `texAutoFrame`, and
+`PS_Restore` then did `lerp(live, stored, mask)`. The mask is binary, so at 1 that lerp returns `stored`
+— which is `frame`, the multiply by one — and at 0 it returns `live` and `stored` is never read: the two
+targets hold the same pixels. So the store target, and the map the closing published for it, both go:
+`PS_DilateV` returns `float4(frame.rgb, mask)` into `texAutoHistory`, and the restore reads the frame
+back off that alpha.
+
+It has to be the vertical closing. Whichever pass writes the history must know the settled mask, and only
+that pass does — so the frame and the mask go into one `float4` from one pass, rather than the frame from
+`PS_DilateH` (which would leave the vertical pass sampling a target it writes, error `3020`). The
+accumulator already read the history earlier in the frame, so it is safe to write there; only the rgb is
+its comparison, and the alpha it now carries is why both accumulators read `.rgb`. `CS_Tile` moves to the
+last pass to read the closing's output, and `PS_Store` and its dispatch are gone.
+
+A full-resolution pass goes, and two full-resolution targets (`texAutoFrame`, `texAutoMap`) with it —
+~29.4 MB of VRAM at 1440p — together with ~58.8 MB a frame of traffic: the store's read of the map and
+write of the frame, the closing's write of the map, and the restore's two reads come off, while the
+closing's own frame read and history write and the restore's single history read go on. The restore also
+reads back one target fewer, the frame and the mask arriving in a single fetch. The check parses every
+`RenderTarget`, so a target a later edit adds to a pass cannot hide from the wiring cross-check.
+
+## 8. Openings left
 
 - **The isolation gate's four taps a loop step — measured, and left.** The note this replaces proposed
   a flat 3×3 gathering "cheaper per tap". It is not available: the four counts are runs of `2·reach + 1`
@@ -131,12 +159,12 @@ scale, and none is free — `texAutoAccumB`'s `.a` is the pinned-colour flag `PS
   and the current form already reads each line once (the row tap doubles as the column tap). The gate's
   own addition is the two diagonal taps, and only while its checkbox is ticked: `AutoMaskIsolated` is a
   uniform, so off it compiles to an untaken `if_nz` and no sample is issued — at the defaults,
-  `PS_DilateV` 6 → 10 samples a pixel when the gate is switched on. What the four runs already get for
+  `PS_DilateV` 4 → 8 samples a pixel when the gate is switched on. What the four runs already get for
   free is the box share and the column count, both read out of the one `texAutoDilate` tap per offset.
 - **The accumulator's static footprint.** `CS_Accum` (254) and `PS_Accum` (151) carry the pinned-colour
   count's sixteen `eq`/`and` pairs. `AutoMaskClipped` returning `int` rather than `float` is a recorded
   decision (`docs/refactor-candidates.md`) that keeps the bytecode hash stable, so this is not a tidy.
 
-Both are instruction-level and closed. The openings that are not are full-resolution targets rather than
-instructions — the store target, the published map, and the channel the mask rides — and
-`docs/performance-openings.md` collects them.
+Both are instruction-level and closed. The openings that are not are full-resolution passes rather than
+instructions — the closing's dead out-of-radius taps, a folded depth store, and the pixel-path drift
+question — and `docs/performance-openings.md` collects them.

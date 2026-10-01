@@ -243,12 +243,16 @@ agree on what 'all 0' and 'all 255' mean.
 - **A render target cannot be read while it is written.** So the accumulator has to **ping-pong**: read
   `A`, write `B`, then a write back brings `B` to `A`. Both back-edges — the accumulator's and, on the
   compute path, the drift pair's — ride as second and third render targets on `PS_DilateH`, because a
-  pass may sample a texture it does *not* write, and that pass reads both live sides anyway. Compute adds
+  pass may sample a texture it does *not* write, and that pass reads both live sides anyway. The same
+  rule shapes the store: the closing writes next frame's history, since it is the pass that settles the
+  mask the history carries — the accumulator read that target earlier in the frame, so nothing samples
+  what this writes, and the frame and the mask go into one target because a pass publishing the mask
+  separately would leave the write with no pass that could legally host it. Compute adds
   one more form of the same rule: a texture written as storage in a pass cannot also be sampled in it,
   and a compute pass has no render target at all — the accumulator's write in `CS_Accum` is a
   `storage2D` write to `texAutoAccumB`.
 - **There are no shared textures.** `ReShade.fxh` declares only `BackBufferTex` and `DepthBufferTex`, so
-  another effect's stored frame is unreachable. This shader needs its own store target; it cannot borrow
+  another effect's stored frame is unreachable. This shader needs its own history target; it cannot borrow
   `UIDetectMulti`'s `texColorBeforeMulti`.
 
 ## What the signal cannot do

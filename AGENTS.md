@@ -35,8 +35,8 @@ store/restore pattern and the anti-bloom suppression belongs to Kaiser (UIDetect
 | `docs/review.md`, `docs/drift-snap-review.md`, `docs/optical-flow.md` | Recorded design history and closed investigations. |
 | `docs/ui-isolation-options.md` | Options for reading interface as a region rather than per pixel, none of them scoped. What §6's instrument decides between. |
 | `docs/refactor-candidates.md` | The folds that landed in the shader and the check, what was considered and left, and what is deliberately not a candidate. |
-| `docs/performance.md` | Where the frame's cost sits, read off the compiled bytecode, the closing-loop, back-edge and centre-step savings it justified, and the openings left. |
-| `docs/performance-openings.md` | The full-resolution targets the open savings sit in — the store target, the published map, the channel the mask would ride — plus the pixel-path drift question held open for a D3D9/D3D10 title. None of it built. |
+| `docs/performance.md` | Where the frame's cost sits, read off the compiled bytecode, the closing-loop, back-edge, centre-step and store-target savings it justified, and the openings left. |
+| `docs/performance-openings.md` | The pass folds still open — the closing's dead out-of-radius taps, a folded depth store — plus the pixel-path drift question held open for a D3D9/D3D10 title. None of it built. |
 
 The one companion header is **`Shaders/AutoMask.fxh`, and it holds code and nothing else**: the shared
 arithmetic both accumulators call, no uniform, `texture`, `sampler` or technique. A header of **authored
@@ -242,6 +242,17 @@ graded against it goes off screen-wide.
   tap within one level of the threshold can therefore land on the other side of it, which moves the
   closing's boundary by at most a pixel where a contour's own step is that wide — the same order as
   `AutoMaskDilate`'s own step. See `docs/performance.md` §6 and `docs/core-model.md`.
+- **The closing writes next frame's history, and the mask rides in its alpha.** `PS_DilateV` returns the
+  frame it was drawn over with the settled mask in the alpha into `texAutoHistory` — the accumulator read
+  that target earlier in the frame, so nothing samples what this writes — and the restore reads the frame
+  back off the same channel. There is no store pass and no map target: the store target held the pixels
+  the history already held, because `lerp(live, stored, mask)` is `frame` at 1 and `live` at 0, so the
+  multiply and the second target were both redundant (the redundancy `docs/review.md` §2.2 flagged). It has
+  to be the vertical pass, and the frame and the mask have to go into it together: whichever pass writes
+  the history must know the settled mask, and were the mask published in a target of its own the frame's
+  write would have no pass left able to host it without sampling what it writes. Both accumulators
+  therefore read the history's `.rgb`; `CS_Tile` reads the mask from its `.a` and is the last pass. See
+  `docs/performance.md` §7 and `docs/performance-openings.md` §2–§3.
 - The **isolation radius is its own setting** (`AutoMaskIsolation`), not the closing radius: shape and
   evidence are different questions, and tying them would move what `AutoMaskDensity` means whenever the
   closing is retuned. The density is a share rather than a count, so it means one thing at every radius; a

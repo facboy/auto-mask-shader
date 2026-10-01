@@ -10,11 +10,13 @@ are listed under it.
 
 - **HUD** — the game's interface: the health bar, inventory, map, dialogue box. One side of the one bit
   the mask carries; the world is the other.
-- **mask** — one full-resolution HUD/non-HUD value per pixel, red in `texAutoMap`. Not one per element:
-  per-element identity is not attempted, and conflating health with inventory is accepted by design
-  (`docs/core-model.md`).
-- **published mask** — `texAutoMap` as the restore and anti-bloom passes read it, i.e. after the closing
-  radius. The verdict is the same decision *before* the radius, which is what the verdict view draws.
+- **mask** — one full-resolution HUD/non-HUD value per pixel, written into `texAutoHistory`'s alpha.
+  Not one per element: per-element identity is not attempted, and conflating health with inventory is
+  accepted by design (`docs/core-model.md`).
+- **published mask** — the mask as the restore, anti-bloom and tile passes read it, i.e. after the closing
+  radius. The verdict is the same decision *before* the radius, which is what the verdict view draws. It
+  rides the history's alpha beside the frame, so the same target answers "what were these pixels" and
+  "which of them are interface".
 - **element / panel** — a piece of interface. The mask holds no notion of one, so "an element keeps its
   mask" always means the pixels of it do.
 - **speck / isolated pixel** — a pixel the verdict claims with too few still pixels around it to be
@@ -340,14 +342,18 @@ readings.
   technique body, which is why every combination is compiled.
 - **effect list** — ReShade's ordered list of enabled effects. The placement rules are about position in
   it: `AutoMask` compares untouched frames only if nothing has written them first.
-- **store/restore pattern** — store the masked pixels in `AutoMask`, let the user's effects run, put them
-  back in `AutoMask_Restore`. The credit for it belongs to Kaiser's `UIDetectMulti`.
+- **store/restore pattern** — let the user's effects run on the frame with the masked pixels blacked, put
+  them back in `AutoMask_Restore`. The credit for it belongs to Kaiser's `UIDetectMulti`. The frame is
+  kept in `texAutoHistory`, written by the closing pass with the mask in its alpha.
 - **anti-bloom** — `PS_AntiBloom` blacking the masked pixels in the live frame so a bloom pass downstream
   has no UI to pick up. The real pixels are put back by the restore, so the final picture is unchanged.
 - **closing radius / dilation** — the two separable `PS_DilateH`/`PS_DilateV` passes growing the mask,
   stopped where the luma step of a tap exceeds `AutoMaskEdge`. The horizontal pass reads each tap's luma
   from the back buffer and writes its own centre's into `texAutoDilate`'s `.a`; the vertical pass bounds
-  its taps by that stored luma, so the frame is read for it once rather than twice.
+  its taps by that stored luma, so the frame is read for it once rather than twice. `PS_DilateH` also
+  carries both ping-pong back-edges, and `PS_DilateV` writes next frame's history — the frame it was
+  drawn over with the settled mask in the alpha — so neither the copies nor the store are passes of
+  their own.
 - **opening / the gate's operation** — what the isolation gate does to the mask, but not a plain
   morphology: it is the closing with a count test on top, not a min of the mask over the box. A pixel
   survives when the verdict's own count in its box clears the threshold, so a pixel the closing grew out

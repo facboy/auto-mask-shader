@@ -273,23 +273,18 @@ texture texAutoAccumB { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = R
 sampler AutoAccumA { Texture = texAutoAccumA; };
 sampler AutoAccumB { Texture = texAutoAccumB; };
 
-//Previous untouched frame for stability comparison.
+//The untouched frame for stability comparison, and the published mask in its alpha: the closing pass
+//stores the frame it was drawn over there beside the mask it just settled, so the comparison, the
+//restore and the tile map all read one target. The frame is stored at full resolution anyway, so the
+//channel is free.
 texture texAutoHistory { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
 sampler AutoHistory { Texture = texAutoHistory; };
-
-//Stored UI pixels to restore after downstream effects.
-texture texAutoFrame { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
-sampler AutoFrame { Texture = texAutoFrame; };
 
 //Intermediate target for separable dilation. .g carries the isolation gate's row count, .b the centre
 //verdict and .a the centre luma, channels the closing radius leaves unused: the vertical pass counts a
 //column and a diagonal off taps it already takes, and bounds them by a luma it does not re-derive.
 texture texAutoDilate { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
 sampler AutoDilate { Texture = texAutoDilate; };
-
-//Published HUD map (.r is HUD mask).
-texture texAutoMap { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
-sampler AutoMap { Texture = texAutoMap; };
 
 #if AutoMaskDepthMotion == 1
 	//Last frame's linearized depth, for the change the depth check counts. One target, not a pair: the
@@ -434,6 +429,7 @@ sampler AutoMap { Texture = texAutoMap; };
 		float2 texcoord = (float2(tid.xy) + 0.5) * float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT);
 
 		float3 now = tex2Dlod(ReShade::BackBuffer, float4(texcoord, 0.0, 0.0)).rgb;
+		//The history carries the mask in its alpha, so only the rgb is the frame the comparison wants.
 		float3 before = tex2Dlod(AutoHistory, float4(texcoord, 0.0, 0.0)).rgb;
 		float3 drift = tex2Dlod(AutoDriftA, float4(texcoord, 0.0, 0.0)).rgb;
 		#if AutoMaskDepthMotion == 1
@@ -662,7 +658,7 @@ sampler AutoMap { Texture = texAutoMap; };
 		for (int ty = 0; ty < AUTOMASK_TILE_TAPS; ty++){
 			for (int tx = 0; tx < AUTOMASK_TILE_TAPS; tx++){
 				float2 uv = (origin + (float2(tx, ty) + 0.5) * tapStep) * float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT);
-				masked += step(0.5, tex2Dlod(AutoMap, float4(uv, 0.0, 0.0)).r);
+				masked += step(0.5, tex2Dlod(AutoHistory, float4(uv, 0.0, 0.0)).a);
 				//The accumulator's own graded motion, read rather than recomputed: a panel appearing over
 				//a stopped scene is a contiguous patch of pixels the mask calls strongly moving with no
 				//mask on them, which is the case the screen-wide premise cannot see.
@@ -805,6 +801,7 @@ sampler AutoMap { Texture = texAutoMap; };
 float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float3 now = tex2D(ReShade::BackBuffer, texcoord).rgb;
+	//The history carries this frame's mask in its alpha, so the comparison reads only the rgb.
 	float3 before = tex2D(AutoHistory, texcoord).rgb;
 	//The history is stored on the 8-bit grid, so on a higher-precision back buffer the live sample is
 	//quantized onto it first: a sub-half-level change reads as exactly zero instead of a fraction.
@@ -985,6 +982,9 @@ float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
 }
 
 //Vertical closing bounded by luma edge, plus the box's still count and the isolation gate's line test.
+//It also stores next frame's history: the frame this pass was drawn over, with the mask it has just
+//settled in the alpha. The store pass used to do that in a target of its own; the frame is the same
+//back-buffer texel either way, and one pass reading it beats two.
 float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float2 texel = BUFFER_PIXEL_SIZE;
@@ -1040,17 +1040,10 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	if (AutoMaskIsolated && nearby < AutoMaskDensity * 0.01 * side * side && best < floorLine)
 		mask = 0.0;
 
-	return float4(mask.xxx, 1.0);
-}
-
-//Stores the masked UI pixels for the restore and the untouched frame for next frame in one pass: both
-//read the same back buffer, so the second render target saves a full-resolution read of it.
-float4 PS_Store(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
-	out float4 history : SV_Target1) : SV_Target
-{
-	float4 frame = tex2D(ReShade::BackBuffer, texcoord);
-	history = frame;
-	return float4(frame.rgb * AutoMaskPublished(texcoord), 1.0);
+	//Next frame's history: the frame this pass was drawn over, with the settled mask in the alpha. The
+	//restore reads the frame back where the mask is set, so the map target and the store pass are gone.
+	float3 frame = tex2D(ReShade::BackBuffer, texcoord).rgb;
+	return float4(frame, mask);
 }
 
 #if AutoMaskDepthMotion == 1
@@ -1187,9 +1180,10 @@ float4 PS_Store(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
 float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float3 live = tex2D(ReShade::BackBuffer, texcoord).rgb;
-	float3 stored = tex2D(AutoFrame, texcoord).rgb;
-	float mask = AutoMaskPublished(texcoord);
-	float3 color = lerp(live, stored, mask);
+	//The frame the closing stored, with the mask in the alpha: one target serves both the pixels to put
+	//back and the reading of where to put them.
+	float4 stored = tex2D(AutoHistory, texcoord);
+	float3 color = lerp(live, stored.rgb, step(0.5, stored.a));
 
 	#if AutoMaskDiagnostics == 1
 		//Tint over the restore, drawn after it so it sits on top of the stored UI: red where the
@@ -1313,27 +1307,20 @@ technique AutoMask
 	pass {
 		VertexShader = PostProcessVS;
 		PixelShader = PS_DilateV;
-		RenderTarget = texAutoMap;
+		RenderTarget = texAutoHistory;
 	}
 	#if AutoMaskCompute == 1 && AutoMaskDiagnostics == 1
-		//The tile map and its readings. After the closing, so a cell is the mask the shader published
-		//rather than the verdict under it, and before the history store, since the wide-change reading
-		//compares against the frame that pass is about to overwrite.
+		//The tile map and its readings, last: the closing above writes the frame the history did not yet
+		//hold, and both readings are of the mask and the accumulator that pass leaves behind.
 		pass {
 			ComputeShader = CS_Tile;
 			DispatchSizeX = 1;
 			DispatchSizeY = 1;
 		}
 	#endif
-	pass {
-		VertexShader = PostProcessVS;
-		PixelShader = PS_Store;
-		RenderTarget = texAutoFrame;
-		RenderTarget1 = texAutoHistory;
-	}
 	#if AutoMaskDepthMotion == 1
-		//After the accumulator's read and the history's store, so this frame's depth is left for the
-		//next frame's comparison rather than the one just made.
+		//After the accumulator's read, so this frame's depth is left for the next frame's comparison
+		//rather than the one just made.
 		pass {
 			VertexShader = PostProcessVS;
 			PixelShader = PS_StoreDepth;
