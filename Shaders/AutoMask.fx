@@ -288,8 +288,8 @@ sampler AutoDilate { Texture = texAutoDilate; };
 
 #if AutoMaskDepthMotion == 1
 	//Last frame's linearized depth, for the change the depth check counts. One target, not a pair: the
-	//accumulator reads it in its own pass and the store below writes it in a later one, so nothing reads
-	//what is being written. Full precision, since a level of 255 is well under a half-precision ulp here.
+	//accumulator reads it in its own pass and the closing below writes it in a later one, so nothing
+	//reads what is being written. Full precision, since a level of 255 is well under a half-precision ulp.
 	texture texAutoDepth { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = R32F; };
 	sampler AutoDepth { Texture = texAutoDepth; };
 #endif
@@ -986,10 +986,15 @@ float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
 }
 
 //Vertical closing bounded by luma edge, plus the box's still count and the isolation gate's line test.
-//It also stores next frame's history: the frame this pass was drawn over, with the mask it has just
-//settled in the alpha. The store pass used to do that in a target of its own; the frame is the same
-//back-buffer texel either way, and one pass reading it beats two.
+//It also carries both stores that used to be passes: next frame's history — the frame it was drawn over
+//with the settled mask in the alpha — and, with the depth check in, this frame's linearized depth, which
+//the accumulator read earlier so nothing samples what this writes.
+#if AutoMaskDepthMotion == 1
+float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
+	out float4 depthStore : SV_Target1) : SV_Target
+#else
 float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+#endif
 {
 	float2 texel = BUFFER_PIXEL_SIZE;
 	float r = floor(AutoMaskDilate + 0.5);
@@ -1046,19 +1051,14 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 
 	//Next frame's history: the frame this pass was drawn over, with the settled mask in the alpha. The
 	//restore reads the frame back where the mask is set, so the map target and the store pass are gone.
+	#if AutoMaskDepthMotion == 1
+		//This frame's depth, for the next frame's comparison. A frame with no depth bound stores the
+		//depth buffer's own constant, so comparing it against itself next frame is no change.
+		depthStore = ReShade::GetLinearizedDepth(texcoord).xxxx;
+	#endif
 	float3 frame = tex2D(ReShade::BackBuffer, texcoord).rgb;
 	return float4(frame, mask);
 }
-
-#if AutoMaskDepthMotion == 1
-	//Stores this frame's linearized depth for next frame's comparison, in its own pass: the accumulator
-	//reads the target earlier in the frame and a pass cannot read what it writes. A frame with no depth
-	//stores the depth buffer's own constant, so next frame's comparison of it against itself is no change.
-	float4 PS_StoreDepth(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
-	{
-		return ReShade::GetLinearizedDepth(texcoord).xxxx;
-	}
-#endif
 
 #if AutoMaskAntiBloom == 1
 	//Blacks masked UI pixels in back buffer to suppress bloom bleeding.
@@ -1312,6 +1312,11 @@ technique AutoMask
 		VertexShader = PostProcessVS;
 		PixelShader = PS_DilateV;
 		RenderTarget = texAutoHistory;
+		#if AutoMaskDepthMotion == 1
+			//The depth store rides here rather than in a pass of its own: this pass already runs after
+			//the accumulator's read of the depth target, so nothing samples what this writes.
+			RenderTarget1 = texAutoDepth;
+		#endif
 	}
 	#if AutoMaskCompute == 1 && AutoMaskDiagnostics == 1
 		//The tile map and its readings, last: the closing above writes the frame the history did not yet
@@ -1320,15 +1325,6 @@ technique AutoMask
 			ComputeShader = CS_Tile;
 			DispatchSizeX = 1;
 			DispatchSizeY = 1;
-		}
-	#endif
-	#if AutoMaskDepthMotion == 1
-		//After the accumulator's read, so this frame's depth is left for the next frame's comparison
-		//rather than the one just made.
-		pass {
-			VertexShader = PostProcessVS;
-			PixelShader = PS_StoreDepth;
-			RenderTarget = texAutoDepth;
 		}
 	#endif
 

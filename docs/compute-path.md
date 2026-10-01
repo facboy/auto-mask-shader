@@ -241,22 +241,19 @@ Follows from what each pass reads:
    bounds its own taps by the tap it already samples rather than re-reading the frame. Reading the frame
    there is safe only because that pass is before every pass that writes it. The isolation
    gate rides in these two passes too, off their own target: it is a pixel-pass feature, so it reads the
-   same on both variants and has no compute spelling. The vertical pass has one more job: it is where
-   next frame's history is written, since it is the first pass that knows the settled mask. Its return
-   is the frame it was drawn over with that mask in the alpha, so one target carries both the pixels the
-   restore puts back and the reading of where to put them — no map target and no store pass.
+   same on both variants and has no compute spelling. The vertical pass has two more jobs, both stores
+   that used to be passes of their own: it writes next frame's history — the frame it was drawn over with
+   the settled mask in the alpha, so one target carries both the pixels the restore puts back and the
+   reading of where to put them — and, with `AutoMaskDepthMotion` on, this frame's linearized depth,
+   which the accumulator read earlier in the frame so nothing samples what this writes.
 4. `CS_Tile` — the tile map and its region readings, only with `AutoMaskCompute` **and**
    `AutoMaskDiagnostics` both on. It is the last pass now that the closing stores the history, reading
    the mask the closing published and the accumulator's own graded motion, both of which describe this
    frame.
-5. `PS_StoreDepth` — only with `AutoMaskDepthMotion`: it leaves this frame's
-   linearized depth for the next frame's comparison, and the accumulator read that target earlier in the
-   frame, so nothing samples what this writes. It is one full-resolution pass on both paths and writes the
-   `R32F` target the accumulator's depth term reads.
-6. `PS_AntiBloom` — black the masked pixels in the live frame so a bloom pass downstream has no UI to
+5. `PS_AntiBloom` — black the masked pixels in the live frame so a bloom pass downstream has no UI to
    pick up. It comes after the closing, which is what keeps the real UI for the restore pass; blacking
    earlier would bank the black instead.
-7. The diagnostics overlay, last, and only when `AutoMaskDiagnostics` is defined to 1 — a compile-time
+6. The diagnostics overlay, last, and only when `AutoMaskDiagnostics` is defined to 1 — a compile-time
    guard on the pass and the shader both, so with it off neither is compiled. It reads the accumulator
    directly rather than recomputing the difference, so it cannot report on itself instead of on the
    shader. It draws one of three views: red where the graded motion reads, green where the accumulator's

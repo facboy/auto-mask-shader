@@ -1,16 +1,16 @@
 # Performance openings
 
-What is left after `docs/performance.md`, whose §2–§8 are instruction-level or pass folds that landed,
-and whose §9 records the two openings that are closed. §2–§4 below **have since landed** — §2 and §3 as
-that §7, the store target and the published map gone and the closing writing the frame with the mask in
-its alpha, and §4 as that §8, the closing's dead out-of-radius frame taps guarded — and what they argued
-is kept as the reasoning behind it. The remaining entries are **traffic**: the full-resolution passes and
-targets the frame still moves where it does not have to. §6 is the one proposal here that adds cost
-rather than removing it, because its question is which games the pixel path serves rather than what the
-frame can stop doing. Nothing still open is built and none of it has been in a game, so each entry names
-what it would save and what would have to be watched to accept it.
+What is left after `docs/performance.md`, whose §2–§9 are instruction-level or pass folds that landed,
+and whose §10 records the two openings that are closed. §2–§5 below **have since landed** — §2 and §3 as
+that §7 (the store target and the published map gone, the closing writing the frame with the mask in its
+alpha), §4 as that §8 (the closing's dead out-of-radius frame taps guarded) and §5 as that §9 (the depth
+store folded into the closing) — and what they argued is kept as the reasoning behind it. The one entry
+still open is the pixel-path drift question, §6, which is the one proposal here that adds cost rather
+than removing it: it asks which games the pixel path serves rather than what the frame can stop doing. It
+is not built and has not been in a game, so it names what it would cost and what would have to be watched
+to accept it.
 
-Companions: `docs/performance.md` (the cost already measured, and §9's two closed items),
+Companions: `docs/performance.md` (the cost already measured, and §10's two closed items),
 `docs/refactor-candidates.md` (what a fold has to clear — an unmoved hash for every entry point it does
 not touch), `docs/core-model.md` and `docs/compute-path.md` (the pass and target counts these would
 change), `docs/review.md` §2.2 (the redundancy §2 follows to its conclusion).
@@ -90,17 +90,17 @@ The branch is the loop index against a uniform radius, so it is uniform across t
 nothing at the shipped defaults, where the two radii are equal and every offset is in range. It was the
 cheapest entry here, and the only one that paid only at some settings rather than at all of them.
 
-## 5. The depth store, folded
+## 5. Landed: the depth store folded into the closing
 
-`PS_StoreDepth` exists because the accumulator reads `texAutoDepth` for the previous frame and a pass
-cannot read what it writes, so this frame's depth needs a writer later in the frame. It samples the depth
-buffer and writes one `R32F` target at full resolution. The closing pass runs after the accumulator's
-read and can host that write as a further render target under the same `AutoMaskDepthMotion` guard: one
+`PS_StoreDepth` existed because the accumulator reads `texAutoDepth` for the previous frame and a pass
+cannot read what it writes, so this frame's depth needed a writer later in the frame. It sampled the depth
+buffer and wrote one `R32F` target at full resolution. The closing pass runs after the accumulator's read
+and now hosts that write as a second render target under the same `AutoMaskDepthMotion` guard: one
 full-resolution pass and its dispatch go on the depth path. The bytes do not — the target still has to be
 written, or the accumulator compares a stale depth — so what this saves is a pass, not traffic, and it
-saves nothing at all with the switch off. The compute path does not avoid the pass either: `CS_Accum` is
-the pass that reads the depth it would have to write, and a storage object cannot be read and written in
-one dispatch.
+saves nothing at all with the switch off, where the guard compiles the second target and the store out
+together. `docs/performance.md` §9 is the landed account; only `PS_DilateV` moves and `PS_StoreDepth` is
+gone, across the eight variants that compile the depth check in.
 
 ## 6. Not a saving: the drift channel on the pixel path
 

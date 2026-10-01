@@ -168,7 +168,18 @@ loop goes from four samples a pixel to two; the price is 3 static slots, 50 → 
 the one measurement here that changes no pass, target or sample at the settings most users run. Only
 `PS_DilateH`'s bytecode moves; every other entry point is unchanged.
 
-## 9. Openings left
+## 9. The depth store, folded into the closing
+
+`PS_StoreDepth` was a full-resolution pass whose only job was to leave this frame's linearized depth for
+the next frame's comparison, in a target of its own because the accumulator reads it earlier in the frame
+and a pass cannot read what it writes. The closing pass already runs after that read, so the write is a
+second render target on `PS_DilateV` under the same `AutoMaskDepthMotion` guard — the same shape as the
+store fold in §7. One full-resolution pass and its dispatch go on the depth path; the target and its write
+stay, so nothing is saved in bytes, only in the pass and its dispatch. It costs `PS_DilateV` four static
+slots (68 → 72) and moves nothing else: only `PS_StoreDepth`'s removal and `PS_DilateV`'s bytecode change,
+across the eight variants that compile the depth check in. The off path is untouched.
+
+## 10. Openings left
 
 - **The isolation gate's four taps a loop step — measured, and left.** The note this replaces proposed
   a flat 3×3 gathering "cheaper per tap". It is not available: the four counts are runs of `2·reach + 1`
@@ -183,6 +194,5 @@ the one measurement here that changes no pass, target or sample at the settings 
   count's sixteen `eq`/`and` pairs. `AutoMaskClipped` returning `int` rather than `float` is a recorded
   decision (`docs/refactor-candidates.md`) that keeps the bytecode hash stable, so this is not a tidy.
 
-Both are instruction-level and closed. The openings that are not are full-resolution passes rather than
-instructions — a folded depth store, and the pixel-path drift question — and `docs/performance-openings.md`
-collects them.
+Both are instruction-level and closed. The one opening that is a full-resolution pass rather than an
+instruction is the pixel-path drift question, and `docs/performance-openings.md` collects it.

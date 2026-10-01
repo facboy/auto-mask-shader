@@ -15,7 +15,7 @@ check:
   ReShade-level definition would be — because a `#if` guard can drop a pass from a technique body, and only
   compiling every combination shows that it did. The compute switch is crossed with the others rather than
   added beside them because it swaps a pass for one of another type instead of removing it, and the depth
-  switch likewise adds a full-resolution store pass on both paths, so a guard that drops or misbinds a pass
+  switch likewise adds a render target on the closing pass, so a guard that drops or misbinds a pass
   has to show at every setting. `--pass-list` prints the wiring, `--opcodes` the histogram per shader,
   `--hashes` the bytecode sha256 of each entry point — which is how the `AutoMaskDepthMotion=0` variants are
   shown to compile byte-for-byte as before a change.
@@ -506,4 +506,12 @@ whether the reading you are looking at is current.
   which now runs after the closing: its cell readings are of the mask the closing published, and a cell that
   reads the wrong class is `CS_Tile` having been left before the pass whose output it now wants. The
   off-GPU half is the hash set: `PS_DilateV`, `PS_Restore`, `PS_AntiBloom` and `CS_Tile` are expected to
-  move, and `PS_DilateH`, `CS_Accum` and the depth store are the ones that should not.
+  move, and `PS_DilateH` and `CS_Accum` are the ones that should not.
+- **The depth store rides the closing.** With `AutoMaskDepthMotion` on, `PS_DilateV` writes `texAutoDepth`
+  as a second target instead of a `PS_StoreDepth` pass: the pass list must show the store gone with the
+  depth still bound on the closing, and the depth variants are a pass shorter. The behaviour to check is
+  that the world-drawn premise still reads the previous frame's depth — a scene where depth moves has to
+  keep the world reading as drawn, and a still one must not — since the store landing in a different pass
+  is only correct if the accumulator still reads before the write. The off path must be untouched: the
+  `AutoMaskDepthMotion=0` variants are byte-identical, and in the depth variants only `PS_DilateV` moves
+  and `PS_StoreDepth` is gone.

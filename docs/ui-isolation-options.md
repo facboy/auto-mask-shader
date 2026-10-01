@@ -455,9 +455,10 @@ was). It can only add to that count, never
 remove, and never touches the verdict — which is what keeps it from being the mask refused above. With no
 depth bound the sampled texture is a constant on both sides, the difference is zero, and the reading is the
 picture's own exactly: the online-game case degrades rather than needing a second path. It owns one `R32F`
-target and one full-screen store pass, both inside the guard, and the store is ordered after the
-accumulator's read so no pass reads and writes the same target. It does nothing for a panel over an
-already-stopped world, where the depth is stopped too — that stays §3.3's cost.
+target, written by the closing pass rather than a store pass of its own, both inside the guard, and the
+store is ordered after the accumulator's read so no pass reads and writes the same target. It does
+nothing for a panel over an already-stopped world, where the depth is stopped too — that stays §3.3's
+cost.
 
 Unverified in a game: the whole of it. The mechanism and the fallback are off-GPU properties, but whether
 DSR's depth is usable and what step it needs are questions only a game answers; `docs/verification.md`
@@ -622,7 +623,7 @@ open are settled against the code:
 | 5.6 | tile map | its three readings; kept as the tuning instrument for the shipped spatial rules | a pass, a 16×16 target and a 2×1 reading target | compute + diagnostics — **shipped, and kept after the options it was built to decide were settled** |
 | 5.7 | auto-placed deadzone | §3.4's manual tuning | off the tile map | — **dropped: the manual region was removed as unused** |
 | 5.8 | alpha-composite ratio | reading only | a new per-cell magnitude statistic, built as a pass with a `RGBA32F` grid and a share target | compute + diagnostics — **measured out and removed: the graded channel saturates, so the ratio cannot separate a panel from moving world** |
-| 5.9 | depth check | §3.3 in the common case (the panel no longer hides the drawing), not the panel over a stopped world | one `R32F` target and one full-screen store pass; degrades to the picture's own premise with no depth bound | preprocessor definition, off — **shipped as `AutoMaskDepthMotion`** |
+| 5.9 | depth check | §3.3 in the common case (the panel no longer hides the drawing), not the panel over a stopped world | one `R32F` target, written on the closing pass; degrades to the picture's own premise with no depth bound | preprocessor definition, off — **shipped as `AutoMaskDepthMotion`** |
 | 5.10 | viewpoint-change premise | the animated-neighbour form of §3.3 — a still patch banked because a *different* region repaints | a depth-change share in place of the colour share; still misses animated geometry, and withholds stillness in textural-only scenes | live checkbox — **the selector shipped as `AutoMaskDepthOnly` and the case measured rare in a game, so the selector is enough; the premise itself is not scoped** |
 
 **The directional densities are shipped**, in the four-axis form that covers the diagonals too.

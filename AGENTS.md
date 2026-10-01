@@ -172,9 +172,9 @@ graded against it goes off screen-wide.
   A depth buffer
   that is not bound reads as a constant on both sides of the comparison, so the difference is zero and the
   premise is the picture's own exactly — which is why the online-game case degrades to the old behaviour
-  rather than needing a fallback path. It owns one `R32F` target and one full-resolution store pass, both
-  inside the guard; that target is read by the accumulator and written by a later store pass, so no pass
-  reads what it writes, and it is not the ping-pong the accumulator itself needs. `AutoMaskDepthOnly`, a
+  rather than needing a fallback path. It owns one `R32F` target, written as a second render target on the
+  closing pass rather than a pass of its own — that pass runs after the accumulator's read of it, so no
+  pass reads what it writes, and it is not the ping-pong the accumulator itself needs. `AutoMaskDepthOnly`, a
   live checkbox beside it inside the guard, is the measurement §5.10 of `docs/ui-isolation-options.md`
   asks for: it takes the world-drawn reading from the depth term alone rather than from depth added to the
   picture, so the premise reads viewpoint change instead of picture change. Together with the switch it
@@ -250,6 +250,11 @@ graded against it goes off screen-wide.
   loop index against a uniform radius, so it is uniform across the wavefront; it saves nothing at the
   shipped defaults and drops the dead frame taps wherever growth is narrower than isolation. See
   `docs/performance.md` §8.
+- **The depth store rides the closing too.** `PS_DilateV` writes next frame's `texAutoDepth` as a second
+  render target under the depth guard, instead of a `PS_StoreDepth` pass of its own: the closing runs
+  after the accumulator's read of that target, so nothing samples what it writes, and the guard compiles
+  the target and the write out together when the switch is off. It is a pass saved and no bytes. See
+  `docs/performance.md` §9.
 - **The closing writes next frame's history, and the mask rides in its alpha.** `PS_DilateV` returns the
   frame it was drawn over with the settled mask in the alpha into `texAutoHistory` — the accumulator read
   that target earlier in the frame, so nothing samples what this writes — and the restore reads the frame
