@@ -175,8 +175,9 @@ deferral costed it.
 - **The two back-edges.** `docs/performance.md` §4: one side of the accumulator's pair must be read while
   the other is written, and the fixed pass list cannot alternate them.
 - **The isolation gate's four taps a loop step, and the accumulator's static footprint.**
-  `docs/performance.md` §8: the first is wrong at radius 2 or 3 as a flat gather, the second is a
-  recorded hash-stability decision.
+  `docs/performance.md` §11: the first is wrong at radius 2 or 3 as a flat gather, so there is no
+  cheaper form of the same count; the second is arithmetic the verdict needs, not a saving — and
+  `AutoMaskClipped`'s `int` return is a byte-order pin with no cost either way.
 - **`PS_AntiBloom` folded into the closing.** The blacking has to land after the pass that reads the
   frame the history is stored from, and a pass that names render targets does not write the back
   buffer — which is what every pass here that names one relies on.

@@ -218,9 +218,14 @@ the offline check confirms it compiles and moves nothing else.
   uniform, so off it compiles to an untaken `if_nz` and no sample is issued — at the defaults,
   `PS_DilateV` 4 → 8 samples a pixel when the gate is switched on. What the four runs already get for
   free is the box share and the column count, both read out of the one `texAutoDilate` tap per offset.
-- **The accumulator's static footprint.** `CS_Accum` (254) and `PS_Accum` (151) carry the pinned-colour
-  count's sixteen `eq`/`and` pairs. `AutoMaskClipped` returning `int` rather than `float` is a recorded
-  decision (`docs/refactor-candidates.md`) that keeps the bytecode hash stable, so this is not a tidy.
+- **The accumulator's static footprint — arithmetic, not an opening.** `PS_Accum` (93, or 151 with the
+  depth check) and `CS_Accum` (196, or 256) carry the pinned-colour count's four `eq` groups of three
+  `and`s each. The count feeds `stable` and the changed/active tally, so it is computed on both paths
+  whatever else changes; there is no cheaper form of it to fold into. `AutoMaskClipped` returning `int`
+  rather than `float` is a separate, smaller pin with no cost either way: a `float` return reorders
+  `iadd`/`itof` against `and`/`add` without changing the instruction count, so it is neither a saving nor
+  a blocker — `docs/refactor-candidates.md` records it as type honesty plus a bytecode-stability choice
+  made during a fold, not a performance decision.
 
 Both are instruction-level and closed. The one opening left is the pixel-path drift question, a
 full-resolution pass rather than an instruction, which `docs/performance-openings.md` §6 collects.

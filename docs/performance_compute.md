@@ -112,9 +112,10 @@ thing that reads `.b` on the compute path.
   two reduce passes and is not a candidate for folding.
 - **The drift pair.** Re-centred into half precision (`docs/performance.md` §10); the remaining cost is
   the two full-resolution targets and their four touches, which is the price of the channel, not a fold.
-- **Any change that reaches across the guards.** Every item in §2–§3 sits behind the depth or the compute
-  guard, so the shipped pixel default is byte-identical. A change that moved a non-guarded entry point's
-  hash would have to clear `docs/refactor-candidates.md` §1 first.
+- **Reaching across the guards.** Every item in §2–§3 sits behind the depth or the compute guard, so the
+  shipped pixel default is untouched. A change that reached past that line would be a change to the
+  default path in its own right and would need its own justification — not because the bytecode would
+  move, but because the default's behaviour would.
 
 ## 5. How to verify a change here
 
