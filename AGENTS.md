@@ -35,6 +35,7 @@ store/restore pattern and the anti-bloom suppression belongs to Kaiser (UIDetect
 | `docs/review.md`, `docs/drift-snap-review.md`, `docs/optical-flow.md` | Recorded design history and closed investigations. |
 | `docs/ui-isolation-options.md` | Options for reading interface as a region rather than per pixel, none of them scoped. What §6's instrument decides between. |
 | `docs/refactor-candidates.md` | The folds that landed in the shader and the check, what was considered and left, and what is deliberately not a candidate. |
+| `docs/performance.md` | Where the frame's cost sits, read off the compiled bytecode, and the closing-loop bound it justified. |
 
 The one companion header is **`Shaders/AutoMask.fxh`, and it holds code and nothing else**: the shared
 arithmetic both accumulators call, no uniform, `texture`, `sampler` or technique. A header of **authored

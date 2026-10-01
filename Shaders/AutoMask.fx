@@ -950,8 +950,10 @@ float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	float mask = centre;
 	float lumaCentre = AutoMaskLuma(tex2D(ReShade::BackBuffer, texcoord).rgb);
 	float nearby = 0.0;
+	//A tap past both radii feeds neither term, so the loop spans only the larger radius.
+	float span = min(max(r, reach), AUTOMASK_DILATE_MAX);
 
-	for (int i = -AUTOMASK_DILATE_MAX; i <= AUTOMASK_DILATE_MAX; i++){
+	for (int i = -int(span); i <= int(span); i++){
 		float2 uv = texcoord + float2(i * texel.x, 0.0);
 		bool inRange = abs(float(i)) <= r;
 		float luma = AutoMaskLuma(tex2D(ReShade::BackBuffer, uv).rgb);
@@ -983,8 +985,10 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	float column = 0.0;
 	float diagDown = 0.0;
 	float diagUp = 0.0;
+	//As the horizontal pass: the loop spans the larger of the two radii.
+	float span = min(max(r, reach), AUTOMASK_DILATE_MAX);
 
-	for (int i = -AUTOMASK_DILATE_MAX; i <= AUTOMASK_DILATE_MAX; i++){
+	for (int i = -int(span); i <= int(span); i++){
 		float2 uv = texcoord + float2(0.0, i * texel.y);
 		bool inRange = abs(float(i)) <= r;
 		float luma = AutoMaskLuma(tex2D(ReShade::BackBuffer, uv).rgb);
