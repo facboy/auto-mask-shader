@@ -344,7 +344,9 @@ readings.
 - **anti-bloom** — `PS_AntiBloom` blacking the masked pixels in the live frame so a bloom pass downstream
   has no UI to pick up. The real pixels are put back by the restore, so the final picture is unchanged.
 - **closing radius / dilation** — the two separable `PS_DilateH`/`PS_DilateV` passes growing the mask,
-  stopped where the luma step read from the back buffer is exceeded.
+  stopped where the luma step of a tap exceeds `AutoMaskEdge`. The horizontal pass reads each tap's luma
+  from the back buffer and writes its own centre's into `texAutoDilate`'s `.a`; the vertical pass bounds
+  its taps by that stored luma, so the frame is read for it once rather than twice.
 - **opening / the gate's operation** — what the isolation gate does to the mask, but not a plain
   morphology: it is the closing with a count test on top, not a min of the mask over the box. A pixel
   survives when the verdict's own count in its box clears the threshold, so a pixel the closing grew out
@@ -361,7 +363,9 @@ readings.
   whole length and a lone pixel, a pair or a short run stay specks. The door's floor is
   `max(reach + 1, AUTOMASK_AXIS_MIN)`.
 - **luma step** — `AutoMaskEdge` compared against `dot(colour, float3(0.299, 0.587, 0.114))`, the Rec.601
-  luma the dilation reads from the frame.
+  luma the dilation reads from the frame. The horizontal pass reads it from the frame; the vertical pass
+  reads the luma the horizontal one stored in `texAutoDilate`'s `.a`, quantized to that `RGBA8` grid, so a
+  tap's edge within one level of `AutoMaskEdge` can land on either side of it.
 - **diagnostics overlay** — the `PS_DebugMap` pass, compiled only when `AutoMaskDiagnostics == 1`. It
   reads the accumulator directly, so it cannot report on itself instead of on the shader.
 - **motion view / verdict view / confidence view** — the overlay's per-pixel readings, picked by two

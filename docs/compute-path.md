@@ -234,8 +234,10 @@ Follows from what each pass reads:
    already takes, so the back-edge costs no extra sample. On the compute path it takes a third target,
    `texAutoDriftA`, and carries the drift average back the same way — the copy `PS_CopyDrift` used to
    be — so the drift pair has no pass of its own either. `PS_Dilate` is one pass: a 2D max over a tiny
-   fixed neighbourhood, stopping where the luma step read from `BackBuffer` exceeds `AutoMaskEdge`.
-   Reading the frame there is safe only because it is before every pass that writes it. The isolation
+   fixed neighbourhood, stopping where the luma step exceeds `AutoMaskEdge` — the horizontal pass reads
+   that luma from `BackBuffer`, and stores its centre into `texAutoDilate`'s `.a`, so the vertical pass
+   bounds its own taps by the tap it already samples rather than re-reading the frame. Reading the frame
+   there is safe only because that pass is before every pass that writes it. The isolation
    gate rides in these two passes too, off their own target: it is a pixel-pass feature, so it reads the
    same on both variants and has no compute spelling.
 4. `CS_Tile` — the tile map and its region readings, only with `AutoMaskCompute` **and**

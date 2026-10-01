@@ -166,9 +166,11 @@ speck's neighbourhood is whatever the scene happens to be.
 
 So the gate rides in the two closing passes, in the channels they leave unused. `PS_DilateH` counts the still
 pixels in each output pixel's row and writes the count into `.g` of `texAutoDilate` scaled by
-`AUTOMASK_COUNT_SCALE`, so a whole count lands on a whole byte, and writes the centre's own verdict into
-`.b`; `PS_DilateV` sums those rows into the box's still total and reads `.b` down the column, across the
-two diagonals, for the line test below. The box is the isolation radius (`AutoMaskIsolation`), not the
+`AUTOMASK_COUNT_SCALE`, so a whole count lands on a whole byte, writes the centre's own verdict into
+`.b`, and writes the centre luma into `.a`, which is what the vertical pass bounds its own taps by
+instead of reading the frame for that luma a second time; `PS_DilateV` sums those rows into the box's
+still total and reads `.b` down the column, across the two diagonals, for the line test below, bounding
+its taps off the same target's `.a`. The box is the isolation radius (`AutoMaskIsolation`), not the
 closing's: the closing is how far the mask is grown, which is about shape, while the box is how much
 corroboration a pixel needs, which is about evidence, and tying them would move the gate's meaning
 whenever the closing is retuned. It is read as one pixel at the bottom so the setting cannot silently

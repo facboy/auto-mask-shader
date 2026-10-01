@@ -281,9 +281,9 @@ sampler AutoHistory { Texture = texAutoHistory; };
 texture texAutoFrame { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
 sampler AutoFrame { Texture = texAutoFrame; };
 
-//Intermediate target for separable dilation. .g carries the isolation gate's row count and .b the
-//centre verdict, the channels the closing radius leaves unused, so the vertical pass can count a
-//column and a diagonal out of taps it already takes.
+//Intermediate target for separable dilation. .g carries the isolation gate's row count, .b the centre
+//verdict and .a the centre luma, channels the closing radius leaves unused: the vertical pass counts a
+//column and a diagonal off taps it already takes, and bounds them by a luma it does not re-derive.
 texture texAutoDilate { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
 sampler AutoDilate { Texture = texAutoDilate; };
 
@@ -916,7 +916,8 @@ float4 PS_MotionAvg(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_T
 }
 #endif
 
-//The closing's luma, one copy for both passes, and the luma bound on a tap. `inRange` is passed to the
+//The closing's luma and the luma bound on a tap. The horizontal pass is the only reader of the frame,
+//so the luma it computes at the centre and at each tap goes through one copy. `inRange` is passed to the
 //test rather than computed in it, so the loop index stays at the call site where it was.
 float AutoMaskLuma(float3 rgb)
 {
@@ -974,13 +975,13 @@ float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
 		mask = max(mask, neighbour * keep);
 	}
 	//.b is the centre's own verdict, which the vertical pass needs to count a column or a diagonal:
-	//those runs cross this pass rather than lying along it, so a row count cannot supply them.
-	float still = step(0.5, centre.r);
+	//those runs cross this pass rather than lying along it, so a row count cannot supply them. .a is the
+	//centre luma, which that pass would otherwise recompute from the frame at every tap it takes.
 	carry = centre;
 	#if AutoMaskCompute == 1
 		driftCarry = float4(drift.rgb, 1.0);
 	#endif
-	return float4(mask, nearby / AUTOMASK_COUNT_SCALE, still, 1.0);
+	return float4(mask, nearby / AUTOMASK_COUNT_SCALE, step(0.5, centre.r), lumaCentre);
 }
 
 //Vertical closing bounded by luma edge, plus the box's still count and the isolation gate's line test.
@@ -991,7 +992,7 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	float reach = max(floor(AutoMaskIsolation + 0.5), 1.0);
 	float4 centre = tex2D(AutoDilate, texcoord);
 	float mask = centre.r;
-	float lumaCentre = AutoMaskLuma(tex2D(ReShade::BackBuffer, texcoord).rgb);
+	float lumaCentre = centre.a;
 	//The four runs through this pixel: its column, and its two diagonals. Its row is the centre's own
 	//count, already in .g, and the diagonals read the centre verdict .b so a contour inside a HUD
 	//cannot cost them, exactly as the row count is unbounded by luma.
@@ -1000,7 +1001,8 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	float diagDown = centre.b;
 	float diagUp = centre.b;
 	//As the horizontal pass: the loop spans the larger of the two radii, and its centre step is the
-	//four taps above, so it is skipped rather than re-sampling the texel this pass already took.
+	//four taps above, so it is skipped rather than re-sampling the texel this pass already took. The
+	//luma it bounds each tap by rides in the tap's own .a, so the frame is not read for it again here.
 	float span = min(max(r, reach), AUTOMASK_DILATE_MAX);
 
 	for (int i = -int(span); i <= int(span); i++){
@@ -1008,9 +1010,8 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 			continue;
 		float2 uv = texcoord + float2(0.0, i * texel.y);
 		bool inRange = abs(float(i)) <= r;
-		float luma = AutoMaskLuma(tex2D(ReShade::BackBuffer, uv).rgb);
-		float keep = AutoMaskEdgeKeep(luma, lumaCentre, inRange);
 		float4 row = tex2D(AutoDilate, uv);
+		float keep = AutoMaskEdgeKeep(row.a, lumaCentre, inRange);
 		//The gate's extra taps sit behind its own checkbox, which ships off, so the default path does
 		//not take them: the column and the diagonals cost nothing while nothing reads them.
 		if (AutoMaskIsolated && abs(float(i)) <= reach){

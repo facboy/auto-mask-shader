@@ -15,14 +15,17 @@ shipped defaults, the samples a pixel actually costs:
 | pass | samples/px, gate off | gate on |
 | --- | --- | --- |
 | `PS_DilateH` | 6 | 6 |
-| `PS_DilateV` | 6 | 10 |
-| closing, both passes | **12** | 16 |
+| `PS_DilateV` | 3 | 7 |
+| closing, both passes | **9** | 13 |
 
-The closing is the heaviest part of the full-resolution chain, against the accumulator's 8 and the
-other full-resolution passes at 1–3 each. The fixed seven-tap window it began with cost `PS_DilateH` 16
-and `PS_DilateV` 16 samples a pixel with the gate off, and 30 for the vertical pass with it on — a
-figure neither the source nor the static count (51 and 71) shows. §2's bound takes that to 8 + 8, and
-§5's skipped centre step to 6 + 6.
+The closing is the heaviest part of the full-resolution chain at every shipped setting, against the
+accumulator's 8 samples a pixel and the other full-resolution passes at 1–3 each. The accumulator's
+static count is what moves under a switch — 151 under `AutoMaskDepthMotion` against 93 without — and its
+samples do not: the depth block takes no back-buffer tap, and the one accumulator branch that takes
+extra taps at all, `AutoMaskNeighbour`'s four admission ones, ships off. The fixed seven-tap window the
+closing began with cost `PS_DilateH` 16 and `PS_DilateV` 16 samples a pixel with the gate off, and 30
+for the vertical pass with it on — a figure neither the source nor the static count (51 and 71) shows.
+§2's bound takes that to 8 + 8, §5's skipped centre step to 6 + 6, and §6's luma hand-off to 6 + 3.
 
 ## 2. The taps neither radius wants
 
@@ -96,7 +99,30 @@ closing from 16 samples a pixel to **12** (gate off) and from 22 to **16** (gate
 the four seeds are the only static cost — a handful of slots on each pass — and the branch is on the
 loop index, so it is uniform across the wavefront rather than divergent.
 
-## 6. Openings left
+## 6. The luma both closings compute
+
+`PS_DilateH` takes the centre luma to bound its own taps and publishes the centre verdict, so the
+vertical pass can count a column and a diagonal off taps it already takes. It published neither the
+luma at the centre nor the one at each loop offset, so `PS_DilateV` computed both a second time from
+the frame — a back-buffer read per tap plus one at the centre, for a bound the pass next door had just
+derived. Nothing but `PS_DilateV` samples `texAutoDilate`, and its `.a` was written as a constant `1.0`
+and read by nobody, so the channel carries the luma instead: the horizontal pass stores `lumaCentre`
+there, and the vertical pass reads `centre.a` and the `.a` of the `tex2D(AutoDilate, uv)` tap it already
+takes. The closing drops from 12 samples a pixel to **9** with the gate off and from 16 to **13** with
+it on; `PS_DilateH` 51 → 50 slots and `PS_DilateV` 71 → 67, with every other entry point's bytecode
+unchanged — which is what pins the saving to the two closing passes.
+
+The catch is the grid, and it is the reason the `.a` is a luma and not the raw colour. `texAutoDilate`
+is `RGBA8`, while `AutoMaskEdgeKeep` compares `abs(luma - lumaCentre) * 255` against the integer
+`AutoMaskEdge`. A tap whose edge lands within a level of that threshold can therefore read on the other
+side of it, so the vertical pass's mask differs from the closing it replaces at those taps — by exactly
+one level of the comparison, at a contour of the threshold's own width and no other. A closing exists to
+absorb soft edges, and the closing radius itself is stepped in whole pixels, so a one-pixel disagreement
+at one contour is inside the feature's own resolution rather than outside it. Carrying the luma
+unquantized would remove even that, but needs a channel at least as precise as the luma's own 1/255
+scale, and none is free — `texAutoAccumB`'s `.a` is the pinned-colour flag `PS_Motion` reads.
+
+## 7. Openings left
 
 - **The isolation gate's four taps a loop step — measured, and left.** The note this replaces proposed
   a flat 3×3 gathering "cheaper per tap". It is not available: the four counts are runs of `2·reach + 1`

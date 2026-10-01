@@ -35,7 +35,7 @@ store/restore pattern and the anti-bloom suppression belongs to Kaiser (UIDetect
 | `docs/review.md`, `docs/drift-snap-review.md`, `docs/optical-flow.md` | Recorded design history and closed investigations. |
 | `docs/ui-isolation-options.md` | Options for reading interface as a region rather than per pixel, none of them scoped. What §6's instrument decides between. |
 | `docs/refactor-candidates.md` | The folds that landed in the shader and the check, what was considered and left, and what is deliberately not a candidate. |
-| `docs/performance.md` | Where the frame's cost sits, read off the compiled bytecode, and the closing-loop, back-edge and centre-step savings it justified. |
+| `docs/performance.md` | Where the frame's cost sits, read off the compiled bytecode, the closing-loop, back-edge and centre-step savings it justified, and the openings left. |
 
 The one companion header is **`Shaders/AutoMask.fxh`, and it holds code and nothing else**: the shared
 arithmetic both accumulators call, no uniform, `texture`, `sampler` or technique. A header of **authored
@@ -221,7 +221,7 @@ graded against it goes off screen-wide.
   slowly to change a pixel between two frames — sub-resolution drift, not a forgiving deadband. The same
   finding closed §5.5.2, which would charge exactly those bit-still pixels faster, so both halves are shut.
 - **The isolation gate follows admission's rule** rather than getting a definition of its own: it owns
-  no pass, shader or target, its counts riding in the two channels `texAutoDilate` leaves unused on the
+  no pass, shader or target, its counts riding in the two channels `texAutoDilate` carries for it on the
   two closing passes. `AutoMaskIsolated` opens `Isolated pixels` with `ui_category_toggle`, and the test it
   gates is a share of the box (`AutoMaskDensity`), the pixel itself counted, so one number means the same
   thing at every radius — **or** one line through the pixel (`max(reach + 1, AUTOMASK_AXIS_MIN)`), which is
@@ -231,6 +231,16 @@ graded against it goes off screen-wide.
   so the door costs no pass, target or uniform and is both taken and sampled only while the gate is on.
   Both doors sit on the verdict, not on colour. The box share stays a first door, so the gate can only
   rescue a pixel it would have dropped and never newly drops one.
+- **The vertical closing reads the luma the horizontal one measured.** `PS_DilateH` bounds each of its
+  taps by that tap's luma against its centre's, so it holds both; `PS_DilateV` bounds its taps the same
+  way and would otherwise re-read the back buffer for every one of them. Instead the horizontal pass
+  stores the centre luma in `texAutoDilate`'s `.a` — a channel nothing else reads — and the vertical pass
+  takes both boundary lumas from the `texAutoDilate` tap it already samples. It is a luma rather than the
+  raw colour because the target is `RGBA8` and `AutoMaskEdge` is a level count out of 255, so storing the
+  luma perturbs that same scale by at most one level instead of folding in the Rec.601 weights as well. A
+  tap within one level of the threshold can therefore land on the other side of it, which moves the
+  closing's boundary by at most a pixel where a contour's own step is that wide — the same order as
+  `AutoMaskDilate`'s own step. See `docs/performance.md` §6 and `docs/core-model.md`.
 - The **isolation radius is its own setting** (`AutoMaskIsolation`), not the closing radius: shape and
   evidence are different questions, and tying them would move what `AutoMaskDensity` means whenever the
   closing is retuned. The density is a share rather than a count, so it means one thing at every radius; a

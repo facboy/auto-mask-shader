@@ -394,6 +394,16 @@ whether the reading you are looking at is current.
   difference is a 2-px bar or a block's interior at a wide **Isolation radius** instead. The scenarios above
   are worth running at both closing settings for that reason, and the checkbox cleared at each must give
   back exactly the pre-change mask.
+- **The closing's two passes share one luma plane.** `PS_DilateH` stores its centre luma in
+  `texAutoDilate`'s `.a` and `PS_DilateV` bounds its taps by it, so the vertical pass no longer re-reads
+  the back buffer for a luma the pass next door measured. The saving has one consequence and it needs
+  eyes: `texAutoDilate` is `RGBA8`, so a tap whose edge lands within a level of `AutoMaskEdge` can fall on
+  the other side of it, and the vertical pass's growth can differ from the horizontal's by at most that.
+  Sweep **Closing radius** `0`–`3` over anti-aliased text and one-pixel strokes at the default luma step:
+  the boundary must still close the same glyphs, with no one-pixel gap opening at a contour that was
+  closed before. At `0` there is no growth to compare, and the pass-through must be exactly as it was. The
+  off-GPU half is the hash set: every entry point but `PS_DilateH` and `PS_DilateV` must be byte-identical,
+  which is what pins the change to those two.
 - **The tile map, which is the instrument rather than a filter.** It exists only with the compute path
   and the diagnostics overlay both on, so the first check is that the tile view (and its five bars) is
   absent, not merely inert, with either switch off. With it on: the map must show green over interface,
