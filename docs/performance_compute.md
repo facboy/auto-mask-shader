@@ -4,8 +4,8 @@ What the two configurations that ship off cost when they are on. Both default to
 a device or a depth buffer, not because they are worse: `AutoMaskCompute=1` is the more accurate mask
 and `AutoMaskDepthMotion=1` is the better witness where depth is available, so a player who can run them
 runs them. `docs/performance.md` measures the shipped pixel default; this is what differs off the same
-compiled bytecode, and the openings that measurement leaves. §2's depth-only branch and §3's narrowing
-are both built.
+compiled bytecode, and the openings that measurement leaves. §2's depth-only branch, §3's narrowing and
+§4's guarded step fetch are all built.
 
 Companions: `docs/performance.md` (the default path's measured cost, and the bytecode method),
 `docs/compute-path.md` (what the switch swaps in), `docs/core-model.md` (the depth witness),
@@ -17,8 +17,8 @@ Companions: `docs/performance.md` (the default path's measured cost, and the byt
 
 | entry point | variant | slots |
 | --- | --- | ---: |
-| `CS_Accum` | compute | 196 |
-| `CS_Accum` | compute + depth | 257 |
+| `CS_Accum` | compute | 198 |
+| `CS_Accum` | compute + depth | 259 |
 | `PS_Accum` | pixel | 93 |
 | `PS_Accum` | pixel + depth | 152 |
 | `PS_DilateH` | compute | 56 |
@@ -31,7 +31,7 @@ Three facts follow, and none is in `docs/performance.md`:
   rest of `PS_Accum` put together. `docs/performance.md` §1 records that the accumulator's static count
   moves under a switch (152 against 93) but not what the block does; §2 is that.
 - **On the compute path the accumulator is the heaviest full-resolution pass, not the closing.** `CS_Accum`
-  196 against `PS_DilateH` 56 and `PS_DilateV` 72. The closing is the heaviest pass on the pixel default
+  198 against `PS_DilateH` 56 and `PS_DilateV` 72. The closing is the heaviest pass on the pixel default
   (`docs/performance.md` §1), and the switch moves that title to the accumulator.
 - **The compute path has no reduce passes at all.** `PS_Motion` (27) and `PS_MotionAvg` (24) are replaced
   by `CS_Accum`'s in-pass tally and `CS_Finish` (66); the technique is `CS_Accum`, `CS_Finish`, the two
@@ -120,7 +120,41 @@ drops annotations before fxc sees the source, and a `Format = BOGUSFORMAT` was m
 suite — **no hash moves at all** for this change and the bytecode cannot testify to it. The vendor tables
 above and a game are the evidence instead.
 
-## 4. Not openings
+## 4. The measured step's fetch, branch-guarded
+
+`deadband = AutoMaskAutoStep ? clamp(tex2Dlod(AutoStep, …).r, 1.0, 8.0) : AutoMaskDeadband()` selected
+between the measured step and the slider, and fxc emitted the fetch ahead of the `movc`, so the 1×1
+`texAutoStep` was sampled at every pixel of `CS_Accum` and thrown away whenever the toggle was off — its
+default. It now builds `AutoMaskDeadband()` and refines it inside `[branch] if (AutoMaskAutoStep)`, so
+the fetch sits in `if_nz cb0[3].y` and the toggle-off path issues no sample. `CS_Accum` 196 → **198** and
+257 → **259**, two static slots for one fetch off every pixel: the accumulator has six unconditional
+taps, so it is one in six of its samples at the default. Only the four compute variants' `CS_Accum`
+moves — the pixel path has no `AutoStep` to fetch, since the measured step is a compute-path feature.
+It is the same shape as §2: a uniform that selects rather than branches, and the `[branch]` that makes
+it branch. `docs/performance.md` §12 is the landed account.
+
+## 5. Declined: branching the drift channel out at `AutoMaskDrift = 0`
+
+At 0 the channel is arithmetically dead: `horizon` floors at 1, so `next` is `now` exactly, the stored
+offset `next - now` is 0, and next frame's average is `before` alone — which makes the drift ramp
+`smoothstep(d, 2d, ·)` a duplicate of the short ramp's `smoothstep(d - 1, d + 2, ·)` inside the `max`,
+and the short ramp decides it at every level tried. The accumulator still pays for the dead channel: the
+`AutoDriftA` tap (one of the six it takes unconditionally), the 23 instructions of `horizon`/`lerp`/`clamp`,
+and the `AutoDriftStore` write.
+
+All three are inside `CS_Accum`, so a live `[branch] if (AutoMaskDrift > 0.0)` would remove them — no
+definition needed for that half. **The closing's half would not go with them**: `PS_DilateH` carries the
+offset back as a named `RenderTarget2`, and a pass binds its targets from the declaration rather than from
+anything the shader computes at runtime, so no uniform can stop that bind or its write. Removing the
+closing half means a definition owning the pair, which `docs/editing-conventions.md` keeps a duration
+slider out of: a slider is retuned by watching, so it stays live.
+
+Measured and declined, on the trade rather than on the arithmetic: the branch's two or three static slots
+are paid at **every** setting, while the saving lands only at 0 — the end of the slider `README.md` steers
+users away from, where the channel is off anyway. It speeds up the setting a user has already given up and
+slows the one the README recommends, so it is left as a costed option rather than built.
+
+## 6. Not openings
 
 - **The pinned-colour count.** `AutoMaskClipped` is four `eq` groups of three `and`s each, twelve
   operations at most, and it is tempting on the compute path because `.a` is a channel nothing reads
@@ -134,12 +168,27 @@ above and a game are the evidence instead.
   two reduce passes and is not a candidate for folding.
 - **The drift pair.** Re-centred into half precision (`docs/performance.md` §10); the remaining cost is
   the two full-resolution targets and their four touches, which is the price of the channel, not a fold.
-- **Reaching across the guards.** Every item in §2–§3 sits behind the depth or the compute guard, so the
+- **Branching the drift channel out at `AutoMaskDrift = 0` — measured, and declined.** At 0 the channel
+  is arithmetically dead: `horizon` floors at 1, so `next` is `now` exactly, the stored offset
+  `next - now` is 0, and next frame's average is `before` alone — which makes the drift ramp
+  `smoothstep(d, 2d, ·)` a duplicate of the short ramp's `smoothstep(d - 1, d + 2, ·)` inside the `max`,
+  and the short ramp decides it at every level tried. The accumulator still pays for the dead channel:
+  the `AutoDriftA` tap (one of the six it takes unconditionally), the 23 instructions of
+  `horizon`/`lerp`/`clamp`, and the `AutoDriftStore` write. All three are inside `CS_Accum`, so a live
+  `[branch] if (AutoMaskDrift > 0.0)` would remove them. **The closing's half would not go with them**:
+  `PS_DilateH` carries the offset back as a named `RenderTarget2`, and a pass binds its targets from the
+  declaration rather than from anything the shader computes, so no uniform can stop that bind or write —
+  removing it is the definition-shaped change this entry declines. And the trade is the wrong way round:
+  the branch's two or three static slots are paid at every setting, while the saving lands only at 0 —
+  the end of the slider `README.md` steers users away from, where the channel is off anyway. It speeds
+  up the setting a user has already given up and slows the one the README recommends; left as a costed
+  option rather than built.
+- **Reaching across the guards.** Every item in §2–§4 sits behind the depth or the compute guard, so the
   shipped pixel default is untouched. A change that reached past that line would be a change to the
   default path in its own right and would need its own justification — not because the bytecode would
   move, but because the default's behaviour would.
 
-## 5. How to verify a change here
+## 7. How to verify a change here
 
 `uv run tools/verify_shaders.py check --hashes --opcodes`, before and after. The evidence wanted is
 narrower than on the default path:
@@ -153,7 +202,10 @@ narrower than on the default path:
   in either direction. The format's support was read from the vendor tables instead (§3), and the check
   cannot refuse a bad storage element type either, since it rewrites `tex2Dstore` before compiling; that
   is how the `storage2D<float2>` attempt reached a game. A game is the only confirmation of the swap.
+- §4's landed branch must move only the four compute variants' `CS_Accum` and nothing else — the pixel
+  accumulators are separate entry points on the pixel path, where the toggle and the target do not exist.
 
 Neither is observable offline beyond the hashes. Whether a depth-only branch reads the same scene the same
-way, or whether a narrower accumulator leaves the compute gate and the tile map intact, needs the overlay
-on a game — `docs/verification.md` lists the scenarios, and an agent cannot run one.
+way, whether a narrower accumulator leaves the compute gate and the tile map intact, or whether the
+measured step still settles where it did, needs the overlay on a game — `docs/verification.md` lists the
+scenarios, and an agent cannot run one.

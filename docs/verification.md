@@ -527,3 +527,11 @@ whether the reading you are looking at is current.
   The in-game check is therefore the only one: with compute on, a scene must produce the same mask it did
   at `RGBA16F` — a mask that differs is `A` having dropped a channel a reader wanted — and the pixel path
   (`AutoMaskCompute=0`) must be unchanged, since `A` stays four wide there.
+- **The measured step's guarded fetch.** The step is read once per pixel by `CS_Accum`, so the branch is a
+  per-pixel saving on the compute path and nothing else. Off-GPU the check pins the blast radius: only
+  the four compute variants' `CS_Accum` may move, and the pixel path must be untouched, since the measured
+  step does not exist there. In a game the behaviour to watch is the auto-deadband itself, already covered
+  above: **the same scene with `Auto-Detect RGB Step` on must settle on the same step as before the
+  change**, and the mask must be identical with the toggle off, which is the path that now takes the
+  `else` branch and issues no sample at all. A step that settles differently, or a mask that changes only
+  while the toggle is on, is the fetch and the slider having crossed wires.

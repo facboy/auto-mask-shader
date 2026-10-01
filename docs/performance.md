@@ -228,7 +228,21 @@ condition is a uniform, so the whole wavefront takes one side and no divergence 
 else in the block is skippable: `maxDiff` and `maxDrift` still feed `stable`, the next frame's average
 and the histogram.
 
-## 12. Openings left
+## 12. The measured step's fetch, branch-guarded
+
+`deadband = AutoMaskAutoStep ? clamp(tex2Dlod(AutoStep, …).r, 1.0, 8.0) : AutoMaskDeadband()` selected
+between the measured step and the slider, and fxc emitted the fetch ahead of the `movc` — so the 1×1
+`texAutoStep` was sampled at every pixel of `CS_Accum` and thrown away whenever the toggle was off, which
+is its default. It now builds `AutoMaskDeadband()` and refines it inside `[branch] if (AutoMaskAutoStep)`,
+putting the fetch in `if_nz cb0[3].y` so the toggle-off path takes the `else` alone and issues no sample.
+
+`CS_Accum` 196 → **198** and 257 → **259** with the depth check: two static slots for one fetch off every
+pixel, the fetch being one of the six taps the accumulator took unconditionally. Only the four compute
+variants' `CS_Accum` moves; the pixel path has no `AutoStep` to fetch, since the measured step is a
+compute-path feature. It is the same shape as §11 — a uniform that selects rather than branches, and the
+`[branch]` that makes it branch — and it is the last dead per-pixel tap on the compute path.
+
+## 13. Openings left
 
 - **The isolation gate's four taps a loop step — measured, and left.** The note this replaces proposed
   a flat 3×3 gathering "cheaper per tap". It is not available: the four counts are runs of `2·reach + 1`
@@ -240,7 +254,7 @@ and the histogram.
   `PS_DilateV` 4 → 8 samples a pixel when the gate is switched on. What the four runs already get for
   free is the box share and the column count, both read out of the one `texAutoDilate` tap per offset.
 - **The accumulator's static footprint — arithmetic, not an opening.** `PS_Accum` (93, or 152 with the
-  depth check) and `CS_Accum` (196, or 257) carry the pinned-colour count's four `eq` groups of three
+  depth check) and `CS_Accum` (198, or 259) carry the pinned-colour count's four `eq` groups of three
   `and`s each. The count feeds `stable` and the changed/active tally, so it is computed on both paths
   whatever else changes; there is no cheaper form of it to fold into. `AutoMaskClipped` returning `int`
   rather than `float` is a separate, smaller pin with no cost either way: a `float` return reorders

@@ -462,10 +462,12 @@ sampler AutoDilate { Texture = texAutoDilate; };
 		float maxDiff = max(diff.r, max(diff.g, diff.b));
 		float maxDrift = max(driftDiff.r, max(driftDiff.g, driftDiff.b));
 		//The step is tuned (AutoMaskEps) or measured (last frame's histogram); the clamp keeps an
-		//unwritten target off the slider's own scale.
-		float deadband = AutoMaskAutoStep
-			? clamp(tex2Dlod(AutoStep, float4(0.5, 0.5, 0.0, 0.0)).r, 1.0, 8.0)
-			: AutoMaskDeadband();
+		//unwritten target off the slider's own scale. The measured fetch is inside the branch, so the
+		//toggle off does not sample the 1x1 target at every pixel to discard it.
+		float deadband = AutoMaskDeadband();
+		[branch]
+		if (AutoMaskAutoStep)
+			deadband = clamp(tex2Dlod(AutoStep, float4(0.5, 0.5, 0.0, 0.0)).r, 1.0, 8.0);
 		#if AutoMaskDepthMotion == 1
 			//The world being drawn, measured on depth: the overlay writes no depth, so a panel cannot
 			//hide the drawing as it hides it in the picture. The step is a distance in metres, so a metre
