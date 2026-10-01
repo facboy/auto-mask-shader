@@ -1,17 +1,17 @@
 # Performance openings
 
 What is left after `docs/performance.md`, whose §2–§9 are instruction-level or pass folds that landed,
-whose §10 is the drift store's re-centring into half precision, and whose §11 records the two openings
-that are closed. §2–§5 below **have since landed** — §2 and §3 as that §7 (the store target and the
-published map gone, the closing writing the frame with the mask in its alpha), §4 as that §8 (the
-closing's dead out-of-radius frame taps guarded), §5 as that §9 (the depth store folded into the closing)
-and §7 here as that §10 — and what they argued is kept as the reasoning behind it. The one entry still
-open is the pixel-path drift question, §6, which is the one proposal here that adds cost rather than
-removing it: it asks which games the pixel path serves rather than what the frame can stop doing. It is
-not built and has not been in a game, so it names what it would cost and what would have to be watched
-to accept it.
+whose §10 is the drift store's re-centring into half precision, whose §11 skips the picture ramp in
+depth-only mode, and whose §12 records the two openings that are closed. §2–§5 below **have since
+landed** — §2 and §3 as that §7 (the store target and the published map gone, the closing writing the
+frame with the mask in its alpha), §4 as that §8 (the closing's dead out-of-radius frame taps guarded),
+§5 as that §9 (the depth store folded into the closing) and §7 here as that §10 — and what they argued
+is kept as the reasoning behind it. The one entry still open is the pixel-path drift question, §6, which
+is the one proposal here that adds cost rather than removing it: it asks which games the pixel path
+serves rather than what the frame can stop doing. It is not built and has not been in a game, so it
+names what it would cost and what would have to be watched to accept it.
 
-Companions: `docs/performance.md` (the cost already measured, and §11's two closed items),
+Companions: `docs/performance.md` (the cost already measured, and §12's two closed items),
 `docs/refactor-candidates.md` (what a fold has to clear — an unmoved hash for every entry point it does
 not touch), `docs/core-model.md` and `docs/compute-path.md` (the pass and target counts these would
 change), `docs/review.md` §2.2 (the redundancy §2 follows to its conclusion).
@@ -175,7 +175,7 @@ deferral costed it.
 - **The two back-edges.** `docs/performance.md` §4: one side of the accumulator's pair must be read while
   the other is written, and the fixed pass list cannot alternate them.
 - **The isolation gate's four taps a loop step, and the accumulator's static footprint.**
-  `docs/performance.md` §11: the first is wrong at radius 2 or 3 as a flat gather, so there is no
+  `docs/performance.md` §12: the first is wrong at radius 2 or 3 as a flat gather, so there is no
   cheaper form of the same count; the second is arithmetic the verdict needs, not a saving — and
   `AutoMaskClipped`'s `int` return is a byte-order pin with no cost either way.
 - **`PS_AntiBloom` folded into the closing.** The blacking has to land after the pass that reads the

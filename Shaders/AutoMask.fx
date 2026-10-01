@@ -462,19 +462,26 @@ sampler AutoDilate { Texture = texAutoDilate; };
 		float deadband = AutoMaskAutoStep
 			? clamp(tex2Dlod(AutoStep, float4(0.5, 0.5, 0.0, 0.0)).r, 1.0, 8.0)
 			: AutoMaskDeadband();
-		float motion = max(smoothstep(deadband - 1.0, deadband + 2.0, maxDiff),
-		                   smoothstep(deadband, deadband * AUTOMASK_DRIFT_LAG, maxDrift));
+		#if AutoMaskDepthMotion == 1
+			//The world being drawn, measured on depth: the overlay writes no depth, so a panel cannot
+			//hide the drawing as it hides it in the picture. The step is a distance in metres, so a metre
+			//is a metre at any range. The tick takes the reading from depth alone, and the picture's own
+			//ramp is then not built at all.
+			float depthMoved = AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps);
+			float motion = depthMoved;
+			[branch]
+			if (!AutoMaskDepthOnly)
+				motion = max(max(smoothstep(deadband - 1.0, deadband + 2.0, maxDiff),
+				                 smoothstep(deadband, deadband * AUTOMASK_DRIFT_LAG, maxDrift)),
+				             depthMoved);
+		#else
+			float motion = max(smoothstep(deadband - 1.0, deadband + 2.0, maxDiff),
+			                   smoothstep(deadband, deadband * AUTOMASK_DRIFT_LAG, maxDrift));
+		#endif
 		//Whether this pixel sits on a floor or ceiling, which the depth reading leaves out. Off the
 		//depth path nothing is dropped, so the two variants' counts stay identical without it.
 		bool upright = false;
 		#if AutoMaskDepthMotion == 1
-			//The world being drawn, measured on depth: the overlay writes no depth, so a panel cannot
-			//hide the drawing as it hides it in the picture. The step is a distance in metres, so a metre
-			//is a metre at any range. The tick above takes the reading from depth alone instead of from
-			//depth added to the picture, which is how the two witnesses are compared.
-			motion = AutoMaskDepthOnly
-				? AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps)
-				: max(motion, AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps));
 			//A floor or ceiling faces up, so a walk across it changes no pixel's depth there: the
 			//orientation is read from the neighbours, the same reconstruction the probe draws.
 			float2 halfFOV = tan(radians(AutoMaskDepthFOV) * 0.5) * float2(BUFFER_ASPECT_RATIO, 1.0);
@@ -821,20 +828,25 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	//The deadband is a level count: a change of that many levels or more is motion, anything less is
 	//still. The ramp spans a fixed three levels, footed one under, so its own level reads a quarter.
 	float deadband = AutoMaskDeadband();
-	float motion = smoothstep(deadband - 1.0, deadband + 2.0, maxDiff);
+	#if AutoMaskDepthMotion == 1
+		//The depth reading joins the motion the reduce counts, not the verdict: a change in depth is the
+		//world being redrawn, which the overlay cannot have written, so it only ever raises the share.
+		//Metres against the far plane ReShade supplies, so the step means the same in every game, and no
+		//depth bound leaves the difference zero. The tick reads depth alone, the picture's ramp unbuilt.
+		float depthNow = ReShade::GetLinearizedDepth(texcoord);
+		float depthBefore = tex2D(AutoDepth, texcoord).r;
+		float depthMoved = AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps);
+		float motion = depthMoved;
+		[branch]
+		if (!AutoMaskDepthOnly)
+			motion = max(smoothstep(deadband - 1.0, deadband + 2.0, maxDiff), depthMoved);
+	#else
+		float motion = smoothstep(deadband - 1.0, deadband + 2.0, maxDiff);
+	#endif
 	float stable = (maxDiff < deadband && clipped == 0.0) ? 1.0 : 0.0;
 	//Whether this pixel sits on a floor or ceiling, which the depth reading leaves out.
 	bool upright = false;
 	#if AutoMaskDepthMotion == 1
-		//The depth reading joins the motion the reduce below counts, not the verdict above: a change in
-		//depth is the world being redrawn, which the overlay cannot have written, so it can only raise
-		//the share. Metres against the far plane ReShade supplies, so the step is the same in every game;
-		//with no depth bound the difference is zero and the count is the picture's own.
-		float depthNow = ReShade::GetLinearizedDepth(texcoord);
-		float depthBefore = tex2D(AutoDepth, texcoord).r;
-		motion = AutoMaskDepthOnly
-			? AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps)
-			: max(motion, AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps));
 		//A floor or ceiling faces up, so a walk across it changes no pixel's depth there: the
 		//orientation is read from the neighbours, the same reconstruction the probe draws.
 		float2 halfFOV = tan(radians(AutoMaskDepthFOV) * 0.5) * float2(BUFFER_ASPECT_RATIO, 1.0);

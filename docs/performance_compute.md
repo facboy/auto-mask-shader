@@ -4,7 +4,7 @@ What the two configurations that ship off cost when they are on. Both default to
 a device or a depth buffer, not because they are worse: `AutoMaskCompute=1` is the more accurate mask
 and `AutoMaskDepthMotion=1` is the better witness where depth is available, so a player who can run them
 runs them. `docs/performance.md` measures the shipped pixel default; this is what differs off the same
-compiled bytecode, and the openings that measurement leaves. Nothing here is built.
+compiled bytecode, and the openings that measurement leaves. Only §2's depth-only branch is built.
 
 Companions: `docs/performance.md` (the default path's measured cost, and the bytecode method),
 `docs/compute-path.md` (what the switch swaps in), `docs/core-model.md` (the depth witness),
@@ -17,18 +17,18 @@ Companions: `docs/performance.md` (the default path's measured cost, and the byt
 | entry point | variant | slots |
 | --- | --- | ---: |
 | `CS_Accum` | compute | 196 |
-| `CS_Accum` | compute + depth | 256 |
+| `CS_Accum` | compute + depth | 257 |
 | `PS_Accum` | pixel | 93 |
-| `PS_Accum` | pixel + depth | 151 |
+| `PS_Accum` | pixel + depth | 152 |
 | `PS_DilateH` | compute | 56 |
 | `PS_DilateV` | compute + depth | 72 |
 | `CS_Finish` | compute | 66 |
 
 Three facts follow, and none is in `docs/performance.md`:
 
-- **The depth switch adds 60 slots to `CS_Accum` and 58 to `PS_Accum`.** The block is the size of the
+- **The depth switch adds 61 slots to `CS_Accum` and 59 to `PS_Accum`.** The block is the size of the
   rest of `PS_Accum` put together. `docs/performance.md` §1 records that the accumulator's static count
-  moves under a switch (151 against 93) but not what the block does; §2 is that.
+  moves under a switch (152 against 93) but not what the block does; §2 is that.
 - **On the compute path the accumulator is the heaviest full-resolution pass, not the closing.** `CS_Accum`
   196 against `PS_DilateH` 56 and `PS_DilateV` 72. The closing is the heaviest pass on the pixel default
   (`docs/performance.md` §1), and the switch moves that title to the accumulator.
@@ -36,25 +36,27 @@ Three facts follow, and none is in `docs/performance.md`:
   by `CS_Accum`'s in-pass tally and `CS_Finish` (66); the technique is `CS_Accum`, `CS_Finish`, the two
   closings, and the optional tile and overlay passes.
 
-## 2. The depth witness is per-pixel reconstruction, and it is unmeasured
+## 2. The depth witness is per-pixel reconstruction, its picture ramp now skipped
 
 With `AutoMaskDepthMotion` on, both accumulators run the same block: `ReShade::GetLinearizedDepth` at the
 pixel and at each of its right and lower neighbours (three buffer fetches), `tex2Dlod(AutoDepth, …)` for
 the previous frame's depth, three `AutoMaskCamPos` calls — each building a ray and dividing the depth by
 that ray's length — a `cross`/`normalize`/`abs` for the surface normal, and `AutoMaskDepthMoved` on the
-centre pair. That is the 58–60 slots. It runs at full resolution, in the pass that is already the heaviest
-on the compute path, and `docs/performance.md` never measures it — its §1 table covers the closing's loop
-and the accumulator's static count only.
+centre pair. That is the 59–61 slots. It runs at full resolution, in the pass that is already the
+heaviest on the compute path, and `docs/performance.md` never measures it — its §1 table covers the
+closing's loop and the accumulator's static count only.
 
-Three things in the block are worth arguing, and none is a large saving:
+Three things in the block are worth arguing, and one of them is now built:
 
-- **`AutoMaskDepthOnly` overrides the colour grading rather than skipping it.** `motion` is written as
-  `AutoMaskDepthOnly ? AutoMaskDepthMoved(...) : max(motion, AutoMaskDepthMoved(...))`, so the picture's
-  own ramp and the drift comparison's are computed either way and the `max` discards them when the tick
-  is on. What is genuinely dead there is the two `smoothstep` calls that build `motion`; the rest is not
-  — `maxDiff` still feeds `stable` and next frame's average, `maxDrift` still feeds `stable`, and both
-  still feed the histogram. So a branch that skipped the colour ramp under depth-only would save a
-  handful of slots, not the block.
+- **`AutoMaskDepthOnly` used to override the colour grading rather than skip it — now it skips.** `motion`
+  was written as `AutoMaskDepthOnly ? AutoMaskDepthMoved(...) : max(motion, AutoMaskDepthMoved(...))`, so
+  the picture's own ramp and the drift comparison's were computed either way and the `max` discarded them
+  when the tick was on; fxc flattens that small a body to a `movc`, so a plain `if` did not help. Both
+  accumulators now build the ramp inside `[branch] if (!AutoMaskDepthOnly)`, which is the one directive
+  fxc honours as real flow control, and the tick skips it. The rest of the block is not skippable —
+  `maxDiff` still feeds `stable` and next frame's average, `maxDrift` still feeds `stable`, and both
+  still feed the histogram — so the saving is the ramp, not the block. `docs/performance.md` §11 is the
+  landed account.
 - **The orientation is inherent, not folded.** `AutoMaskDepthInvariant` decides up-facing from the two
   neighbour depths, and `AutoMaskCamPos`' ray direction is `texcoord`, so both the direction and its
   length vary per pixel — there is no read of the centre alone that answers it and nothing to hoist.
@@ -62,9 +64,10 @@ Three things in the block are worth arguing, and none is a large saving:
   and are not: `offset` is `texcoord`, so the three ray lengths differ per pixel. The only constants are
   `halfAngle` and the two buffer offsets.
 
-The honest reading of the depth block is therefore that it is ~60 slots doing a real per-pixel job, and
-the only change with a clear shape is the depth-only branch above. It is named because the block is
-unmeasured, not because it is fat.
+The honest reading of the depth block is therefore that it is ~60 slots doing a real per-pixel job. The
+depth-only branch is the one saving with a clear shape, and it is landed: it costs one static slot on
+each depth accumulator and skips 7 instructions a pixel on the pixel path and 14 on the compute path,
+but only while the tick is on. Everything else in the block is a real per-pixel job.
 
 ## 3. Two accumulator channels are dead under compute without diagnostics
 
@@ -122,13 +125,14 @@ thing that reads `.b` on the compute path.
 `uv run tools/verify_shaders.py check --hashes --opcodes`, before and after. The evidence wanted is
 narrower than on the default path:
 
-- §2's edit must move only the eight `*-depth` variants' `CS_Accum` and `PS_Accum`, and leave
-  `PS_DilateH`, `PS_DilateV` and every non-depth entry point hash-identical.
+- §2's landed branch must move only the eight `*-depth` variants' `CS_Accum` and `PS_Accum`, and leave
+  `PS_DilateH`, `PS_DilateV` and every non-depth entry point hash-identical. It does: the two accumulators
+  gain one static slot each and nothing else's hash moves.
 - §3's edit is the one the check cannot fully see. `strip_for_fxc` rewrites the compute dialect before
   `fxc` sees it (`docs/verification.md`), and the accumulator's store is a `tex2Dstore`; a narrowed
   target would have to be checked against ReShade's own parser and the variant matrix extended to cover
   the compute-diagnostics-off state, not inferred from a passing compile.
 
-Neither is observable offline beyond that. Whether a depth-only branch reads the same scene the same way,
-or whether a narrower accumulator leaves the compute gate and the tile map intact, needs the overlay on a
-game — `docs/verification.md` lists the scenarios, and an agent cannot run one.
+Neither is observable offline beyond the hashes. Whether a depth-only branch reads the same scene the same
+way, or whether a narrower accumulator leaves the compute gate and the tile map intact, needs the overlay
+on a game — `docs/verification.md` lists the scenarios, and an agent cannot run one.

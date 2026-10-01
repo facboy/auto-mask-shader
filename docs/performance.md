@@ -20,7 +20,7 @@ shipped defaults, the samples a pixel actually costs:
 
 The closing is the heaviest part of the full-resolution chain at every shipped setting, against the
 accumulator's 8 samples a pixel and the other full-resolution passes at 1–3 each. The accumulator's
-static count is what moves under a switch — 151 under `AutoMaskDepthMotion` against 93 without — and its
+static count is what moves under a switch — 152 under `AutoMaskDepthMotion` against 93 without — and its
 samples do not: the depth block takes no back-buffer tap, and the one accumulator branch that takes
 extra taps at all, `AutoMaskNeighbour`'s four admission ones, ships off. The fixed seven-tap window the
 closing began with cost `PS_DilateH` 16 and `PS_DilateV` 16 samples a pixel with the gate off, and 30
@@ -200,14 +200,34 @@ back-edge needs nothing at all: the offset it carries from B to A is already tak
 is storing into the history, so the copy stays verbatim.
 
 Only `CS_Accum`'s bytecode moves, and it costs 2 static slots — 194 → 196 without the depth check and
-254 → 256 with it, across the four compute variants. `PS_DilateH`'s carry and every other entry point are
+255 → 257 with it, across the four compute variants. `PS_DilateH`'s carry and every other entry point are
 hash-identical. The reconstruction inherits the history's `RGBA8` half-level quantization, so a pixel
 sitting exactly on the drift ramp's foot can land on the other side of it — the same order as the
 one-level move `PS_DilateV`'s luma hand-off already makes (§6). That makes it arithmetic inside a
 feedback loop rather than a format swap, so a game is what confirms the channel still reads as it did;
 the offline check confirms it compiles and moves nothing else.
 
-## 11. Openings left
+## 11. The depth-only mode's picture ramp
+
+`AutoMaskDepthOnly` picked the world-drawn reading with a ternary inside the depth block:
+`motion = AutoMaskDepthOnly ? AutoMaskDepthMoved(...) : max(motion, AutoMaskDepthMoved(...))`. fxc
+flattens that small a body to a `movc` — it did so for a plain `if` as well — so the picture's own ramp
+was built either way and discarded under the tick. Both accumulators now build it inside an explicit
+`[branch] if (!AutoMaskDepthOnly)`, which is the one directive fxc honours as real flow control; the
+`.asm` shows the ramp inside `if_z cb0[1].z`.
+
+The cost is one static slot on each depth variant's accumulator, `PS_Accum` 151 → **152** and `CS_Accum`
+256 → **257**, and the depth-off path is byte-identical: only the eight `*-depth` variants' two
+accumulators move. What it buys is runtime rather than static, and only while the tick is on — the mode
+`README.md` recommends where depth is available. Under it `PS_Accum` skips one `smoothstep` and its
+`max` (7 instructions) and `CS_Accum` skips two `smoothstep` calls and two `max` (14), per pixel, in the
+full-resolution pass that is already the heaviest on the compute path. With the tick off the branch is
+taken and the ramp runs as before, trading the flattened `movc` for a branch — roughly neutral. The
+condition is a uniform, so the whole wavefront takes one side and no divergence is introduced. Nothing
+else in the block is skippable: `maxDiff` and `maxDrift` still feed `stable`, the next frame's average
+and the histogram.
+
+## 12. Openings left
 
 - **The isolation gate's four taps a loop step — measured, and left.** The note this replaces proposed
   a flat 3×3 gathering "cheaper per tap". It is not available: the four counts are runs of `2·reach + 1`
@@ -218,8 +238,8 @@ the offline check confirms it compiles and moves nothing else.
   uniform, so off it compiles to an untaken `if_nz` and no sample is issued — at the defaults,
   `PS_DilateV` 4 → 8 samples a pixel when the gate is switched on. What the four runs already get for
   free is the box share and the column count, both read out of the one `texAutoDilate` tap per offset.
-- **The accumulator's static footprint — arithmetic, not an opening.** `PS_Accum` (93, or 151 with the
-  depth check) and `CS_Accum` (196, or 256) carry the pinned-colour count's four `eq` groups of three
+- **The accumulator's static footprint — arithmetic, not an opening.** `PS_Accum` (93, or 152 with the
+  depth check) and `CS_Accum` (196, or 257) carry the pinned-colour count's four `eq` groups of three
   `and`s each. The count feeds `stable` and the changed/active tally, so it is computed on both paths
   whatever else changes; there is no cheaper form of it to fold into. `AutoMaskClipped` returning `int`
   rather than `float` is a separate, smaller pin with no cost either way: a `float` return reorders
