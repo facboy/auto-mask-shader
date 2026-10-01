@@ -57,7 +57,7 @@ are listed under it.
   taken as being drawn, and only then may stillness be credited as interface. The percent is of the
   pixels that *could* change, not of every pixel: a pinned region is counted out of it. A premise rather
   than a safety net under the verdict, so its default is not `0` (`docs/core-model.md`).
-- **depth premise** — `AutoMaskDepthMotion`, off by default: a pixel whose linearized depth changed joins
+- **depth check** — `AutoMaskDepthMotion`, off by default: a pixel whose linearized depth changed joins
   the changed count the gate reads, on its own step (`AutoMaskDepthEps`, a distance in metres, since the
   depth converts back to metres against the far plane ReShade supplies). It can only add
   to that count, never touch the verdict, and with no depth bound the difference is zero. Depth is the
@@ -278,7 +278,7 @@ readings.
 | `AutoMaskDepthEps` | Depth step counted as a change (metres) | How far a surface must move toward or away from the view in one frame to count; uniform across the screen, since the change converts back to metres against the far plane ReShade supplies. The depth ramp is footed at half this, so smaller changes add nothing. Read only with `AutoMaskDepthMotion`. |
 | `AutoMaskDepthOnly` | Depth only, not added to the picture | Which witness the world-drawn reading is taken from with depth compiled in — depth added to the picture, or depth alone; also read only with `AutoMaskDepthMotion`. |
 | `AutoMaskDepthFOV` | Camera field of view (degrees) | The vertical fov the surface orientation is reconstructed with, so surfaces a walk cannot move can be left out of the depth reading; a wrong value tilts it rather than changing which surfaces those are. |
-| `AutoMaskDilate` | Closing radius in pixels | How far the mask is grown to close anti-aliased edges and thin text. |
+| `AutoMaskDilate` | Mask grow radius | How far the mask is grown to close anti-aliased edges and thin text. |
 | `AutoMaskEdge` | Luma step counted as a boundary | The luma difference, 0–255, past which that growth stops. |
 | `AutoMaskDrift` | Drift horizon (seconds) | The drift average's memory, in seconds; `0` turns the comparison off. |
 | `AutoMaskNeighbour` | Stop specks entering the mask | Whether a pixel with no claimed neighbour earns at half rate, so a region starts only from a pixel still for twice the rise. |
@@ -289,9 +289,10 @@ readings.
 | `AutoMaskDensity` | Still neighbourhood density (percent) | Share of the box that must be still, itself counted; a text box, stepped by 1. The other way to stay in is the line door. |
 | `AutoMaskIsolation` | Isolation radius in pixels | How far that density and the line door are measured; its own radius rather than the closing's. |
 | `UIDebugMotion` | Diagnostics: motion view | Which reading the overlay draws: motion view (red) or verdict view (green). |
-| `UIDebugTile` | Diagnostics: tile view | Whether the overlay draws the tile map instead: a cell in its class, with the region readings as bars. Compute-only, since the map is. |
 | `UIDebugGain` | Diagnostics: motion gain | Multiplier making a small change visible in the overlay. |
-| `UIDebugDepthNormal` | Diagnostics: depth normals | Whether the overlay draws each surface's orientation instead — white where it faces up or down. Read only with `AutoMaskDepthMotion`, which is the only thing that can sample depth.
+| `UIDebugConfidence` | Diagnostics: confidence view | Whether the overlay draws the accumulator's own confidence as two flat colours — cyan claimed, magenta earning — instead of the graded reading. |
+| `UIDebugDepthNormal` | Diagnostics: depth normals | Whether the overlay draws each surface's orientation instead — white where it faces up or down. Read only with `AutoMaskDepthMotion`, which is the only thing that can sample depth. |
+| `UIDebugTile` | Diagnostics: tile view | Whether the overlay draws the tile map instead: a cell in its class, with the region readings as bars. Compute-only, since the map is. |
 
 - **structural switch** — a preprocessor definition that removes a feature from the compile: each is
   `#ifndef`-guarded and owns its pass, technique entry, shader and private targets. The four are

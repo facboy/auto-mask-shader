@@ -23,7 +23,7 @@
 //Runs the accumulator and gate as compute, so the gate counts every pixel rather than sampling a
 //16x16 grid with four taps. Needs D3D11 or newer, or Vulkan.
 #ifndef AutoMaskCompute
-	#define AutoMaskCompute		0		// [0 or 1] 1 runs the accumulator and the motion gate as compute passes
+	#define AutoMaskCompute		0		// [0 or 1] 1 uses compute shaders: a more accurate mask, at some cost in speed and memory
 #endif
 
 //Frame rate the frame-count caps are sized for: each cap is a duration in seconds times this.
@@ -79,7 +79,7 @@ uniform float AutoMaskForget <
 uniform float AutoMaskMoveMemory <
 	__UNIFORM_DRAG_FLOAT1
 	ui_label = "Frames a move is remembered";
-	ui_tooltip = "Still frames after a move before the pixel can be claimed as interface again.\n0 forgets a move the frame after it happens";
+	ui_tooltip = "Still frames after a move before the pixel is added to the mask again.\n0 forgets a move the frame after it happens";
 	ui_category = "Frame timing";
 	ui_min = 0.0; ui_max = 10.0 * AutoMaskTargetFPS;
 	ui_step = 5.0;
@@ -105,7 +105,7 @@ uniform float AutoMaskMotion <
 	uniform float AutoMaskDepthEps <
 		__UNIFORM_DRAG_FLOAT1
 		ui_label = "Depth step counted as a change (metres)";
-		ui_tooltip = "How far, in metres, a surface must move toward or away from you in one frame to count as the world being redrawn.\nA walk covers a fraction of a metre a frame, so this is small; it means the same thing near and far, and the far plane it is measured against comes from your ReShade depth settings.\nRaise it if depth noise holds the world as drawn over a stopped scene, lower it if walking fails to.";
+		ui_tooltip = "How far, in metres, a surface must move toward or away from you in one frame to count as the world being redrawn.\nA walk covers a fraction of a metre a frame, so this is small; it means the same thing near and far, and the far plane it is measured against comes from your ReShade depth settings.\nRaise it if depth noise keeps the world reading as drawn over a stopped scene, lower it if walking fails to.";
 		ui_category = "Is the scene in motion?";
 		ui_min = 0.001; ui_max = 2.0;
 		ui_step = 0.001;
@@ -153,8 +153,8 @@ uniform float AutoMaskMotion <
 #define AUTOMASK_DEPTH_ALIGNED 0.6
 uniform float AutoMaskDilate <
 	__UNIFORM_SLIDER_FLOAT1
-	ui_label = "Closing radius in pixels";
-	ui_tooltip = "Grows the mask to close anti-aliased edges and text. 0 is a pass-through";
+	ui_label = "Mask grow radius";
+	ui_tooltip = "Grows the mask so anti-aliased edges and text are covered. 0 is a pass-through";
 	ui_category = "AutoMask";
 	ui_min = 0.0; ui_max = 3.0;
 	ui_step = 1.0;
@@ -163,7 +163,7 @@ uniform float AutoMaskDilate <
 uniform float AutoMaskEdge <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Luma step counted as a boundary";
-	ui_tooltip = "Stops the closing radius at a real HUD contour instead of growing it out into the scenery";
+	ui_tooltip = "Stops the grow radius at a real HUD contour instead of letting the mask spread into the scenery";
 	ui_category = "AutoMask";
 	ui_min = 0.0; ui_max = 255.0;
 	ui_step = 1.0;
@@ -175,7 +175,7 @@ uniform float AutoMaskEdge <
 	uniform float AutoMaskDrift <
 		__UNIFORM_DRAG_FLOAT1
 		ui_label = "Drift horizon (seconds)";
-		ui_tooltip = "How long the slow colour average the drift comparison reads remembers.\nCatches scenery that shifts by less than a level a frame -- a skybox panning slowly -- which the frame-to-frame comparison cannot see.\n0 turns it off.";
+		ui_tooltip = "How long the slow colour average the drift comparison reads remembers.\nCatches scenery that shifts by less than one step of colour a frame -- a skybox panning slowly -- which the frame-to-frame comparison cannot see.\n0 turns it off.";
 		ui_category = "AutoMask";
 		ui_min = 0.0; ui_max = 10.0;
 		ui_step = 0.25;
@@ -198,7 +198,7 @@ uniform bool AutoMaskNeighbour <
 uniform float AutoMaskEps <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "RGB step counted as a change";
-	ui_tooltip = "The smallest change in levels out of 255 that counts as motion.\n1 is the most sensitive: any change at all is motion; 2 forgives a one-level difference, and so on.";
+	ui_tooltip = "The smallest change in colour steps out of 255 that counts as motion.\n1 is the most sensitive: any change at all is motion; 2 ignores a one-step difference, and so on.";
 	ui_category = "AutoMask";
 	ui_min = 1.0; ui_max = 8.0;
 	ui_step = 1.0;
@@ -252,13 +252,13 @@ uniform float AutoMaskDensity <
 	ui_step = 1.0;
 > = 33.0;
 
-//How far the neighbourhood reaches, independent of the closing radius: shape and evidence are different
-//questions, and tying this to AutoMaskDilate would move the gate's meaning whenever the closing is
+//How far the neighbourhood reaches, independent of the mask grow radius: shape and evidence are different
+//questions, and tying this to AutoMaskDilate would move the gate's meaning whenever the grow radius is
 //retuned. Rides the closing's loop rather than adding one, so it costs no pass or target of its own.
 uniform float AutoMaskIsolation <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Isolation radius in pixels";
-	ui_tooltip = "How far the density above is measured, as a square 2 x this + 1 across.\nIndependent of the closing radius: the closing is how far the mask is grown, this is how much corroboration a pixel needs";
+	ui_tooltip = "How far the density above is measured, as a square 2 x this + 1 across.\nIndependent of the mask grow radius: the grow radius is how far the mask is grown, this is how much corroboration a pixel needs";
 	ui_category = "Isolated pixels";
 	ui_min = 0.0; ui_max = 3.0;
 	ui_step = 1.0;
@@ -292,7 +292,7 @@ texture texAutoMap { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA
 sampler AutoMap { Texture = texAutoMap; };
 
 #if AutoMaskDepthMotion == 1
-	//Last frame's linearized depth, for the change the depth premise counts. One target, not a pair: the
+	//Last frame's linearized depth, for the change the depth check counts. One target, not a pair: the
 	//accumulator reads it in its own pass and the store below writes it in a later one, so nothing reads
 	//what is being written. Full precision, since a level of 255 is well under a half-precision ulp here.
 	texture texAutoDepth { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = R32F; };
@@ -1078,9 +1078,19 @@ float4 PS_Store(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
 	uniform bool UIDebugMotion <
 		__UNIFORM_SLIDER_BOOL1
 		ui_label = "Diagnostics: motion view";
-		ui_tooltip = "On, the overlay shows red where the frame sees a change.\nOff, it shows green where a pixel has earned protection, without the closing radius.\nThe corner marker shows in both";
+		ui_tooltip = "On, the overlay shows red where the frame sees a change.\nOff, it shows green where a pixel has made it into the mask, without the mask grow radius.\nThe corner marker shows in both";
 		ui_category = "Diagnostics";
 	> = true;
+
+	//Motion visualization gain for diagnostics overlay.
+	uniform float UIDebugGain <
+		__UNIFORM_SLIDER_FLOAT1
+		ui_label = "Diagnostics: motion gain";
+		ui_tooltip = "Brightens the red motion reading in the overlay,\nso a change too small to see becomes visible";
+		ui_category = "Diagnostics";
+		ui_min = 1.0; ui_max = 64.0;
+		ui_step = 1.0;
+	> = 8.0;
 
 	//Confidence view, the reading ui-isolation-options.md 5.5 asks for: the accumulator's confidence
 	//drawn as a grade rather than decided, so the pixels sitting just under the protection line -- the
@@ -1089,7 +1099,7 @@ float4 PS_Store(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
 	uniform bool UIDebugConfidence <
 		__UNIFORM_SLIDER_BOOL1
 		ui_label = "Diagnostics: confidence view";
-		ui_tooltip = "On, the overlay draws each pixel in one of two flat colours instead of grading it: cyan where the mask already claims it, magenta where it is still earning and has not crossed -- the band just under the protection line.\nNothing at all below zero, so a pixel still recovering from a move shows as the plain picture.\nOverridden by the tile view where that exists";
+		ui_tooltip = "On, the overlay draws each pixel in one of two flat colours instead of grading it: cyan where the mask already includes it, magenta where it is on its way in but not there yet.\nNothing at all below zero, so a pixel still recovering from a move shows as the plain picture.\nOverridden by the tile view where that exists";
 		ui_category = "Diagnostics";
 	> = false;
 
@@ -1116,16 +1126,6 @@ float4 PS_Store(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
 			ui_category = "Diagnostics";
 		> = false;
 	#endif
-
-	//Motion visualization gain for diagnostics overlay.
-	uniform float UIDebugGain <
-		__UNIFORM_SLIDER_FLOAT1
-		ui_label = "Diagnostics: motion gain";
-		ui_tooltip = "Brightens the red motion reading in the overlay,\nso a change too small to see becomes visible";
-		ui_category = "Diagnostics";
-		ui_min = 1.0; ui_max = 64.0;
-		ui_step = 1.0;
-	> = 8.0;
 
 	//Packs the view's own channels, one map pass for every view: the motion view in .r, the verdict in
 	//.g, the accumulator's charge in .b, the tile view's own colour in .rgb, and the screen state always

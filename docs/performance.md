@@ -30,7 +30,7 @@ for the vertical pass with it on — a figure neither the source nor the static 
 ## 2. The taps neither radius wants
 
 Both loops ran `AUTOMASK_DILATE_MAX` either side whatever the sliders say, so at the default
-**Closing radius 1** and **Isolation radius 1** the loop took seven taps where three carry either
+**Mask grow radius 1** and **Isolation radius 1** the loop took seven taps where three carry either
 term. A tap past both radii feeds neither: `inRange` is false, so the closing term is zero, and the
 isolation count is gated on `abs(i) <= reach`, so that term is zero too.
 

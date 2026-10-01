@@ -161,7 +161,7 @@ graded against it goes off screen-wide.
   compiled out. Values tuned by watching stay live sliders; adding a definition for one of those would
   cost a recompile per adjustment for no elision worth having. `AutoMaskTargetFPS` is a further
   definition but not a structural switch — it elides nothing, and is named below.
-- **`AutoMaskDepthMotion` is the depth premise, not a depth mask.** The overlay writes no depth — it takes
+- **`AutoMaskDepthMotion` is the depth check, not a depth mask.** The overlay writes no depth — it takes
   the scene's — so depth describes the world and never the interface, and a per-pixel depth verdict would
   veto the whole HUD whenever the camera moved. What depth *does* give is the world-drawn premise, the one
   reading a large open panel hides from itself, and that is all this switch feeds: a pixel whose depth

@@ -122,7 +122,7 @@ are in a scratch probe under `tools/.work/` (not committed).
 One interaction decides how much the fix is worth: the gate judges the mask **after the closing**, so a
 stroke the closing has already thickened along its own length is no longer thin to the box share and the
 door has nothing to rescue. Measured with the contour's luma step in place, a 1-px hairline is kept by the
-box share alone at **Closing radius `1`** and up, and only dropped at `0` — so the door earns its keep
+box share alone at **Mask grow radius `1`** and up, and only dropped at `0` — so the door earns its keep
 where the closing is low, and the visible difference at the default closing is a 2-px bar or a block's
 interior at a wide **Isolation radius** instead.
 
@@ -431,7 +431,7 @@ and the semi-transparent case stays the documented limit it always was (`README.
 §"What the signal cannot do"). A future proposal has to start by saying where a **proportional** per-pixel
 or per-cell motion magnitude would come from, since the channel this one read saturates by construction.
 
-### 5.9 The depth premise — shipped, and the only depth use that survives
+### 5.9 The depth check — shipped, and the only depth use that survives
 
 Depth was the one cue this document opened by setting aside, and the setting-aside was too broad. The
 constraint is real but narrower than "unavailable": `DepthBufferTex` is reachable, and in DSR the overlay
@@ -622,7 +622,7 @@ open are settled against the code:
 | 5.6 | tile map | its three readings; kept as the tuning instrument for the shipped spatial rules | a pass, a 16×16 target and a 2×1 reading target | compute + diagnostics — **shipped, and kept after the options it was built to decide were settled** |
 | 5.7 | auto-placed deadzone | §3.4's manual tuning | off the tile map | — **dropped: the manual region was removed as unused** |
 | 5.8 | alpha-composite ratio | reading only | a new per-cell magnitude statistic, built as a pass with a `RGBA32F` grid and a share target | compute + diagnostics — **measured out and removed: the graded channel saturates, so the ratio cannot separate a panel from moving world** |
-| 5.9 | depth premise | §3.3 in the common case (the panel no longer hides the drawing), not the panel over a stopped world | one `R32F` target and one full-screen store pass; degrades to the picture's own premise with no depth bound | preprocessor definition, off — **shipped as `AutoMaskDepthMotion`** |
+| 5.9 | depth check | §3.3 in the common case (the panel no longer hides the drawing), not the panel over a stopped world | one `R32F` target and one full-screen store pass; degrades to the picture's own premise with no depth bound | preprocessor definition, off — **shipped as `AutoMaskDepthMotion`** |
 | 5.10 | viewpoint-change premise | the animated-neighbour form of §3.3 — a still patch banked because a *different* region repaints | a depth-change share in place of the colour share; still misses animated geometry, and withholds stillness in textural-only scenes | live checkbox — **the selector shipped as `AutoMaskDepthOnly` and the case measured rare in a game, so the selector is enough; the premise itself is not scoped** |
 
 **The directional densities are shipped**, in the four-axis form that covers the diagonals too.
@@ -662,8 +662,8 @@ by about 2–5 levels a frame, and a still panel has no ratio at all. Same class
 so the instrument was removed with the mechanism still unbuilt. The semi-transparent case stays a
 documented limit, and a future proposal owes the repo a **proportional** magnitude first.
 
-**§5.9's depth premise is shipped, and §5.10's question against it has been answered rare.** The depth
-premise closes §3.3 in the common case; the witness it spends — the picture's own changed share — is what
+**§5.9's depth check is shipped, and §5.10's question against it has been answered rare.** The depth
+check closes §3.3 in the common case; the witness it spends — the picture's own changed share — is what
 §5.10 would replace, and the case it exists for is real but turns up in **very few** views in a played
 game. Since the two witnesses are already a live choice, `AutoMaskDepthOnly` covers those views in a preset
 and every other game leaves it off, so the premise proper and the blend this section called the honest

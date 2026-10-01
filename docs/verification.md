@@ -259,7 +259,7 @@ whether the reading you are looking at is current.
   divides by a floor of one rather than zero. Note the limit of the fix — it excludes pixels pinned at a
   rail, not merely dark ones, since a static black backdrop is indistinguishable from a wall; a very dark
   view can still put a high setting out of reach, and that is a slider question rather than a bug.
-- **The depth premise, `AutoMaskDepthMotion`, on both paths.** It ships off as a definition, so the first
+- **The depth check, `AutoMaskDepthMotion`, on both paths.** It ships off as a definition, so the first
   check is that the mask with it at `0` is **byte-identical** to the pre-change mask — the hashes above
   cover that off-GPU. With it at `1`: open a *large* opaque menu over a moving world and the corner marker
   must stay magenta while it is open and the mask must go on forming, which is the case the switch exists
@@ -360,7 +360,9 @@ whether the reading you are looking at is current.
   **AutoMask** so it sits directly above that group. A category named twice in the uniform list draws two
   headings of the same name, so a second **AutoMask** block, or **Is the scene in motion?** drawn in
   the midst of **AutoMask** with a second **AutoMask** heading under it, is the failure to look for after
-  any move of a uniform.
+  any move of a uniform. Inside **Diagnostics** the order is the guide first: **motion view** with
+  **motion gain** directly under it, then the three development readings — **confidence view**, **depth
+  normals** and **tile view** — so a gain row separated from its view is the failure to look for there.
 - The isolation gate, in the panel and in the mask: the checkbox ships off, so on first load
   **Isolated pixels** must show the gate alone with the count and radius hidden under it, and it must be a
   *second* gated category beside **RGB step detection** — a second **AutoMask**
@@ -368,7 +370,7 @@ whether the reading you are looking at is current.
   neighbourhood — a stuck pixel, a flat patch in a noisy gradient — must vanish from the mask while a
   solid element keeps its. **Still neighbourhood density** is a typed field, not a slider, and must show
   its value as entered (a `ui_type = "input"` mismatch would draw a track instead); **Isolation radius**
-  must be independent of **Closing radius**, so moving the closing alone must not change which specks are
+  must be independent of **Mask grow radius**, so moving the growth alone must not change which specks are
   dropped, and the gate must work with the closing at `0`. Both are checkable off-GPU, and the probe does
   exactly that: it sweeps the two radii and the density, and holds every pixel of the two passes to the
   closed-form rule — keep what the closing grew, unless the still share of the box (itself counted) is
@@ -390,7 +392,7 @@ whether the reading you are looking at is current.
   but not along it, so a one-pixel hairline is thickened along its own length into a band the closing's
   width. Measured: a 1-px hairline against a 180-level step is kept by the box share alone at closing
   radius `1` and up, and only dropped at `0`. A test that wants to see the line door work therefore has to
-  put **Closing radius** at `0` — at the default it changes nothing on a hairline, and the visible
+  put **Mask grow radius** at `0` — at the default it changes nothing on a hairline, and the visible
   difference is a 2-px bar or a block's interior at a wide **Isolation radius** instead. The scenarios above
   are worth running at both closing settings for that reason, and the checkbox cleared at each must give
   back exactly the pre-change mask.
@@ -399,7 +401,7 @@ whether the reading you are looking at is current.
   the back buffer for a luma the pass next door measured. The saving has one consequence and it needs
   eyes: `texAutoDilate` is `RGBA8`, so a tap whose edge lands within a level of `AutoMaskEdge` can fall on
   the other side of it, and the vertical pass's growth can differ from the horizontal's by at most that.
-  Sweep **Closing radius** `0`–`3` over anti-aliased text and one-pixel strokes at the default luma step:
+  Sweep **Mask grow radius** `0`–`3` over anti-aliased text and one-pixel strokes at the default luma step:
   the boundary must still close the same glyphs, with no one-pixel gap opening at a contour that was
   closed before. At `0` there is no growth to compare, and the pass-through must be exactly as it was. The
   off-GPU half is the hash set: every entry point but `PS_DilateH` and `PS_DilateV` must be byte-identical,
