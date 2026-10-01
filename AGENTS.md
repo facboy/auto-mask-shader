@@ -37,6 +37,7 @@ store/restore pattern and the anti-bloom suppression belongs to Kaiser (UIDetect
 | `docs/refactor-candidates.md` | The folds that landed in the shader and the check, what was considered and left, and what is deliberately not a candidate. |
 | `docs/performance.md` | Where the frame's cost sits, read off the compiled bytecode, the closing-loop, back-edge, centre-step and store-target savings it justified, and the openings left. |
 | `docs/performance-openings.md` | The savings after `docs/performance.md`: the closing's dead out-of-radius taps, the folded depth store and the drift store's re-centring into half precision, all landed, plus the pixel-path drift channel held open for a D3D9/D3D10 title. |
+| `docs/performance_compute.md` | What the two switches that ship off — compute and the depth check — cost when on: the depth block's per-pixel slots, the accumulator channels left dead under compute, and one measured saving. |
 
 The one companion header is **`Shaders/AutoMask.fxh`, and it holds code and nothing else**: the shared
 arithmetic both accumulators call, no uniform, `texture`, `sampler` or technique. A header of **authored
