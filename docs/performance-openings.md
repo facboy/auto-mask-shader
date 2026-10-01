@@ -4,11 +4,12 @@ What is left after `docs/performance.md`, whose §2–§9 are instruction-level 
 and whose §10 records the two openings that are closed. §2–§5 below **have since landed** — §2 and §3 as
 that §7 (the store target and the published map gone, the closing writing the frame with the mask in its
 alpha), §4 as that §8 (the closing's dead out-of-radius frame taps guarded) and §5 as that §9 (the depth
-store folded into the closing) — and what they argued is kept as the reasoning behind it. The one entry
-still open is the pixel-path drift question, §6, which is the one proposal here that adds cost rather
-than removing it: it asks which games the pixel path serves rather than what the frame can stop doing. It
-is not built and has not been in a game, so it names what it would cost and what would have to be watched
-to accept it.
+store folded into the closing) — and what they argued is kept as the reasoning behind it. Two entries are
+still open. The pixel-path drift channel, §6, is the one proposal here that adds cost rather than removing
+it: it asks which games the pixel path serves rather than what the frame can stop doing. The drift store's
+re-centring, §7, is a saving on the channel the compute path already ships. Neither is built and neither
+has been in a game, so each names what it would cost or save and what would have to be watched to accept
+it.
 
 Companions: `docs/performance.md` (the cost already measured, and §10's two closed items),
 `docs/refactor-candidates.md` (what a fold has to clear — an unmoved hash for every entry point it does
@@ -112,8 +113,8 @@ switch cannot reach. A title that presents a D3D9 or D3D10 device, or a D3D11 on
 there and the pixel path is the only route to a feature the README advertises.
 
 Left for now: build it when a game like that turns up, with the scene in hand to judge it against. The
-sections below are what that delivery would cost and the shape it would take, so the start is a decision
-about the scene rather than about the arithmetic.
+shape below is what that delivery would take, and §7 is the store form it should carry, so the start is a
+decision about the scene rather than about the arithmetic.
 
 Mechanically it is among the smallest changes here, and the design anticipated it. The compute plan puts
 a pixel-side mirror out of the first version's scope and calls it "a small mechanical lift, not a
@@ -134,7 +135,7 @@ runs under rather than on old hardware — the driver is a title that only ever 
 device. Behind its own definition the feature would cost nothing when off, so this is not a trade
 against the default path but a question about who pays.
 
-Three things decide it, and none is settled by the code:
+Two things decide it, and neither is settled by the code:
 
 - **Whether the title can serve the target.** The channel stores `RGBA32F` because half precision
   freezes it (`docs/compute-path.md`), and a D3D9 or D3D10 device is where the guarantees about float
@@ -148,18 +149,44 @@ Three things decide it, and none is settled by the code:
   levels a frame against a half-ulp above level 31 of 0.0156, so a half-precision average sits frozen
   rather than following the pixel. A mirror of what shipped is therefore twice the deferred format's true
   size, and four times the figure the deferral wrote.
-- **Whether the cheap form works.** Storing `drift - now` rather than `drift` is bounded by
-  `AUTOMASK_DRIFT_LAG` deadbands, so it holds ample relative precision in half and would halve both
-  figures above. It is a change to the channel's arithmetic inside a feedback loop rather than a port,
-  so it needs the same measured proof the 32-bit store needed — but it is the only version of this
-  entry that suits the renderers in question, and the version worth measuring first.
+- **Whether the mirror carries the shipped store or §7's re-centred one.** Storing `drift - now` puts
+  the pair on the half-precision format §7 measures for the shipped channel, so it is the only version of
+  this entry that suits the renderers in question — a mirror of the shipped `RGBA32F` store is twice the
+  deferred format's true size — and the version worth measuring first.
 
 So the answer waits on a game rather than on the arithmetic: build it when a title like that is in hand,
 with the scene to judge the added reading against. When it is built the shape is a third structural
 definition owning the two targets, since a feature with targets to its name gets a definition rather
-than a checkbox — and the cheap re-centred form is what it should carry.
+than a checkbox — and §7's re-centred form is what it should carry.
 
-## 7. Refused
+## 7. Saving: the drift store, re-centred into half precision
+
+The shipped channel stores the average itself, so a pixel's value sits wherever its colour sits and the
+store must be `RGBA32F`: at the 2 s default the creep toward a one-level gap is 0.0083 levels a frame,
+under a half-ulp above level 31, so a half-precision average sits frozen rather than following the pixel
+(`docs/compute-path.md`). Storing `drift - now` instead puts every stored value inside
+`AUTOMASK_DRIFT_LAG` deadbands of zero — the reach the average is already held in — where half precision
+holds ample relative precision. The pair the compute path ships halves with it: ~118 MB to ~59 MB of VRAM
+at 1440p, and ~236 MB to ~118 MB a frame, since the store's write and the closing's read-and-write each
+halve, 32 to 16 bytes a pixel.
+
+It needs no new data, and it adds the reconstruction to one read. The base a delta is taken against is the
+frame itself: the accumulator's `before` is `AutoHistory`'s `.rgb`, which the closing stored as the frame
+it was drawn over (`PS_DilateV`'s return) — so the value `drift - now` subtracted is the same one next
+frame's read adds back, `drift = A.rgb + before`. The closing's carry needs no arithmetic at all: the
+delta it moves from B to A is already re-centred on the frame it is storing into the history, so it stays
+a verbatim copy. The clip rails move onto the reconstructed value, exact where they matter: a pixel pinned
+at 0 or 1 adds back the frame that was taken away and reads 0 or 1 again, while a rail the clamp reaches
+with the frame merely near zero lands near it.
+
+It is not a format swap. The reconstruction inherits the history's own `RGBA8` half-level quantization, so
+a pixel sitting exactly on the drift ramp's foot can flip — the same order as the one-level move
+`PS_DilateV`'s luma hand-off already makes (`docs/performance.md` §6). That makes it arithmetic inside a
+feedback loop rather than a port, so it needs the measured proof the 32-bit store needed, with a scene in
+hand; an offline compile cannot see it happen. Unlike §6 it changes the path that ships rather than a path
+nobody runs, which is what puts it first.
+
+## 8. Refused
 
 - **The pixel path's two reduce passes.** `PS_Motion` (16×16, four taps a texel) then `PS_MotionAvg`
   (1×1, 256 taps) is the shape the pixel path uses because it has no atomics — the tally `CS_Accum`

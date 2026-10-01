@@ -194,5 +194,6 @@ across the eight variants that compile the depth check in. The off path is untou
   count's sixteen `eq`/`and` pairs. `AutoMaskClipped` returning `int` rather than `float` is a recorded
   decision (`docs/refactor-candidates.md`) that keeps the bytecode hash stable, so this is not a tidy.
 
-Both are instruction-level and closed. The one opening that is a full-resolution pass rather than an
-instruction is the pixel-path drift question, and `docs/performance-openings.md` collects it.
+Both are instruction-level and closed. `docs/performance-openings.md` collects the two that are not: §6's
+pixel-path drift question, the one opening that is a full-resolution pass rather than an instruction, and
+§7's re-centring of the shipped drift store, the one that is a target format rather than either.

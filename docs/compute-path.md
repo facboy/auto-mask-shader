@@ -10,7 +10,8 @@ rather than an addition — the coarse grid and its two reduction passes are gon
 readings are *added* rather than replaced, both resting on the compute path's ability to see every pixel:
 the drift channel's two full-res `RGBA32F` ping-pong targets, which the pixel path has nowhere to put and
 deliberately does not carry — `docs/performance-openings.md` §6 holds that question open for a title that
-only presents a D3D9 or D3D10 device — and the histogram's `AUTOMASK_STEP_MAX`×1 `r32u` plus the 1×1
+only presents a D3D9 or D3D10 device, and §7 holds the re-centring that halves the pair the compute path
+already ships — and the histogram's `AUTOMASK_STEP_MAX`×1 `r32u` plus the 1×1
 `r32f` step it feeds — a few dozen bytes together, against 1 KB when the bins were one per level — which
 the coarse grid cannot take at all, because 1,024 taps cannot tell a level of dithering from a level of
 real motion.
@@ -143,7 +144,11 @@ real motion.
   accumulate a sub-level shift (so the channel does nothing on the bright half of a sky) and it
   cannot close on a static pixel either, so a pixel left a level away from it read as moving for as
   long as it held. `RGBA32F` is what lets the creep step move the store at every level, and its cost
-  is that the two drift targets double, ~59 MB to ~118 MB at 1440p.
+  is that the two drift targets double, ~59 MB to ~118 MB at 1440p. Re-centring the store on the frame the
+  delta was taken against removes that need, and with it the doubling: `docs/performance-openings.md` §7
+  holds it as a saving on this path rather than a deferred one, since the base is a frame both the store and
+  the next frame's read already have in hand. It is arithmetic inside a feedback loop, so it rests on the
+  same measured proof the 32-bit store needed.
 - **The average is held inside its own reach, and that is what bounds a move's tail.** A bounded ramp can
   only report the lag it can reach, so an average allowed past it stores lag that changes nothing but how
   long the tail lasts — and a *creeping* one lags by the rate times the horizon in levels, tens of them
