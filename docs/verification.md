@@ -58,12 +58,12 @@ check:
   emptied of stale copies before each run precisely so it does, since with last run's copy left in
   `tools/.work/` the include would resolve and the check would report a clean pass for a shader that
   cannot load. Exercise that one by deleting the `.fxh` after a passing run and checking it still fails.
-- **A tenth came with the store's second render target.** `PS_Store` writes `texAutoHistory` through
-  `RenderTarget1`, so the `RenderTarget` cross-check counts `RenderTarget` and `RenderTarget1` together
-  against the `RenderTarget[0-9]*` keywords it finds: a target the read misses, or a third one
-  (`RenderTarget2`) the read does not carry, exits non-zero naming the count rather than silently
-  dropping what the pass writes. Exercise it by adding `RenderTarget2` to a pass and checking the check
-  fails.
+- **A tenth came with the closing's second and third render targets.** `PS_DilateH` writes
+  `texAutoAccumA` and, on the compute path, `texAutoDriftA`, so the `RenderTarget` cross-check counts
+  every `RenderTarget[0-9]*` keyword against the targets the read carries: a target it misses, or an
+  index ReShade does not accept (`RenderTarget8`, past the `0`–`7` it allows), exits non-zero naming
+  the count rather than silently dropping what the pass writes. Exercise it by adding `RenderTarget8`
+  to a pass and checking the check fails.
 - **A spelling the tool rewrites cannot be checked by compiling.** Storage declarations are translated to
   `RWTexture*` before fxc sees them, so a keyword ReShade would reject compiles in the check regardless.
   That already bit: a lowercase `storage2d` passed every variant and failed in ReShade with a bare X3000

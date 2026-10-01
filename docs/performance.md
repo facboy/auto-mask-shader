@@ -46,37 +46,40 @@ change here a readback consumer could be sensitive to, since the accumulator's h
 the bytes the merge writes. The offline check parses `RenderTarget1` for it, so a second target a
 later edit adds cannot hide from the wiring cross-check.
 
-## 4. The accumulator back-edge, folded into the closing
+## 4. Both back-edges, folded into the closing
 
 `PS_Copy` carried `texAutoAccumB` back to `texAutoAccumA` so next frame's accumulator reads the state
-this frame produced. It cannot be deleted — the accumulator must read one side while writing the other,
-and ReShade runs one fixed pass list per frame, so the read/write sides cannot alternate — but it can be
-**merged**: `PS_DilateH` already takes the centre tap it needs, so it reads `texAutoAccumB` (the live
-side) and writes it to `texAutoAccumA` as `SV_Target1`, and `PS_Copy` is gone. The two other readers of
-the live side, `PS_DebugMap` and `CS_Tile`, moved from `A` to `B` with it. One full-resolution pass and
-its accumulator read go with it.
+this frame produced, and `PS_CopyDrift` did the same for the drift pair. Neither can be **deleted** — the
+accumulator must read one side while writing the other, and ReShade runs one fixed pass list per frame,
+so the read/write sides cannot alternate — but both can be **merged** into `PS_DilateH`, which is the
+only full-resolution pass that already reads the accumulator: it takes the centre tap of
+`texAutoAccumB` anyway, so writing that same value to `texAutoAccumA` as `SV_Target1` is the copy, at no
+extra sample; and its read of `texAutoDriftB` for `SV_Target2` is the drift copy, which does cost one
+read (no other pass reads the drift channel) but no longer a pass or a dispatch. Two full-resolution
+passes go with them.
+
+The two other readers of the live side, `PS_DebugMap` and `CS_Tile`, moved from `A` to `B` with the
+accumulator's fold. The drift writer stays `AutoDriftStore` → `texAutoDriftB` and the reader stays
+`AutoDriftA`, so the pair keeps its `A`-reads/`B`-writes convention.
 
 The merge is only legal because the host samples a *different* texture than it writes: ReShade errors
-`3020` on a pass that samples a texture it also uses as a render target, which is why the copy had to be
-a pass of its own and why it cannot fold into `PS_Store` (that pass already reads what the copy writes).
-`PS_CopyDrift` stays a pass: no other pass reads the drift channel, so folding it would add a read
-rather than share one — it is the compute path's own, and a later candidate.
+`3020` on a pass that samples a texture it also uses as a render target, which is why the copies had to
+be passes of their own and why they cannot fold into `PS_Store` (that pass already reads what the copies
+write). The drift fold is behind `#if AutoMaskCompute == 1`, since the pixel path has no drift channel:
+the shader has two `PS_DilateH` signatures under the guard, differing only by `SV_Target2`.
 
 **Why the merge is trusted to bind.** Multi-target passes are first-class in ReShade, read from its own
 source rather than inferred: `effect_parser_stmt.cpp` accepts `RenderTarget0`..`RenderTarget7`
 (`state_name` starting `RenderTarget` with a `0`..`7` suffix), stores them by index in an 8-slot
 `render_target_names`, and `runtime.cpp` binds each to an RTV and appends its format to the pipeline. So
-`RenderTarget1` is honoured, not ignored. Two constraints come with it and both hold here: every target
-in a pass must share its dimensions, and with `SRGBWriteEnable` every target must be `RGBA8` — the
-closing's two targets are both `BUFFER_WIDTH × BUFFER_HEIGHT` `RGBA8`.
+`RenderTarget1` and `RenderTarget2` are honoured, not ignored. Two constraints come with it: every target
+in a pass must share its dimensions, which holds (`BUFFER_WIDTH × BUFFER_HEIGHT` throughout), and
+`SRGBWriteEnable` would require *every* target to be `RGBA8` — so it must stay **off** on this pass,
+because it writes `RGBA16F` (`texAutoAccumA`) and `RGBA32F` (`texAutoDriftA`). ReShade defaults it to
+false and the shader never sets it.
 
 ## 5. Openings left unmeasured
 
-- **The drift back-edge.** `PS_CopyDrift` still costs a full-resolution `RGBA32F` read and a pass. It
-  cannot be folded the way the accumulator's copy was — no other pass reads the drift channel — so a
-  merge would move the read rather than share it, saving the pass and the dispatch but not the bytes.
-  It would also need `RenderTarget2`, which the offline check does not yet parse, so it is a check
-  change before it is a shader change.
 - **The isolation gate's four taps a loop step.** Its row, column and two diagonal counts ride the
   taps the closing already takes, which is the no-extra-tap design (`docs/core-model.md`); a flat 3×3
   gathering would cost less per tap but is only worth it beside the bound above.

@@ -330,17 +330,16 @@ class Pass(NamedTuple):
 
     `kind` is the shader type the pass runs, and it is what decides how the
     entry point compiles. `dispatch` is the group count a compute pass declares
-    (x, y and optionally z); a pixel pass has none. `target1` is a pass's second
-    render target, read so a merge of two passes into one cannot hide the target
-    it folded behind the check.
+    (x, y and optionally z); a pixel pass has none. `targets` is every render
+    target the pass binds, in index order, so a merge of several passes into one
+    cannot hide a target it folded behind the check.
     """
 
     technique: str
     shader: str | None
     kind: str
-    target: str | None
+    targets: tuple[str, ...]
     dispatch: tuple[str, ...] | None
-    target1: str | None = None
 
 
 class EntryPoint(NamedTuple):
@@ -979,8 +978,16 @@ def technique_bindings(preprocessed: str) -> list[Pass]:
             ps = re.search(r"PixelShader\s*=\s*(\w+)", one)
             kind = "compute" if cs else "pixel"
             shader = cs or ps
-            rt = re.search(r"RenderTarget\s*=\s*(\w+)", one)
-            rt1 = re.search(r"RenderTarget1\s*=\s*(\w+)", one)
+            # Every render target the pass binds, in index order: RenderTarget,
+            # RenderTarget1, ... ReShade accepts only indices 0-7, so the parse
+            # carries just those; an index it does not (RenderTarget8) is left
+            # unparsed and caught by the keyword cross-check below rather than
+            # passing as a target ReShade would reject at load.
+            targets = tuple(
+                match.group(2)
+                for match in sorted(
+                    re.finditer(r"RenderTarget([0-7]?)\s*=\s*(\w+)", one),
+                    key=lambda m: int(m.group(1) or 0)))
             dispatch = tuple(match.group(1).strip() for match in re.finditer(
                 r"DispatchSize[XYZ]\s*=\s*([^;\n]+?)\s*;", one))
             if kind == "compute" and len(dispatch) < 2:
@@ -991,8 +998,7 @@ def technique_bindings(preprocessed: str) -> list[Pass]:
                      "size(s); ReShade requires both DispatchSizeX and DispatchSizeY"
                      % (tech, shader.group(1) if shader else "?", len(dispatch)))
             found.append(Pass(tech, shader.group(1) if shader else None, kind,
-                              rt.group(1) if rt else None, dispatch or None,
-                              rt1.group(1) if rt1 else None))
+                              targets, dispatch or None))
         # The parse is cross-checked against the keyword counts the same way the
         # pass list is: a compute binding or dispatch size the patterns miss must
         # not look like a pass that never declared one.
@@ -1002,7 +1008,7 @@ def technique_bindings(preprocessed: str) -> list[Pass]:
                 ("DispatchSize", r"\bDispatchSize[XYZ]\b\s*=",
                  sum(len(bound.dispatch or ()) for bound in found)),
                 ("RenderTarget", r"\bRenderTarget[0-9]*\b\s*=",
-                 sum(bool(bound.target) + bool(bound.target1) for bound in found))):
+                 sum(len(bound.targets) for bound in found))):
             keywords = len(re.findall(pattern, body))
             if keywords != parsed:
                 fail("technique %s: parsed %d %s binding(s) but found %d keyword(s); "
@@ -1111,9 +1117,7 @@ def cmd_check(args) -> int:
                     wire = bound.shader or "?"
                     if bound.dispatch:
                         wire += " [%s]" % ", ".join(bound.dispatch)
-                    target = bound.target or "?"
-                    if bound.target1:
-                        target += " + " + bound.target1
+                    target = " + ".join(bound.targets) or "?"
                     print("  %-*s %-22s %-9s %s -> %s"
                           % (VARIANT_WIDTH, name, bound.technique, bound.kind, wire, target))
             # Every binding is checked twice: against the entry points that exist,

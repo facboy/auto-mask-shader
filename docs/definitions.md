@@ -211,9 +211,9 @@ are listed under it.
 - **ping-pong** — read `A`, write `B`, then a write back brings `B` to `A`. Required because a render
   target cannot be read while it is written, and ReShade runs one fixed pass list per frame, so the
   read/write sides cannot simply alternate.
-- **back-edge** — the write that closes the ping-pong. The accumulator's rides as a second render target
-  on `PS_DilateH`, which already reads the live side, so it costs no extra sample; the drift pair's is
-  still its own pass, `PS_CopyDrift`.
+- **back-edge** — the write that closes the ping-pong. Both ride as second and third render targets on
+  `PS_DilateH`, which already reads the live sides: the accumulator's on the centre tap the closing
+  takes anyway, and the drift pair's on its own read. Neither copy is a pass of its own.
 - **storage target / `storage2D`** — a texture the compute path writes as storage. It cannot be indexed:
   `tex2Dfetch` and `tex2Dstore` are the only legal access, and the bracket form ReShade rejects looks
   like ordinary HLSL (`docs/verification.md`).

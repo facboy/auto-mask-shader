@@ -340,6 +340,8 @@ sampler AutoMap { Texture = texAutoMap; };
 	//pixel's history into its neighbour's.
 	sampler AutoDriftA { Texture = texAutoDriftA; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
 	sampler AutoDriftB { Texture = texAutoDriftB; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
+	//Ping-pong: the accumulator samples A and stores to B; the back-edge that brings B to A rides the
+	//closing pass below, whose read of B serves it as well.
 	storage2D<float4> AutoDriftStore { Texture = texAutoDriftB; };
 #else
 	//Motion reduction targets: coarse downscale and 1x1 global coverage statistic. The coarse target is
@@ -798,11 +800,6 @@ sampler AutoMap { Texture = texAutoMap; };
 	}
 #endif
 
-	//Drift ping-pong back-edge (copy B to A).
-	float4 PS_CopyDrift(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
-	{
-		return float4(tex2D(AutoDriftB, texcoord).rgb, 1.0);
-	}
 #else
 //Accumulates confidence from stillness while the world is drawn; a stopped world can only lose it.
 float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
@@ -933,11 +930,16 @@ float AutoMaskEdgeKeep(float luma, float lumaCentre, bool inRange)
 }
 
 //Horizontal closing bounded by luma edge, plus the row's still count for the isolation gate and the
-//centre verdict the vertical pass reads the column and the diagonals off. It also writes the
-//accumulator's carry side, which is the back-edge the copy pass used to be: the read is the centre tap
-//this pass already takes, so the back-edge costs no extra sample.
+//centre verdict the vertical pass reads the column and the diagonals off. It also carries both
+//ping-pong back-edges: the accumulator's, whose read is the centre tap this pass already takes, and,
+//on the compute path, the drift pair's, which is its own read here rather than a pass of its own.
+#if AutoMaskCompute == 1
+float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
+	out float4 carry : SV_Target1, out float4 driftCarry : SV_Target2) : SV_Target
+#else
 float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
 	out float4 carry : SV_Target1) : SV_Target
+#endif
 {
 	float2 texel = BUFFER_PIXEL_SIZE;
 	float r = floor(AutoMaskDilate + 0.5);
@@ -947,6 +949,11 @@ float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
 	//is the back-edge, so next frame's accumulator reads this frame -- the pass that used to copy it.
 	float4 centre = tex2D(AutoAccumB, texcoord);
 	float mask = centre.r;
+	#if AutoMaskCompute == 1
+		//The drift pair's own back-edge: this frame's average, which the accumulator stored to B, is
+		//carried back to A here. The drift target is `RGBA32F` and its copy pass is what this replaces.
+		float4 drift = tex2D(AutoDriftB, texcoord);
+	#endif
 	float lumaCentre = AutoMaskLuma(tex2D(ReShade::BackBuffer, texcoord).rgb);
 	float nearby = 0.0;
 	//A tap past both radii feeds neither term, so the loop spans only the larger radius.
@@ -966,6 +973,9 @@ float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
 	//those runs cross this pass rather than lying along it, so a row count cannot supply them.
 	float still = step(0.5, centre.r);
 	carry = centre;
+	#if AutoMaskCompute == 1
+		driftCarry = float4(drift.rgb, 1.0);
+	#endif
 	return float4(mask, nearby / AUTOMASK_COUNT_SCALE, still, 1.0);
 }
 
@@ -1264,12 +1274,6 @@ technique AutoMask
 		}
 	#endif
 	#if AutoMaskCompute == 1
-		//Brings the drift average back to the side the accumulator reads next frame.
-		pass {
-			VertexShader = PostProcessVS;
-			PixelShader = PS_CopyDrift;
-			RenderTarget = texAutoDriftA;
-		}
 		//Hands the count over as the share the next frame's gate reads, and clears it.
 		pass {
 			ComputeShader = CS_Finish;
@@ -1293,6 +1297,10 @@ technique AutoMask
 		PixelShader = PS_DilateH;
 		RenderTarget = texAutoDilate;
 		RenderTarget1 = texAutoAccumA;
+		#if AutoMaskCompute == 1
+			//The drift back-edge's target, only on the path that carries the drift pair.
+			RenderTarget2 = texAutoDriftA;
+		#endif
 	}
 	pass {
 		VertexShader = PostProcessVS;
