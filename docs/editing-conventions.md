@@ -56,8 +56,9 @@ annotation, the frame-count sliders' conversion, the prose budget, or the drift 
   `ui_category_toggle`, and the branch reads it. Its radius is its own slider
   (`AutoMaskIsolation`) rather than the closing's, because a share of still pixels is a different question
   from how far the mask is grown, and sharing one number would mean retuning the closing silently changed
-  what the density means. Both radii sit inside the same fixed `AUTOMASK_DILATE_MAX` loop, so the second one
-  costs no extra tap. The structural switches keep their definitions because each elides a whole pass and
+  what the density means. Both radii sit inside the same `AUTOMASK_DILATE_MAX` loop, so the second one
+  adds no pass and no target of its own — though its width does set how far that loop runs. The
+  structural switches keep their definitions because each elides a whole pass and
   the `texture`/`sampler` pairs only that pass reads, which ReShade would otherwise allocate forever.
 - **A category is a contiguous run of uniforms.** ReShade starts a new group where the `ui_category`
   value changes, so the same category named again further down the list renders as a second heading
@@ -94,7 +95,7 @@ annotation, the frame-count sliders' conversion, the prose budget, or the drift 
   walk's range to catch a coarser noise floor must not quietly raise the threshold that decides a scene
   cut is not drift. Within the histogram the constant matters: it sizes the target, the `groupshared`
   tally, the clear loop, the bin clamp and the walk's range, and those cannot be allowed to drift
-  apart. `AUTOMASK_DILATE_MAX` is the existing precedent for a definition that bounds a fixed loop
+  apart. `AUTOMASK_DILATE_MAX` is the existing precedent for a definition that bounds a loop
   rather than holding data or eliding a pass.
 - `AUTOMASK_DRIFT_LAG` is named for the same reason as `AUTOMASK_STEP_MAX`: it is the drift ramp's top
   and the clamp on the average, two expressions that must not drift apart, and naming it is what keeps a

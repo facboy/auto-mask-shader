@@ -8,32 +8,34 @@ what the frame pays is the bytes moved more than the instructions run.
 ## 1. What the assembly shows
 
 `uv run tools/verify_shaders.py check --opcodes` reports a static slot count per entry point, which
-is a compile-time figure. The two closing passes compile to runtime loops, and a slot count hides the
-trip count inside them. Read off `tools/.work/PS_Dilate*.asm` at the shipped defaults:
+is a compile-time figure. The two closing passes compile to runtime loops, and a slot count hides both
+how far the loop runs and which of its steps do any work. Read off `tools/.work/PS_Dilate*.asm` at the
+shipped defaults, the samples a pixel actually costs:
 
-| pass | samples at the centre | samples per loop tap | loop taps |
-| --- | --- | --- | --- |
-| `PS_DilateH` | 2 | 2 | 7 (`2 × AUTOMASK_DILATE_MAX + 1`) |
-| `PS_DilateV` | 2 | 4 | 7 |
+| pass | samples/px, gate off | gate on |
+| --- | --- | --- |
+| `PS_DilateH` | 6 | 6 |
+| `PS_DilateV` | 6 | 10 |
+| closing, both passes | **12** | 16 |
 
-The closing therefore costs `PS_DilateH` 16 and `PS_DilateV` 30 samples a pixel, about 46 against the
-accumulator's 8 and the other full-resolution passes at 1–3 each. That is the heaviest part of the
-full-resolution chain, and the one place a static count (41 and 61) reads well under what the frame
-pays.
+The closing is the heaviest part of the full-resolution chain, against the accumulator's 8 and the
+other full-resolution passes at 1–3 each. The fixed seven-tap window it began with cost `PS_DilateH` 16
+and `PS_DilateV` 16 samples a pixel with the gate off, and 30 for the vertical pass with it on — a
+figure neither the source nor the static count (51 and 71) shows. §2's bound takes that to 8 + 8, and
+§5's skipped centre step to 6 + 6.
 
 ## 2. The taps neither radius wants
 
-Both loops run `AUTOMASK_DILATE_MAX` either side whatever the sliders say. A tap past both radii
-feeds neither term: `inRange` is false, so the closing term is zero, and the isolation count is gated
-on `abs(i) <= reach`, so that term is zero too. At the default **Closing radius 1** and **Isolation
-radius 1** the loop takes seven taps where three carry either term.
+Both loops ran `AUTOMASK_DILATE_MAX` either side whatever the sliders say, so at the default
+**Closing radius 1** and **Isolation radius 1** the loop took seven taps where three carry either
+term. A tap past both radii feeds neither: `inRange` is false, so the closing term is zero, and the
+isolation count is gated on `abs(i) <= reach`, so that term is zero too.
 
-Bounding each loop by `min(max(r, reach), AUTOMASK_DILATE_MAX)` drops the closing to 8 + 14 samples a
-pixel, a little over half, with identical output — a tap outside both radii already contributed
-nothing. The bound costs three instructions (`PS_DilateH` 41 → 45, `PS_DilateV` 61 → 68 statically)
-for 3 taps at the defaults against 7. The explicit `AUTOMASK_DILATE_MAX` term is not redundant: both
-sliders cap at 3, so it never tightens the bound, and it is what keeps the loop tied to the constant
-rather than to the sliders alone.
+Bounding each loop by `min(max(r, reach), AUTOMASK_DILATE_MAX)` cuts the closing roughly in half with
+identical output — a tap outside both radii already contributed nothing. It costs a handful of static
+instructions — the `max`, the `min` and the `ftoi` that reads the bound — for 3 taps at the defaults
+against 7. The explicit `AUTOMASK_DILATE_MAX` term is not redundant: both sliders cap at 3, so it never
+tightens the bound, and it is what keeps the loop tied to the constant rather than to the sliders alone.
 
 ## 3. The store's second render target
 
@@ -78,11 +80,33 @@ in a pass must share its dimensions, which holds (`BUFFER_WIDTH × BUFFER_HEIGHT
 because it writes `RGBA16F` (`texAutoAccumA`) and `RGBA32F` (`texAutoDriftA`). ReShade defaults it to
 false and the shader never sets it.
 
-## 5. Openings left unmeasured
+## 5. The loop's own centre step
 
-- **The isolation gate's four taps a loop step.** Its row, column and two diagonal counts ride the
-  taps the closing already takes, which is the no-extra-tap design (`docs/core-model.md`); a flat 3×3
-  gathering would cost less per tap but is only worth it beside the bound above.
+Each closing loop still ran an `i = 0` step after the bound above, and every one of its contributions
+was already in the centre tap the pass takes before the loop: at zero offset the sampled luma *is*
+`lumaCentre`, so `AutoMaskEdgeKeep` returns `1`, and the neighbour *is* `centre`. So `nearby`,
+`column`, `diagDown` and `diagUp` seed from `centre` directly and the loop `continue`s on `i == 0`:
+
+- `PS_DilateH`: `nearby = step(0.5, centre.r)` before the loop, `if (i == 0) continue;` inside it.
+- `PS_DilateV`: `nearby = centre.g * AUTOMASK_COUNT_SCALE`, `column = diagDown = diagUp = centre.b`,
+  and the same skip. `mask` needs no seed, since `centre.r * 1` cannot exceed `mask`.
+
+The centre step was one of the three offsets the bound leaves at the defaults, so skipping it drops the
+closing from 16 samples a pixel to **12** (gate off) and from 22 to **16** (gate on). The `continue` and
+the four seeds are the only static cost — a handful of slots on each pass — and the branch is on the
+loop index, so it is uniform across the wavefront rather than divergent.
+
+## 6. Openings left
+
+- **The isolation gate's four taps a loop step — measured, and left.** The note this replaces proposed
+  a flat 3×3 gathering "cheaper per tap". It is not available: the four counts are runs of `2·reach + 1`
+  pixels *through* the pixel, and a 3×3 holds only the `reach = 1` case. At `Isolation radius 2` or `3`
+  each run is 5 or 7 pixels long, so a 3×3 gather would be **wrong** rather than merely unprofitable,
+  and the current form already reads each line once (the row tap doubles as the column tap). The gate's
+  own addition is the two diagonal taps, and only while its checkbox is ticked: `AutoMaskIsolated` is a
+  uniform, so off it compiles to an untaken `if_nz` and no sample is issued — at the defaults,
+  `PS_DilateV` 6 → 10 samples a pixel when the gate is switched on. What the four runs already get for
+  free is the box share and the column count, both read out of the one `texAutoDilate` tap per offset.
 - **The accumulator's static footprint.** `CS_Accum` (254) and `PS_Accum` (151) carry the pinned-colour
   count's sixteen `eq`/`and` pairs. `AutoMaskClipped` returning `int` rather than `float` is a recorded
   decision (`docs/refactor-candidates.md`) that keeps the bytecode hash stable, so this is not a tidy.

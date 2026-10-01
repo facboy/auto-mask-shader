@@ -254,7 +254,7 @@ uniform float AutoMaskDensity <
 
 //How far the neighbourhood reaches, independent of the closing radius: shape and evidence are different
 //questions, and tying this to AutoMaskDilate would move the gate's meaning whenever the closing is
-//retuned. Shares the closing's fixed loop, so it costs no extra tap.
+//retuned. Rides the closing's loop rather than adding one, so it costs no pass or target of its own.
 uniform float AutoMaskIsolation <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Isolation radius in pixels";
@@ -955,11 +955,15 @@ float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
 		float4 drift = tex2D(AutoDriftB, texcoord);
 	#endif
 	float lumaCentre = AutoMaskLuma(tex2D(ReShade::BackBuffer, texcoord).rgb);
-	float nearby = 0.0;
+	//The loop's own centre step contributes only what the two taps above already gave: at zero offset
+	//the luma is the centre's own, so the edge test passes, and the neighbour is the centre verdict.
+	float nearby = step(0.5, centre.r);
 	//A tap past both radii feeds neither term, so the loop spans only the larger radius.
 	float span = min(max(r, reach), AUTOMASK_DILATE_MAX);
 
 	for (int i = -int(span); i <= int(span); i++){
+		if (i == 0)
+			continue;
 		float2 uv = texcoord + float2(i * texel.x, 0.0);
 		bool inRange = abs(float(i)) <= r;
 		float luma = AutoMaskLuma(tex2D(ReShade::BackBuffer, uv).rgb);
@@ -988,17 +992,20 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	float4 centre = tex2D(AutoDilate, texcoord);
 	float mask = centre.r;
 	float lumaCentre = AutoMaskLuma(tex2D(ReShade::BackBuffer, texcoord).rgb);
-	float nearby = 0.0;
 	//The four runs through this pixel: its column, and its two diagonals. Its row is the centre's own
 	//count, already in .g, and the diagonals read the centre verdict .b so a contour inside a HUD
 	//cannot cost them, exactly as the row count is unbounded by luma.
-	float column = 0.0;
-	float diagDown = 0.0;
-	float diagUp = 0.0;
-	//As the horizontal pass: the loop spans the larger of the two radii.
+	float nearby = centre.g * AUTOMASK_COUNT_SCALE;
+	float column = centre.b;
+	float diagDown = centre.b;
+	float diagUp = centre.b;
+	//As the horizontal pass: the loop spans the larger of the two radii, and its centre step is the
+	//four taps above, so it is skipped rather than re-sampling the texel this pass already took.
 	float span = min(max(r, reach), AUTOMASK_DILATE_MAX);
 
 	for (int i = -int(span); i <= int(span); i++){
+		if (i == 0)
+			continue;
 		float2 uv = texcoord + float2(0.0, i * texel.y);
 		bool inRange = abs(float(i)) <= r;
 		float luma = AutoMaskLuma(tex2D(ReShade::BackBuffer, uv).rgb);

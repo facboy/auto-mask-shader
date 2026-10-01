@@ -39,8 +39,9 @@ are listed under it.
 - **isolation radius / `AutoMaskIsolation`** — `r` for the box the density is measured over, deliberately
   its own setting rather than the closing radius: shape and evidence are different questions, and tying
   them would move what `AutoMaskDensity` means whenever the closing is retuned. Read as 1 at the bottom, so
-  the setting cannot silently switch the filter off, and capped at `AUTOMASK_DILATE_MAX` because it shares
-  the closing's fixed loop — so raising it costs no extra tap.
+  the setting cannot silently switch the filter off, and capped at `AUTOMASK_DILATE_MAX` because it rides
+  the closing's loop — so raising it costs no pass or target of its own, though its width does set how far
+  that loop runs, and its diagonal taps are taken only while the gate is ticked.
 - **text box / `__UNIFORM_INPUT_FLOAT1`** — the widget `AutoMaskDensity` uses (`ui_type = "input"`): a
   typed field rather than a track, so a share can be set exactly. The other uniform in its category is a
   slider; the widget family follows what the value means.
@@ -313,8 +314,9 @@ readings.
 - **`AUTOMASK_STEP_DWELL`** — a second in frames (`AutoMaskTargetFPS`): how long a measured step must
   stand before it is committed. A bound on how long a held reading lasts rather than on a loop or a
   value anyone tunes.
-- **`AUTOMASK_DILATE_MAX`** — `3`: the fixed half-width of the dilation loops, and the cap of
-  `AutoMaskDilate`. The precedent for a definition that bounds a fixed loop rather than eliding a pass.
+- **`AUTOMASK_DILATE_MAX`** — `3`: the cap on the dilation loops' half-width and on `AutoMaskDilate`. Each
+  loop runs the wider of the two radii, clamped to this, so it bounds the loop rather than fixing it. The
+  precedent for a definition that bounds a loop rather than eliding a pass.
 - **`AUTOMASK_DRIFT_LAG`** — `2`: how far the drift average is held from the frame, in deadbands, and the
   top of the drift ramp. A bound on a value rather than on a loop, and the reason the horizon no longer
   sets how long a pan lingers. The clamp divides it onto the value's own scale: `now` is normalized and

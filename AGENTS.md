@@ -35,7 +35,7 @@ store/restore pattern and the anti-bloom suppression belongs to Kaiser (UIDetect
 | `docs/review.md`, `docs/drift-snap-review.md`, `docs/optical-flow.md` | Recorded design history and closed investigations. |
 | `docs/ui-isolation-options.md` | Options for reading interface as a region rather than per pixel, none of them scoped. What §6's instrument decides between. |
 | `docs/refactor-candidates.md` | The folds that landed in the shader and the check, what was considered and left, and what is deliberately not a candidate. |
-| `docs/performance.md` | Where the frame's cost sits, read off the compiled bytecode, and the closing-loop and store merges it justified. |
+| `docs/performance.md` | Where the frame's cost sits, read off the compiled bytecode, and the closing-loop, back-edge and centre-step savings it justified. |
 
 The one companion header is **`Shaders/AutoMask.fxh`, and it holds code and nothing else**: the shared
 arithmetic both accumulators call, no uniform, `texture`, `sampler` or technique. A header of **authored
@@ -226,19 +226,21 @@ graded against it goes off screen-wide.
   gates is a share of the box (`AutoMaskDensity`), the pixel itself counted, so one number means the same
   thing at every radius — **or** one line through the pixel (`max(reach + 1, AUTOMASK_AXIS_MIN)`), which is
   what keeps a one-pixel stroke the box share would erode. The line count is the horizontal pass's `.g` and
-  the centre verdict it publishes in `.b`, read down the column and the two diagonals at taps the vertical
-  pass already takes, so the door costs no extra tap, target or uniform and is skipped while the gate is
-  off. Both doors sit on the verdict, not on colour. The box share stays a first door, so the gate can only
+  the centre verdict it publishes in `.b`, read down the column and the two diagonals: the column and the
+  box share ride the vertical taps the closing already takes, while the two diagonals are its own samples,
+  so the door costs no pass, target or uniform and is both taken and sampled only while the gate is on.
+  Both doors sit on the verdict, not on colour. The box share stays a first door, so the gate can only
   rescue a pixel it would have dropped and never newly drops one.
 - The **isolation radius is its own setting** (`AutoMaskIsolation`), not the closing radius: shape and
   evidence are different questions, and tying them would move what `AutoMaskDensity` means whenever the
   closing is retuned. The density is a share rather than a count, so it means one thing at every radius; a
-  count would need a cap at the smallest box's area. The radius shares the closing's fixed loop, so it costs
-  no extra tap and caps at `AUTOMASK_DILATE_MAX` with it; read as 1 at the bottom, so the setting cannot
-  silently switch the gate off. `AutoMaskDensity` is an `__UNIFORM_INPUT_FLOAT1` — a typed field rather
-  than a track, because it names a share. `AutoMaskDepthEps` names a distance in metres, small enough that
-  a walk's fraction of a metre a frame sits mid-range and the far field's noise sits under the foot; it is
-  also a `__UNIFORM_DRAG_FLOAT1`, since a stepped track cannot cover 0.001 to 2 and be usable at either end.
+  count would need a cap at the smallest box's area. The radius rides the closing's own loop, so it adds
+  no pass or target and caps at `AUTOMASK_DILATE_MAX` with it — though its width does set how far that
+  loop runs; read as 1 at the bottom, so the gate cannot silently switch off. `AutoMaskDensity` is an
+  `__UNIFORM_INPUT_FLOAT1` — a typed field rather than a track, because it names a share. `AutoMaskDepthEps`
+  names a distance in metres, small enough that a walk's fraction of a metre a frame sits mid-range and the
+  far field's noise sits under the foot; it is also a `__UNIFORM_DRAG_FLOAT1`, since a stepped track cannot
+  cover 0.001 to 2 and be usable at either end.
 - `AutoMaskTargetFPS` is the one further definition, a setup number rather than a tuning one: it multiplies
   seconds into frames for the `ui_max` caps and for the drift horizon. See `docs/editing-conventions.md`.
 - The reset's wide step is `max(deadband, 8.0)` rather than a bare literal, so it can never collapse back
