@@ -515,3 +515,15 @@ whether the reading you are looking at is current.
   is only correct if the accumulator still reads before the write. The off path must be untouched: the
   `AutoMaskDepthMotion=0` variants are byte-identical, and in the depth variants only `PS_DilateV` moves
   and `PS_StoreDepth` is gone.
+- **`texAutoAccumA` narrowed to `RG16F` under compute.** `A` is written only as a render target
+  (`PS_DilateH`'s `SV_Target1`) and every reader wants `.r`/`.g`, so the two dead channels cost bytes for
+  nothing; it is `RG16F` wherever `AutoMaskCompute == 1`. `B` deliberately does **not** follow, and that
+  is the part to leave alone: `B` is written through `tex2Dstore`, whose overload set is only
+  `int`/`int4`/`uint`/`uint4`/`float`/`float4`, so `storage2D<float2>` has no matching intrinsic and
+  ReShade rejects the effect at load with X3004 — the failure that caught the first attempt at this
+  change. The offline check is blind to the whole thing: a target's `Format` is an annotation that
+  `strip_for_fxc` drops before fxc sees the source, and `tex2Dstore` is rewritten to `s[coord] = value`
+  before compiling, so **no hash moves and no bad store is refused** (`docs/performance_compute.md` §3).
+  The in-game check is therefore the only one: with compute on, a scene must produce the same mask it did
+  at `RGBA16F` — a mask that differs is `A` having dropped a channel a reader wanted — and the pixel path
+  (`AutoMaskCompute=0`) must be unchanged, since `A` stays four wide there.

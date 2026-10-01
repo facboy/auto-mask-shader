@@ -4,7 +4,8 @@ What the two configurations that ship off cost when they are on. Both default to
 a device or a depth buffer, not because they are worse: `AutoMaskCompute=1` is the more accurate mask
 and `AutoMaskDepthMotion=1` is the better witness where depth is available, so a player who can run them
 runs them. `docs/performance.md` measures the shipped pixel default; this is what differs off the same
-compiled bytecode, and the openings that measurement leaves. Only §2's depth-only branch is built.
+compiled bytecode, and the openings that measurement leaves. §2's depth-only branch and §3's narrowing
+are both built.
 
 Companions: `docs/performance.md` (the default path's measured cost, and the bytecode method),
 `docs/compute-path.md` (what the switch swaps in), `docs/core-model.md` (the depth witness),
@@ -69,45 +70,63 @@ depth-only branch is the one saving with a clear shape, and it is landed: it cos
 each depth accumulator and skips 7 instructions a pixel on the pixel path and 14 on the compute path,
 but only while the tick is on. Everything else in the block is a real per-pixel job.
 
-## 3. Two accumulator channels are dead under compute without diagnostics
+## 3. `texAutoAccumA` narrowed to `RG16F` under compute
 
-With `AutoMaskCompute=1` and `AutoMaskDiagnostics=0`, `texAutoAccumB`'s four channels are read by:
+With `AutoMaskCompute=1` and `AutoMaskDiagnostics=0`, the pair is wider than anything reads. `texAutoAccumB`'s
+four channels:
 
-| channel | written as | readers under compute, diagnostics off |
+| channel | written as | readers |
 | --- | --- | --- |
 | `.r` | confidence | `PS_DilateH` centre and tap, the accumulator next frame |
 | `.g` | hold | the accumulator next frame (through `PS_DilateH`'s carry to A) |
-| `.b` | motion | **none** — `CS_Tile` and `PS_DebugMap`, both diagnostics-only |
+| `.b` | motion | `CS_Tile` and `PS_DebugMap` — diagnostics only |
 | `.a` | 1.0 | **none** — the eligible flag is `PS_Motion`'s, which does not exist under compute |
 
 `.b` is written for `PS_Motion`, which the switch removes, and its only readers are the two diagnostics
-passes (the tile map's `wide` reading and the debug map's `changed`), both compiled out unless the
-overlay is on. `.a` is `PS_Accum`'s eligible flag, read only by `PS_Motion`; `CS_Accum` stores a constant
-`1.0` there and nothing on the compute path reads it — the count that flag exists to divide is carried in
-the atomics instead. So on the configuration a compute player actually runs, half the accumulator's
-channels are written every frame and read by no one.
+passes, both compiled out unless the overlay is on. `.a` is `PS_Accum`'s eligible flag, read only by
+`PS_Motion`; `CS_Accum` stores a constant `1.0` there and nothing reads it — the count that flag exists
+to divide is carried in the atomics instead. `texAutoAccumA` is the same picture without the diagnostics
+qualifier: it is written only as render targets (`PS_DilateH`'s verbatim `carry = centre`), and every
+reader wants `.r`/`.g` alone — `prev.r`/`prev.g` and the four admission taps, which test `.r`. That holds
+with the overlay on as well, since the tile map and the debug map read `B`, never `A`.
 
-That makes the accumulator pair **narrower than `RGBA16F` where nothing reads the two dead channels**: an
-`RG16F` pair would carry `.r` and `.g` and halve the pair from ~59 MB to ~29.5 MB at 1440p, with its
-per-frame traffic halved with it — the same size saving as the drift store's re-centring
-(`docs/performance.md` §10), on the pair that is four full-resolution touches a frame.
+**`B` cannot be narrowed, and the reason is the dialect rather than the arithmetic.** ReShade's
+`tex2Dstore` is declared for exactly six storage element types — `int`, `int4`, `uint`, `uint4`, `float`,
+`float4` — and there is **no two-component form**. `B` is written only through that intrinsic
+(`AutoAccumStore`, a `storage2D`), so a `float2` store cannot be expressed at all; the first attempt at
+this change declared `storage2D<float2>` and ReShade rejected the effect at load with X3004,
+`undeclared identifier or no matching intrinsic overload for 'tex2Dstore'`. **This is a case the offline
+check cannot catch**: `strip_for_fxc` rewrites `tex2Dstore` into `s[coord] = value` before fxc sees it
+(`docs/verification.md`), so the store's element type is never validated against ReShade's overload set
+and every variant compiles clean either way.
 
-The catch is the guard, and it is why this is written as a question rather than a change. The target is
-declared once and shared by both paths, and the pixel path needs all four channels (`.b` for `PS_Motion`'s
-changed reading, `.a` for its eligible one); the compute path needs `.b` back whenever
-`AutoMaskDiagnostics` is on. So the narrower declaration applies to `AutoMaskCompute == 1 &&
-AutoMaskDiagnostics == 0` alone, which is a third state the two existing guards do not describe, and the
-check's variant matrix would have to cover it. That is a definition-shaped decision — a target's format
-is not a live setting — and it belongs with the tile map's own guard, since the tile map is the only
-thing that reads `.b` on the compute path.
+**`A` is a different case, and it is narrowed.** A store overload only constrains what is written through
+a `storage2D`, and nothing writes `A` that way, so `RG16F` is expressible for it: declared under
+`AutoMaskCompute == 1` and `RGBA16F` on the pixel path. The guard is the compute switch rather than the
+pair's channel arithmetic because it is also the portability line: compute means D3D11 or Vulkan, where
+`R16G16_FLOAT` is a hardware-required render target, while the pixel path is what a D3D9 or D3D10 device
+runs and is left exactly as it was. That is half the pair: ~14.7 MB against ~29.5 MB for the one target,
+and ~59 MB a frame against ~118 MB at 1440p, since each target is read and written twice a frame. The
+remaining ~29.5 MB sits in `B`, held wide by the missing `float2` store.
+
+Two facts the check cannot see either, read from the vendor tables instead: `R16G16_FLOAT` supports
+`RenderTarget`, `Typed UAV` and `UAV Typed Store` as **hardware-required** at D3D11.0 — the same class as
+`R16G16B16A16_FLOAT`, which `A` already used — and it is a storage-image format on Vulkan, where the
+shader also runs. Nothing reads `A` as a typed UAV (it is sampled through its SRV), so the D3D11.1
+typed-load floor the compute path documents is untouched.
+
+The check's own limit is the point of the entry: a target's `Format` is an annotation, `strip_for_fxc`
+drops annotations before fxc sees the source, and a `Format = BOGUSFORMAT` was measured to pass the whole
+suite — **no hash moves at all** for this change and the bytecode cannot testify to it. The vendor tables
+above and a game are the evidence instead.
 
 ## 4. Not openings
 
 - **The pinned-colour count.** `AutoMaskClipped` is four `eq` groups of three `and`s each, twelve
-  operations at most, and it is tempting on the compute path because `.a` is a free channel (§3). It is
-  not removable: the count feeds `stable` and the changed/active tally on both paths, so it is recomputed
-  either way — republishing it into `.a` would store a value nothing reads, which is the dead store §3
-  describes rather than a saving.
+  operations at most, and it is tempting on the compute path because `.a` is a channel nothing reads
+  there (§3). It is not removable: the count feeds `stable` and the changed/active tally on both paths,
+  so it is recomputed either way — republishing it would store a value nothing reads, which is the dead
+  store §3 describes rather than a saving.
 - **The atomics.** `CS_Accum`'s `atomic_iadd` calls are per group, not per pixel, and the histogram's are
   gated on the toggle. `docs/compute-path.md` argues the histogram's few-dozen-byte targets against the
   1 KB they replaced; nothing there is worth revisiting.
@@ -128,10 +147,12 @@ narrower than on the default path:
 - §2's landed branch must move only the eight `*-depth` variants' `CS_Accum` and `PS_Accum`, and leave
   `PS_DilateH`, `PS_DilateV` and every non-depth entry point hash-identical. It does: the two accumulators
   gain one static slot each and nothing else's hash moves.
-- §3's edit is the one the check cannot fully see. `strip_for_fxc` rewrites the compute dialect before
-  `fxc` sees it (`docs/verification.md`), and the accumulator's store is a `tex2Dstore`; a narrowed
-  target would have to be checked against ReShade's own parser and the variant matrix extended to cover
-  the compute-diagnostics-off state, not inferred from a passing compile.
+- §3's landed narrowing is the one the check cannot see **at all**: `A`'s `Format` is an annotation,
+  `strip_for_fxc` drops annotations before fxc sees the source, so its `RG16F` declaration is invisible
+  to the bytecode and **every hash stays identical** — unlike §2, this change is not pinned by the check
+  in either direction. The format's support was read from the vendor tables instead (§3), and the check
+  cannot refuse a bad storage element type either, since it rewrites `tex2Dstore` before compiling; that
+  is how the `storage2D<float2>` attempt reached a game. A game is the only confirmation of the swap.
 
 Neither is observable offline beyond the hashes. Whether a depth-only branch reads the same scene the same
 way, or whether a narrower accumulator leaves the compute gate and the tile map intact, needs the overlay

@@ -112,8 +112,11 @@ are listed under it.
 
 ## The accumulator
 
-- **accumulator** — the per-pixel state machine, in a ping-pong `RGBA16F` pair: `.r` confidence, `.g`
-  hold, `.b` motion, `.a` whether the pixel could speak (it was not pinned).
+- **accumulator** — the per-pixel state machine, in a ping-pong pair: `texAutoAccumA` is `RG16F` under
+  compute (`RGBA16F` on the pixel path) since it is read as `.r`/`.g` only, and `texAutoAccumB` is
+  `RGBA16F` because `tex2Dstore` has no `float2` form to narrow its store to
+  (`docs/performance_compute.md` §3). Together they hold `.r` confidence, `.g` hold, `.b` motion, `.a`
+  whether the pixel could speak (it was not pinned).
 - **confidence** — `.r`: positive credit toward interface, negative the move debt. The verdict is
   `step(0.5, confidence)`.
 - **verdict step** — `0.5`, fixed. The frame sliders are converted into a step per frame against it, so

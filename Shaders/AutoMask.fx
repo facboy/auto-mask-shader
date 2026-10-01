@@ -265,10 +265,14 @@ uniform float AutoMaskIsolation <
 > = 1.0;
 
 //Targets
-//Accumulator ping-pong: .r=confidence/debt, .g=hold, .b=motion, .a=whether the verdict could speak
-//(the pixel was not pinned), which the motion reduce divides the changed share by on the pixel path
-//and which the compute path's own tally carries instead.
-texture texAutoAccumA { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA16F; };
+//Accumulator ping-pong: .r=confidence/debt, .g=hold, .b=motion, .a=whether the verdict could speak,
+//which the motion reduce divides the changed share by on the pixel path and the compute tally carries.
+//A is read as .r/.g only and written as a render target alone: RG16F under compute. B keeps four wide.
+#if AutoMaskCompute == 1
+	texture texAutoAccumA { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RG16F; };
+#else
+	texture texAutoAccumA { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA16F; };
+#endif
 texture texAutoAccumB { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA16F; };
 sampler AutoAccumA { Texture = texAutoAccumA; };
 sampler AutoAccumB { Texture = texAutoAccumB; };

@@ -85,7 +85,8 @@ source rather than inferred: `effect_parser_stmt.cpp` accepts `RenderTarget0`..`
 `RenderTarget1` and `RenderTarget2` are honoured, not ignored. Two constraints come with it: every target
 in a pass must share its dimensions, which holds (`BUFFER_WIDTH × BUFFER_HEIGHT` throughout), and
 `SRGBWriteEnable` would require *every* target to be `RGBA8` — so it must stay **off** on this pass,
-because it writes `RGBA16F` (`texAutoAccumA` and `texAutoDriftA`). ReShade defaults it to
+because it writes float formats (`texAutoAccumA`, `RG16F` under compute and `RGBA16F` otherwise, and
+`texAutoDriftA`, `RGBA16F`; `docs/performance_compute.md` §3). ReShade defaults it to
 false and the shader never sets it.
 
 ## 5. The loop's own centre step

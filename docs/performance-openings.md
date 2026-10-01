@@ -30,6 +30,10 @@ full-resolution — the two reduce passes are the sub-resolution pair. At the ch
 size, so the defaults move on the order of 300 MB a frame. §2 and §3 took two targets and four
 full-resolution target touches; the openings below are smaller again than that.
 
+The pair here is the **pixel default's** `RGBA16F`. Under compute `texAutoAccumA` is `RG16F`
+(`docs/performance_compute.md` §3), half those bytes for that target; `texAutoAccumB` stays `RGBA16F`
+because `tex2Dstore` has no two-component form to narrow its store to.
+
 ## 2. Landed: the store target held what the history already holds
 
 `PS_Store` wrote the untouched frame to `texAutoHistory` and `frame.rgb * mask` to `texAutoFrame`;
