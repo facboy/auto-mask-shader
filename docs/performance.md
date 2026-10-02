@@ -247,7 +247,7 @@ compute-path feature. It is the same shape as §11 — a uniform that selects ra
 `PS_AntiBloom` runs on the build every user compiles by default — `AutoMaskAntiBloom` defaults to `1`.
 §1 folds it into "the other full-resolution passes at 1–3 each"; read off `PS_AntiBloom.asm` it is seven
 static slots and two samples — the same order as `PS_Restore`'s 8 and 2, and a fraction of the closing's
-53 and 68. What no table carries is its traffic: it binds no render target — it reads `BackBuffer` and
+53 and 69. What no table carries is its traffic: it binds no render target — it reads `BackBuffer` and
 `AutoHistory` and writes the live back buffer — so the `texAuto*` target tables miss it, and its two reads
 and one write move ~44 MB a frame at 1440p outside the frame's per-target accounting.
 
@@ -258,12 +258,38 @@ here that names one relies on (`docs/performance-openings.md` §8). **Removing i
 for**: blacking the masked pixels is what keeps a bloom pass downstream from picking the UI up, and the
 restore puts the real pixels back, so the final picture is unchanged.
 
-The switch is a base axis of the check's crossing rather than a crossed one, so the pass is compiled into
-eight of the sixteen variants and out of the other eight. The `antibloom-off` builds drop only this pass
-and leave every other entry point byte-identical (`PS_Accum` 93, `PS_DilateH` 53, `PS_DilateV` 68), so
-that pass is the whole of what the switch buys and pays.
+Re-read for a fold, it leaves none that is cheaper and lossless. Its seven slots are one `BackBuffer` tap,
+one `AutoHistory` tap, the `step`/`movc` mask and the `mul`. Sourcing the frame from `AutoHistory.rgb`
+instead — the frame the closing stored beside the very mask this pass reads — drops the `BackBuffer` tap
+and one slot, 7 → 6, but the history is `RGBA8`, so every pixel the pass leaves standing would reach the
+bloom pass a level coarser than the live frame it replaced. Nothing else is hoistable: one texel of mask,
+one texel of frame, one multiply.
 
-## 14. Openings left
+The switch is a base axis of the check's crossing rather than a crossed one, so the pass is compiled into
+eight of the sixteen variants and out of the other eight. The `antibloom-off` builds drop only this pass,
+so that pass is the whole of what the switch buys and pays.
+
+## 14. The isolation gate's test, skipped when its checkbox is off
+
+The gate's per-offset taps were already conditional (§15), but its **test** was not: the box share
+(`nearby < AutoMaskDensity * 0.01 * side * side`), the line count (`best`) and the `mask = 0.0` that
+follows ran at every pixel of `PS_DilateV` even though `AutoMaskIsolated` ships at `0` and discards the
+result. The `.asm` shows the whole test — thirteen opcodes, from the `side`/`floorLine` setup through the
+`movc` — plus the `ine` that formed the gate's own predicate, sitting unconditional after the loop. It is
+the same shape as §11 and §12: a live checkbox that selected rather than branched, because the condition is
+a uniform and fxc flattened the `&&` into straight-line code. The test now sits inside
+`[branch] if (AutoMaskIsolated)`, so the off path issues one `if_nz` and none of the arithmetic.
+
+It costs `PS_DilateV` one static slot, 68 → **69** on the pixel path and 72 → **73** with the depth check,
+and moves no other entry point: all sixteen changed hashes are `PS_DilateV`, the four base variants at
+each of the four compute/depth settings. `rowCount`, the `side`/`floorLine` setup and the `best`/`nearby`
+comparison move inside the branch with it, since their only reader is the test. What the off path keeps is
+the `column`/`diagDown`/`diagUp` seeds, which are the centre tap's own channels and so already in hand.
+The horizontal pass is not touched: its row count is a float add plus the count's own `step`, and forcing
+it into a branch cost `PS_DilateH` +3 slots, so it is left as the unconditional form the off path can run
+for free.
+
+## 15. Openings left
 
 - **The isolation gate's four taps a loop step — measured, and left.** The note this replaces proposed
   a flat 3×3 gathering "cheaper per tap". It is not available: the four counts are runs of `2·reach + 1`
@@ -285,3 +311,8 @@ that pass is the whole of what the switch buys and pays.
 
 Both are instruction-level and closed. The one opening left is the pixel-path drift question, a
 full-resolution pass rather than an instruction, which `docs/performance-openings.md` §6 collects.
+
+§14 is the third instance of the mistake the shipped-variant bullet in `AGENTS.md` names — an off default
+read as an exemption rather than a variant, so a branch inside a pass was left computing what the switch
+discards. §11 and §12 are the first two, on the switches that ship off; §14's is on the shipped default
+itself, which is why it went unexamined for so long.

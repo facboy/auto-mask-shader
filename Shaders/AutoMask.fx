@@ -1058,20 +1058,22 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 		mask = max(mask, row.r * keep);
 	}
 
-	//The row count came from the horizontal pass, at the centre, and is in .g.
-	float rowCount = centre.g * AUTOMASK_COUNT_SCALE;
-
 	//Every masked pixel is tested, not only the ones the verdict claimed: what the closing radius grew
 	//around a speck has that speck's thin neighbourhood and goes with it. The box is the isolation
 	//radius, so the share is the same test at every position of it. A line through the pixel is the
 	//second door: a stroke holds more than half of its own length along one axis, where the box share
 	//asks it to fill a share of a box it is too thin to fill. Both doors keep -- the box was there
 	//first, so nothing it kept is lost, and the line only ever rescues what the box dropped. prose-ok
-	float side = 2.0 * reach + 1.0;
-	float floorLine = max(reach + 1.0, AUTOMASK_AXIS_MIN);
-	float best = max(rowCount, max(column, max(diagDown, diagUp)));
-	if (AutoMaskIsolated && nearby < AutoMaskDensity * 0.01 * side * side && best < floorLine)
-		mask = 0.0;
+	//The whole test is the gate's own, so off it is skipped rather than computed and discarded.
+	[branch]
+	if (AutoMaskIsolated){
+		float rowCount = centre.g * AUTOMASK_COUNT_SCALE;
+		float side = 2.0 * reach + 1.0;
+		float floorLine = max(reach + 1.0, AUTOMASK_AXIS_MIN);
+		float best = max(rowCount, max(column, max(diagDown, diagUp)));
+		if (nearby < AutoMaskDensity * 0.01 * side * side && best < floorLine)
+			mask = 0.0;
+	}
 
 	//Next frame's history: the frame this pass was drawn over, with the settled mask in the alpha. The
 	//restore reads the frame back where the mask is set, so the map target and the store pass are gone.
