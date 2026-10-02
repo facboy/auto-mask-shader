@@ -10,8 +10,8 @@ hand. This does it from one assumption: **most of the screen is the world.**
 
 A pixel the game keeps drawing in the same place, frame after frame, only means interface while the
 world around it is in motion. So the shader compares each frame against the one before it: hold still
-for a couple of frames while the view moves and you are taken for interface; keep changing for a couple
-of frames and you fall away again. Open a menu and its region holds still while the world carries on
+for about half a second while the view moves and you are taken for interface; keep changing for about
+as long and you fall away again. Open a menu and its region holds still while the world carries on
 behind it, so it lands in the mask; close it and the world starts moving there again, so it drops out.
 
 Movement is the stronger evidence, so a pixel seen moving has to hold still for a while before it can be

@@ -52,7 +52,8 @@ uniform float AutoMaskRise <
 > = 0.5 * AutoMaskTargetFPS;
 
 //Frames of change absorbed as a running balance before decay starts: a changing frame adds one, a
-//still frame pays half of one back. Also absorbs the one full-screen change after a load.
+//still frame pays half of one back. Also absorbs the one full-screen change after a load, and is the
+//window animation must fit inside to be bridged rather than banked.
 uniform float AutoMaskForget <
 	__UNIFORM_DRAG_FLOAT1
 	ui_label = "Frames of change absorbed before a still pixel starts decaying out of the mask";
@@ -60,7 +61,7 @@ uniform float AutoMaskForget <
 	ui_category = "Frame timing";
 	ui_min = 0.0; ui_max = 5.0 * AutoMaskTargetFPS;
 	ui_step = 1.0;
-> = 0.25 * AutoMaskTargetFPS;
+> = 0.5 * AutoMaskTargetFPS;
 
 //Changing frames a pixel needs before it is dropped from the interface. Keep it at or under the
 //rise, or the mask lingers over moving scenery; frames the RGB step calls still cost nothing.
