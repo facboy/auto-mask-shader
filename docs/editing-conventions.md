@@ -6,11 +6,9 @@ annotation, the frame-count sliders' conversion, the prose budget, or the drift 
 - **Say it and stop.** The prose budget is the one the HLSL comments keep, and it covers the README, the
   docs and this file alike. It buys words for what a reader cannot work out — a value, a cause, a
   consequence — not framing that describes the writing instead of the subject, nor a clause restating the
-  sentence before it. Both phrases cut from `docs/definitions.md` were the first kind: "It is a lookup
-  rather than an argument" and "the ambiguity is what sends a reader looking" say what the paragraph is
-  doing. Reasoning earns a sentence only where it changes what an editor would do — a cap that would
-  cross another threshold, a widget family that must match a declared type. What a value used to be
-  belongs in the review docs.
+  sentence before it. Reasoning earns a sentence only where it changes what an editor would do — a cap
+  that would cross another threshold, a widget family that must match a declared type. What a value used
+  to be belongs in the review docs.
 - The uniform widget is chosen by the annotation macro's family, and the family by what the value means:
   the duration settings (`AutoMaskRise`, `AutoMaskFall`, `AutoMaskForget`, `AutoMaskMoveMemory`, and the
   compute path's `AutoMaskDrift`) use `__UNIFORM_DRAG_FLOAT1`, a drag widget over free values rather
@@ -36,30 +34,26 @@ annotation, the frame-count sliders' conversion, the prose budget, or the drift 
   hide every slider in the shader. The gated categories are therefore `RGB step detection` (the toggle,
   then the floor it gates) and `Isolated pixels` (the gate, then the count it governs), with the
   ungated `AutoMask`, `Frame timing` and `Is the scene in motion?` staying visible whatever any gate
-  says. `ui_category` is not a way
-  to hide one setting conditionally on another in general — there is no annotation that does that, so a
-  value that must stay visible whatever its neighbours are set to stays in an ungated category.
+  says. There is no annotation that hides one setting conditionally on another in general, so a value
+  that must stay visible whatever its neighbours are set to stays in an ungated category.
 - **An always-shown group can still be named for what it holds.** `Frame timing` splits the four
   frame-count durations — `AutoMaskRise`, `AutoMaskFall`, `AutoMaskForget` and `AutoMaskMoveMemory` —
   out of `AutoMask` purely to name them, with no gate on it: none of the four is ever hidden, and they
   are already one contiguous run at the top of the uniform list, so the split costs nothing but a
   heading. `Is the scene in motion?` does the same just below it for `AutoMaskMotion` and the depth
-  readings (`AutoMaskDepthEps`, `AutoMaskDepthOnly`, `AutoMaskDepthFOV`), gathered there because the
-  motion threshold and the depth term are the two witnesses to one question — the settings are named for
-  the question they answer.
-  Nothing that must stay visible whatever its neighbours say can be gated, but it can still be grouped —
-  the durations are the settings a user tunes by watching, and the heading says so.
+  readings (`AutoMaskDepthEps`, `AutoMaskDepthOnly`, `AutoMaskDepthFOV`), the two witnesses to one
+  question — the settings are named for the question they answer.
 - **A feature with a pass of its own is a definition; a branch inside a pass is a gate.** The isolation
   gate is the precedent: it owns no pass, shader or target — it is a count and a branch inside the two
   closing passes — so a `#if` would save a few instructions in one entry point while costing a recompile
   every time someone ticks the box. It is therefore a live `AutoMaskIsolated` bool carrying
-  `ui_category_toggle`, and the branch reads it. Its radius is its own slider
-  (`AutoMaskIsolation`) rather than the closing's, because a share of still pixels is a different question
-  from how far the mask is grown, and sharing one number would mean retuning the closing silently changed
-  what the density means. Both radii sit inside the same `AUTOMASK_DILATE_MAX` loop, so the second one
-  adds no pass and no target of its own — though its width does set how far that loop runs. The
-  structural switches keep their definitions because each elides a whole pass and
-  the `texture`/`sampler` pairs only that pass reads, which ReShade would otherwise allocate forever.
+  `ui_category_toggle`, and the branch reads it. Its radius is its own slider (`AutoMaskIsolation`)
+  rather than the closing's, because a share of still pixels is a different question from how far the
+  mask is grown, and sharing one number would mean retuning the closing silently changed what the
+  density means. Both radii sit inside the same `AUTOMASK_DILATE_MAX` loop, so the second one adds no
+  pass and no target of its own — though its width does set how far that loop runs. The structural
+  switches keep their definitions because each elides a whole pass and the `texture`/`sampler` pairs only
+  that pass reads, which ReShade would otherwise allocate forever.
 - **A category is a contiguous run of uniforms.** ReShade starts a new group where the `ui_category`
   value changes, so the same category named again further down the list renders as a second heading
   with the same name. Nothing else follows from the order — the panel is the only thing that sees it.
@@ -77,36 +71,27 @@ annotation, the frame-count sliders' conversion, the prose budget, or the drift 
   average remembers is derived from it, so `AutoMaskTargetFPS` multiplies it inside the shader. Its
   default is the one value chosen from the mechanism rather than from the frame sliders' convention:
   the settled lag is the per-frame shift times the horizon in frames, so the shortest horizon that can
-  clear the deadband out of a sub-level shift is what makes the channel do anything at all — a default
-  of a few frames reads as no drift whatsoever. It is declared inside the compute guard beside the other
-  uniforms, because the pixel path has no pass that would read it and a setting that does nothing is
-  worse than an absent one. `AutoMaskAutoStep` and `AutoMaskNoiseFloor` sit there with it for the same
-  reason.
+  clear the deadband out of a sub-level shift is what makes the channel do anything at all. It is
+  declared inside the compute guard beside the other uniforms, because the pixel path has no pass that
+  would read it and a setting that does nothing is worse than an absent one. `AutoMaskAutoStep` and
+  `AutoMaskNoiseFloor` sit there with it for the same reason.
 - The reset's step is expressed as `max(deadband, 8.0)` rather than a bare literal, which at the shipped
   caps is a flat 8 levels at every position — the `AutoMaskEps` slider ends at 8 and the auto-step walk
-  clamps to the same 8 — but which cannot cross the verdict deadband if either cap is ever raised. The
-  reset must stay at or above the deadband so the two thresholds never collapse back into one, and 8 is
-  the number the shader already treats as its top-of-range level, so there is no second constant to keep
-  in step. It is deliberately *not* a slider — nobody watches the reset's threshold, and `AutoMaskDrift`
-  has to remain the setting being read.
-- The 8 that literal names stays a literal, and the walk's own top level is now a named constant
-  (`AUTOMASK_STEP_MAX`) instead. The two are deliberately not tied together: they answer different
-  questions — "is this a new picture?" against "where does the scene's noise end?" — so raising the
-  walk's range to catch a coarser noise floor must not quietly raise the threshold that decides a scene
-  cut is not drift. Within the histogram the constant matters: it sizes the target, the `groupshared`
-  tally, the clear loop, the bin clamp and the walk's range, and those cannot be allowed to drift
-  apart. `AUTOMASK_DILATE_MAX` is the existing precedent for a definition that bounds a loop
-  rather than holding data or eliding a pass.
-- `AUTOMASK_DRIFT_LAG` is named for the same reason as `AUTOMASK_STEP_MAX`: it is the drift ramp's top
-  and the clamp on the average, two expressions that must not drift apart, and naming it is what keeps a
-  lag the ramp cannot read from ever being stored. The clamp divides it back onto the value's own scale,
-  because `now` is normalized and the reach is a level count: left in levels it names 255 times what it
-  means. It is **not** a slider — it is the extent of a
-  comparison rather than a duration anyone watches, and exposing it would offer a second knob for what
-  `AutoMaskDrift` already sets. Nor can it be `1`: the ramp is `smoothstep(deadband, deadband × LAG, …)`,
-  whose edges collapse at that value. Being a whole number of deadbands is what lets it hold its meaning
-  at every `AutoMaskEps` position. `AUTOMASK_STEP_DWELL` joins the two names under the same rule: it
-  bounds how long a measured reading is held rather than naming a value anyone tries, so it is a constant
-  and not a slider.
+  clamps to the same 8 — but which cannot cross the verdict deadband if either cap is ever raised. It is
+  deliberately *not* a slider: nobody watches the reset's threshold, and `AutoMaskDrift` has to remain
+  the setting being read. The 8 stays a literal rather than `AUTOMASK_STEP_MAX`, because the two answer
+  different questions — "is this a new picture?" against "where does the scene's noise end?" — so raising
+  the walk's range must not quietly raise the threshold that decides a scene cut is not drift.
+- The named constants exist where one number sizes several expressions that must not drift apart.
+  `AUTOMASK_STEP_MAX` sizes the histogram target, the `groupshared` tally, the clear loop, the bin clamp
+  and the walk's range. `AUTOMASK_DRIFT_LAG` is the drift ramp's top and the clamp on the average, and
+  the clamp divides it back onto the value's own scale because `now` is normalized and the reach is a
+  level count: left in levels it names 255 times what it means. It cannot be `1`, since the ramp is
+  `smoothstep(deadband, deadband × LAG, …)`, whose edges collapse there, and being a whole number of
+  deadbands is what lets it hold its meaning at every `AutoMaskEps` position. It is not a slider — it is
+  the extent of a comparison rather than a duration anyone watches, and exposing it would offer a second
+  knob for what `AutoMaskDrift` already sets. `AUTOMASK_STEP_DWELL` and `AUTOMASK_DILATE_MAX` join them
+  under the same rule: each bounds a hold or a loop rather than holding data anyone tries, so each is a
+  constant and not a slider.
 - The credit lives in both `LICENSE` and the header block on purpose: someone copying just the `.fx`
   into their ReShade folder takes the attribution with it.

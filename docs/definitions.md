@@ -1,10 +1,9 @@
 # Definitions
 
-The vocabulary this project reuses across the shader, the README and the subject docs, defined once, in
-a sentence or two each, in the sense *this* shader gives the word. Entries are grouped by subject
-so each term sits beside the ones it is read against — `deadband` with `ramp` and `still`, `walk` with
-`bin` and the histogram. Where a word carries two senses here — `bank`, `gate`, `hold`, `motion` — both
-are listed under it.
+The vocabulary the shader, the README and the subject docs share, defined once in the sense *this*
+shader gives the word. Entries are grouped so each term sits beside the ones it is read against —
+`deadband` with `ramp` and `still`, `walk` with `bin` and the histogram. Where a word carries two senses
+here — `bank`, `gate`, `hold`, `motion` — both are listed under it.
 
 ## The mask and the approach
 
@@ -23,15 +22,15 @@ are listed under it.
   interface: a stuck pixel, a lone sample in a noisy gradient. What the isolation gate drops.
 - **admission / `AutoMaskNeighbour`** — the spatial term upstream of the verdict: a pixel no claimed
   neighbour touches earns at `AUTOMASK_SEED_SHARE` of the usual rate, so a region can only start from a
-  pixel still for twice the rise. Off, every still pixel earns alike. Shrinks the isolation gate's job
-  rather than duplicating it. Inside `AutoMask` as a live checkbox, off by default.
+  pixel still for twice the rise, and shrinks the isolation gate's job rather than duplicating it. A live
+  checkbox inside `AutoMask`, off by default (`docs/core-model.md`).
 - **seed rate** — `AUTOMASK_SEED_SHARE`, the `0.5` admission multiplies the rise by for a pixel with no
   claimed neighbour. A share rather than a refusal, so a wholly new element still arrives, twice as late.
-- **isolation gate / `AutoMaskIsolated`** — the one spatial term on the verdict *that removes*, and the
-  only thing that takes a pixel *out* of the mask the verdict put in. A masked pixel is kept while its
-  neighbourhood holds `AutoMaskDensity` percent of still pixels, itself counted, over the isolation radius
-  — or while one line through it clears the line door. Both tests read the verdict and not colour, which
-  makes the gate the opposite of the closing radius, which only grows the mask. Ships off.
+- **isolation gate / `AutoMaskIsolated`** — the one spatial term on the verdict *that removes*: a masked
+  pixel is kept while its neighbourhood holds `AutoMaskDensity` percent of still pixels, itself counted,
+  over the isolation radius — or while one line through it clears the line door. Both tests read the
+  verdict and not colour, unlike the closing radius, which only grows the mask. A live checkbox, off by
+  default (`docs/core-model.md`).
 - **neighbourhood / the box** — the `2r + 1` square the gate reads, `r` the isolation radius. A fixed-size
   box, so the density is the only thing that decides the outcome once the radius is set.
 - **density** — `AutoMaskDensity`, the share of that box that must be still, itself counted. A *share*
@@ -40,10 +39,10 @@ are listed under it.
   everything. A line of width `n` fills `n / side` of the box, so a wider box erodes thin strokes.
 - **isolation radius / `AutoMaskIsolation`** — `r` for the box the density is measured over, deliberately
   its own setting rather than the closing radius: shape and evidence are different questions, and tying
-  them would move what `AutoMaskDensity` means whenever the closing is retuned. Read as 1 at the bottom, so
+  them would move what `AutoMaskDensity` means whenever the closing is retuned. Read as 1 at the bottom so
   the setting cannot silently switch the filter off, and capped at `AUTOMASK_DILATE_MAX` because it rides
-  the closing's loop — so raising it costs no pass or target of its own, though its width does set how far
-  that loop runs, and its diagonal taps are taken only while the gate is ticked.
+  the closing's loop — so raising it costs no pass or target, though its width sets how far that loop
+  runs.
 - **text box / `__UNIFORM_INPUT_FLOAT1`** — the widget `AutoMaskDensity` uses (`ui_type = "input"`): a
   typed field rather than a track, so a share can be set exactly. The other uniform in its category is a
   slider; the widget family follows what the value means.
@@ -61,11 +60,11 @@ are listed under it.
   than a safety net under the verdict, so its default is not `0` (`docs/core-model.md`).
 - **depth check** — `AutoMaskDepthMotion`, off by default: a pixel whose linearized depth changed joins
   the changed count the gate reads, on its own step (`AutoMaskDepthEps`, a distance in metres, since the
-  depth converts back to metres against the far plane ReShade supplies). It can only add
-  to that count, never touch the verdict, and with no depth bound the difference is zero. Depth is the
-  world's, since the overlay writes none, so it is a second witness to the premise and never a mask
-  (`docs/core-model.md`). With it compiled in, `AutoMaskDepthOnly` picks the witness the
-  reading is taken from — depth added to the picture, or depth alone — so the two can be compared.
+  depth converts back to metres against the far plane ReShade supplies). It can only add to that count,
+  never touch the verdict, and with no depth bound the difference is zero. Depth is the world's, since the
+  overlay writes none, so it is a second witness to the premise and never a mask (`docs/core-model.md`).
+  With it compiled in, `AutoMaskDepthOnly` picks the witness the reading is taken from — depth added to
+  the picture, or depth alone.
 - **coverage** — the share of a block whose pixels changed at all. The statistic, deliberately not the
   magnitude: averaging magnitude let one small bright object in fast motion declare the whole view live.
 - **motion** — two senses. The *flag*: this pixel changed at all, which is what the gate counts. The
@@ -400,8 +399,9 @@ readings.
 - **corner marker** — the bottom-left block drawn by `AutoMask_Restore`, not the overlay, so nothing
   downstream can paint over it: magenta while the world is drawn, yellow while it is not. It reads the
   state about to govern the mask, one frame ahead of the decision.
-- **variant** — one compiled combination of the preprocessor switches; the offline check compiles eight
-  (`AutoMaskAntiBloom` and `AutoMaskDiagnostics` each at 0 and 1, crossed with `AutoMaskCompute`).
+- **variant** — one compiled combination of the preprocessor switches; the offline check compiles sixteen
+  (`AutoMaskAntiBloom` and `AutoMaskDiagnostics` each at 0 and 1, crossed with `AutoMaskCompute` and
+  `AutoMaskDepthMotion`).
 - **`BUFFER_WIDTH` / `BUFFER_HEIGHT`** — injected by ReShade at runtime, not defined here. Anything
   buffer-relative stays correct across resolutions; absolute pixel numbers do not.
 - **prelude** — the definitions the offline check injects before compiling (`__RESHADE__`,
@@ -439,8 +439,8 @@ readings.
   keyword, a wrong argument count, the bracket form the translation produces, and `fmod` — because a
   rewrite would hide the failure from `fxc` and let it reach a game.
 - **loud failure** — the check's contract that missing data exits non-zero rather than reporting a clean
-  pass. `docs/verification.md` names the eight cases and the construct that exercises each; a ninth is a
-  shader whose own header has gone missing from `Shaders/`.
+  pass. `docs/verification.md` names the ten cases and the construct that exercises each, from an empty
+  `Shaders/` to a deleted `AutoMask.fxh` and a render target a pass declares but the reading misses.
 - **reserved word** — a word ReShade's lexer emits as a token rather than an identifier (`sample`,
   `new`, `this`, `half`), while HLSL has no such token, so `fxc` compiles it and ReShade fails the load
   with X3000. `RESERVED_WORD` refuses it, read from ReShade's own lexer rather than guessed.

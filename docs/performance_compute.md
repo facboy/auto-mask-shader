@@ -1,11 +1,10 @@
 # Performance: the compute and depth paths
 
-What the two configurations that ship off cost when they are on. Both default to `0` because they need
-a device or a depth buffer, not because they are worse: `AutoMaskCompute=1` is the more accurate mask
-and `AutoMaskDepthMotion=1` is the better witness where depth is available, so a player who can run them
-runs them. `docs/performance.md` measures the shipped pixel default; this is what differs off the same
-compiled bytecode, and the openings that measurement leaves. §2's depth-only branch, §3's narrowing and
-§4's guarded step fetch are all built.
+What the two configurations that ship off cost when they are on. Both default to `0` because they need a
+device or a depth buffer, not because they are worse: `AutoMaskCompute=1` is the more accurate mask and
+`AutoMaskDepthMotion=1` is the better witness where depth is available. `docs/performance.md` measures
+the shipped pixel default; this is what differs off the same compiled bytecode. §2's depth-only branch,
+§3's narrowing and §4's guarded step fetch are all built.
 
 Companions: `docs/performance.md` (the default path's measured cost, and the bytecode method),
 `docs/compute-path.md` (what the switch swaps in), `docs/core-model.md` (the depth witness),
@@ -28,11 +27,10 @@ Companions: `docs/performance.md` (the default path's measured cost, and the byt
 Three facts follow, and none is in `docs/performance.md`:
 
 - **The depth switch adds 61 slots to `CS_Accum` and 59 to `PS_Accum`.** The block is the size of the
-  rest of `PS_Accum` put together. `docs/performance.md` §1 records that the accumulator's static count
-  moves under a switch (152 against 93) but not what the block does; §2 is that.
-- **On the compute path the accumulator is the heaviest full-resolution pass, not the closing.** `CS_Accum`
-  198 against `PS_DilateH` 56 and `PS_DilateV` 72. The closing is the heaviest pass on the pixel default
-  (`docs/performance.md` §1), and the switch moves that title to the accumulator.
+  rest of `PS_Accum` put together; §2 is what it does.
+- **On the compute path the accumulator is the heaviest full-resolution pass, not the closing.**
+  `CS_Accum` 198 against `PS_DilateH` 56 and `PS_DilateV` 72. The closing is the heaviest pass on the
+  pixel default (`docs/performance.md` §1), and the switch moves that title to the accumulator.
 - **The compute path has no reduce passes at all.** `PS_Motion` (27) and `PS_MotionAvg` (24) are replaced
   by `CS_Accum`'s in-pass tally and `CS_Finish` (66); the technique is `CS_Accum`, `CS_Finish`, the two
   closings, and the optional tile and overlay passes.
@@ -43,21 +41,19 @@ With `AutoMaskDepthMotion` on, both accumulators run the same block: `ReShade::G
 pixel and at each of its right and lower neighbours (three buffer fetches), `tex2Dlod(AutoDepth, …)` for
 the previous frame's depth, three `AutoMaskCamPos` calls — each building a ray and dividing the depth by
 that ray's length — a `cross`/`normalize`/`abs` for the surface normal, and `AutoMaskDepthMoved` on the
-centre pair. That is the 59–61 slots. It runs at full resolution, in the pass that is already the
-heaviest on the compute path, and `docs/performance.md` never measures it — its §1 table covers the
-closing's loop and the accumulator's static count only.
+centre pair. That is the 59–61 slots, at full resolution, in the pass that is already the heaviest on the
+compute path; `docs/performance.md` §1 covers only the closing's loop and the accumulator's static count.
 
 Three things in the block are worth arguing, and one of them is now built:
 
-- **`AutoMaskDepthOnly` used to override the colour grading rather than skip it — now it skips.** `motion`
-  was written as `AutoMaskDepthOnly ? AutoMaskDepthMoved(...) : max(motion, AutoMaskDepthMoved(...))`, so
-  the picture's own ramp and the drift comparison's were computed either way and the `max` discarded them
-  when the tick was on; fxc flattens that small a body to a `movc`, so a plain `if` did not help. Both
-  accumulators now build the ramp inside `[branch] if (!AutoMaskDepthOnly)`, which is the one directive
-  fxc honours as real flow control, and the tick skips it. The rest of the block is not skippable —
-  `maxDiff` still feeds `stable` and next frame's average, `maxDrift` still feeds `stable`, and both
-  still feed the histogram — so the saving is the ramp, not the block. `docs/performance.md` §11 is the
-  landed account.
+- **`AutoMaskDepthOnly` now skips the picture ramp rather than overriding it.** `motion` was written as
+  `AutoMaskDepthOnly ? AutoMaskDepthMoved(...) : max(motion, AutoMaskDepthMoved(...))`, so the picture's
+  own ramp and the drift comparison's were computed either way and the `max` discarded them when the tick
+  was on; fxc flattens that small a body to a `movc`, so a plain `if` did not help. Both accumulators now
+  build the ramp inside `[branch] if (!AutoMaskDepthOnly)`, the one directive fxc honours as real flow
+  control. The rest of the block is not skippable — `maxDiff` still feeds `stable` and next frame's
+  average, `maxDrift` still feeds `stable`, and both still feed the histogram — so the saving is the ramp,
+  not the block. `docs/performance.md` §11 is the landed account.
 - **The orientation is inherent, not folded.** `AutoMaskDepthInvariant` decides up-facing from the two
   neighbour depths, and `AutoMaskCamPos`' ray direction is `texcoord`, so both the direction and its
   length vary per pixel — there is no read of the centre alone that answers it and nothing to hoist.
@@ -65,15 +61,12 @@ Three things in the block are worth arguing, and one of them is now built:
   and are not: `offset` is `texcoord`, so the three ray lengths differ per pixel. The only constants are
   `halfAngle` and the two buffer offsets.
 
-The honest reading of the depth block is therefore that it is ~60 slots doing a real per-pixel job. The
-depth-only branch is the one saving with a clear shape, and it is landed: it costs one static slot on
-each depth accumulator and skips 7 instructions a pixel on the pixel path and 14 on the compute path,
-but only while the tick is on. Everything else in the block is a real per-pixel job.
+The honest reading of the depth block is that it is ~60 slots doing a real per-pixel job, and the
+depth-only branch is the one saving with a clear shape.
 
 ## 3. `texAutoAccumA` narrowed to `RG16F` under compute
 
-With `AutoMaskCompute=1` and `AutoMaskDiagnostics=0`, the pair is wider than anything reads. `texAutoAccumB`'s
-four channels:
+With `AutoMaskCompute=1` and `AutoMaskDiagnostics=0`, `texAutoAccumB` is wider than anything reads:
 
 | channel | written as | readers |
 | --- | --- | --- |
@@ -86,19 +79,18 @@ four channels:
 passes, both compiled out unless the overlay is on. `.a` is `PS_Accum`'s eligible flag, read only by
 `PS_Motion`; `CS_Accum` stores a constant `1.0` there and nothing reads it — the count that flag exists
 to divide is carried in the atomics instead. `texAutoAccumA` is the same picture without the diagnostics
-qualifier: it is written only as render targets (`PS_DilateH`'s verbatim `carry = centre`), and every
-reader wants `.r`/`.g` alone — `prev.r`/`prev.g` and the four admission taps, which test `.r`. That holds
-with the overlay on as well, since the tile map and the debug map read `B`, never `A`.
+qualifier: it is written only as render targets, and every reader wants `.r`/`.g` alone — `prev.r`/`prev.g`
+and the four admission taps, which test `.r`. That holds with the overlay on as well, since the tile map
+and the debug map read `B`, never `A`.
 
 **`B` cannot be narrowed, and the reason is the dialect rather than the arithmetic.** ReShade's
 `tex2Dstore` is declared for exactly six storage element types — `int`, `int4`, `uint`, `uint4`, `float`,
 `float4` — and there is **no two-component form**. `B` is written only through that intrinsic
-(`AutoAccumStore`, a `storage2D`), so a `float2` store cannot be expressed at all; the first attempt at
-this change declared `storage2D<float2>` and ReShade rejected the effect at load with X3004,
-`undeclared identifier or no matching intrinsic overload for 'tex2Dstore'`. **This is a case the offline
-check cannot catch**: `strip_for_fxc` rewrites `tex2Dstore` into `s[coord] = value` before fxc sees it
-(`docs/verification.md`), so the store's element type is never validated against ReShade's overload set
-and every variant compiles clean either way.
+(`AutoAccumStore`, a `storage2D`), so a `float2` store cannot be expressed at all; the first attempt
+declared `storage2D<float2>` and ReShade rejected the effect at load with X3004. **This is a case the
+offline check cannot catch**: `strip_for_fxc` rewrites `tex2Dstore` into `s[coord] = value` before fxc
+sees it (`docs/verification.md`), so the store's element type is never validated against ReShade's
+overload set and every variant compiles clean either way.
 
 **`A` is a different case, and it is narrowed.** A store overload only constrains what is written through
 a `storage2D`, and nothing writes `A` that way, so `RG16F` is expressible for it: declared under
@@ -117,8 +109,8 @@ typed-load floor the compute path documents is untouched.
 
 The check's own limit is the point of the entry: a target's `Format` is an annotation, `strip_for_fxc`
 drops annotations before fxc sees the source, and a `Format = BOGUSFORMAT` was measured to pass the whole
-suite — **no hash moves at all** for this change and the bytecode cannot testify to it. The vendor tables
-above and a game are the evidence instead.
+suite — **no hash moves at all** for this change, so the vendor tables above and a game are the evidence
+instead.
 
 ## 4. The measured step's fetch, branch-guarded
 
@@ -129,9 +121,8 @@ default. It now builds `AutoMaskDeadband()` and refines it inside `[branch] if (
 the fetch sits in `if_nz cb0[3].y` and the toggle-off path issues no sample. `CS_Accum` 196 → **198** and
 257 → **259**, two static slots for one fetch off every pixel: the accumulator has six unconditional
 taps, so it is one in six of its samples at the default. Only the four compute variants' `CS_Accum`
-moves — the pixel path has no `AutoStep` to fetch, since the measured step is a compute-path feature.
-It is the same shape as §2: a uniform that selects rather than branches, and the `[branch]` that makes
-it branch. `docs/performance.md` §12 is the landed account.
+moves — the pixel path has no `AutoStep` to fetch. It is the same shape as §2, and
+`docs/performance.md` §12 is the landed account.
 
 ## 5. Declined: branching the drift channel out at `AutoMaskDrift = 0`
 
@@ -168,21 +159,7 @@ slows the one the README recommends, so it is left as a costed option rather tha
   two reduce passes and is not a candidate for folding.
 - **The drift pair.** Re-centred into half precision (`docs/performance.md` §10); the remaining cost is
   the two full-resolution targets and their four touches, which is the price of the channel, not a fold.
-- **Branching the drift channel out at `AutoMaskDrift = 0` — measured, and declined.** At 0 the channel
-  is arithmetically dead: `horizon` floors at 1, so `next` is `now` exactly, the stored offset
-  `next - now` is 0, and next frame's average is `before` alone — which makes the drift ramp
-  `smoothstep(d, 2d, ·)` a duplicate of the short ramp's `smoothstep(d - 1, d + 2, ·)` inside the `max`,
-  and the short ramp decides it at every level tried. The accumulator still pays for the dead channel:
-  the `AutoDriftA` tap (one of the six it takes unconditionally), the 23 instructions of
-  `horizon`/`lerp`/`clamp`, and the `AutoDriftStore` write. All three are inside `CS_Accum`, so a live
-  `[branch] if (AutoMaskDrift > 0.0)` would remove them. **The closing's half would not go with them**:
-  `PS_DilateH` carries the offset back as a named `RenderTarget2`, and a pass binds its targets from the
-  declaration rather than from anything the shader computes, so no uniform can stop that bind or write —
-  removing it is the definition-shaped change this entry declines. And the trade is the wrong way round:
-  the branch's two or three static slots are paid at every setting, while the saving lands only at 0 —
-  the end of the slider `README.md` steers users away from, where the channel is off anyway. It speeds
-  up the setting a user has already given up and slows the one the README recommends; left as a costed
-  option rather than built.
+  Branching the channel out at `AutoMaskDrift = 0` is §5.
 - **Reaching across the guards.** Every item in §2–§4 sits behind the depth or the compute guard, so the
   shipped pixel default is untouched. A change that reached past that line would be a change to the
   default path in its own right and would need its own justification — not because the bytecode would
@@ -190,20 +167,18 @@ slows the one the README recommends, so it is left as a costed option rather tha
 
 ## 7. How to verify a change here
 
-`uv run tools/verify_shaders.py check --hashes --opcodes`, before and after. The evidence wanted is
-narrower than on the default path:
+`uv run tools/verify_shaders.py check --hashes --opcodes`, before and after:
 
 - §2's landed branch must move only the eight `*-depth` variants' `CS_Accum` and `PS_Accum`, and leave
   `PS_DilateH`, `PS_DilateV` and every non-depth entry point hash-identical. It does: the two accumulators
   gain one static slot each and nothing else's hash moves.
-- §3's landed narrowing is the one the check cannot see **at all**: `A`'s `Format` is an annotation,
-  `strip_for_fxc` drops annotations before fxc sees the source, so its `RG16F` declaration is invisible
-  to the bytecode and **every hash stays identical** — unlike §2, this change is not pinned by the check
-  in either direction. The format's support was read from the vendor tables instead (§3), and the check
-  cannot refuse a bad storage element type either, since it rewrites `tex2Dstore` before compiling; that
-  is how the `storage2D<float2>` attempt reached a game. A game is the only confirmation of the swap.
+- §3's landed narrowing is the one the check cannot see **at all**: `A`'s `Format` is an annotation that
+  `strip_for_fxc` drops, so its `RG16F` declaration is invisible to the bytecode and **every hash stays
+  identical** — unlike §2, this change is not pinned by the check in either direction. The check cannot
+  refuse a bad storage element type either, since it rewrites `tex2Dstore` before compiling; that is how
+  the `storage2D<float2>` attempt reached a game. A game is the only confirmation of the swap.
 - §4's landed branch must move only the four compute variants' `CS_Accum` and nothing else — the pixel
-  accumulators are separate entry points on the pixel path, where the toggle and the target do not exist.
+  accumulators are separate entry points, where the toggle and the target do not exist.
 
 Neither is observable offline beyond the hashes. Whether a depth-only branch reads the same scene the same
 way, whether a narrower accumulator leaves the compute gate and the tile map intact, or whether the

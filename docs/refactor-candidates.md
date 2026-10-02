@@ -153,14 +153,10 @@ Nothing in that reading reopens §3: the three `CS_Tile` relaxations, the `PS_Re
   before-run: all 82 entry points' hashes and instruction counts came out identical.
 - `uv run tools/verify_shaders.py check-docs`, since every shader comment touched counts against the
   block budget.
-- For `tools/verify_shaders.py`, a scratch copy of the tree exercised the loud-failure cases
-  `docs/verification.md` lists — an empty `Shaders/`, a broken shader, a binding to a missing entry
-  point, a technique whose pass list cannot be parsed, a compute pass missing a dispatch size, `fmod`, a
-  reserved word, both misspelled-storage guards and a storage-arity mismatch — and each still exits
-  non-zero with the same message, plus both docs-check hit lists.
-- With the header added, one case more: the `.fxh` deleted from `Shaders/` **after a passing run**, so a
-  copy left in `tools/.work/` is there to be resolved against. That is what caught the stale copy, and
-  the workspace is emptied of files this repository does not have because of it.
-- A review pass over the diff, because the check cannot see whether a helper kept the same meaning.
-- The scenario in `docs/verification.md` that owns the touched code still needs a game; an agent cannot
-  run one, and a refactor claiming to be behaviour-neutral rests on the hash evidence alone.
+- For `tools/verify_shaders.py`, a scratch copy of the tree exercised every loud-failure case
+  `docs/verification.md` lists and each still exits non-zero with the same message. With the header
+  added, one case more: the `.fxh` deleted from `Shaders/` **after a passing run**, so a copy left in
+  `tools/.work/` is there to be resolved against — which is why the workspace is emptied of files this
+  repository does not have.
+- A review pass over the diff, because the check cannot see whether a helper kept the same meaning, and
+  the scenario in `docs/verification.md` that owns the touched code still needs a game.
