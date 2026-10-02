@@ -1087,6 +1087,13 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 }
 
 #if AutoMaskAntiBloom == 1
+	//Applied to a live frame the anti-bloom pass has taken no history read for: the mask comes off the
+	//history's alpha. `PS_Restore` and `CS_Tile` take the alpha from a fetch they already make.
+	float AutoMaskPublished(float2 uv)
+	{
+		return step(0.5, tex2D(AutoHistory, uv).a);
+	}
+
 	//Blacks masked UI pixels in back buffer to suppress bloom bleeding.
 	float4 PS_AntiBloom(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	{

@@ -87,11 +87,3 @@ float2 AutoMaskDecay(float conf, float held, bool stable, bool drawn, float earn
 	}
 	return float2(conf, held);
 }
-
-//The published mask: `PS_AntiBloom` applies it to a live frame it has no history read for, so it takes
-//this helper. `PS_Restore` and `CS_Tile` want the frame or a neighbouring reading and take the alpha
-//inline from the fetch they already make.
-float AutoMaskPublished(float2 uv)
-{
-	return step(0.5, tex2D(AutoHistory, uv).a);
-}

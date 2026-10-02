@@ -17,7 +17,7 @@ does not change how long repayment takes.
 
 The one state machine this describes runs in two places — `PS_Accum` and, on the compute path,
 `CS_Accum` — so its parts that do not sample anything are shared helper functions in
-`Shaders/AutoMask.fxh`: the premise, the decay step, the published-mask read, the deadband, the
+`Shaders/AutoMask.fxh`: the premise, the decay step, the deadband, the
 pinned-colour count and the frame rate. Each takes what it needs sampled already, because the two paths
 read their textures differently (`tex2D` against `tex2Dlod` with an explicit level) and a helper that
 sampled would move one path's sampling onto the other's. The drift terms stay behind the compute guard in

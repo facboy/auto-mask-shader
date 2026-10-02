@@ -22,18 +22,23 @@ and what is deliberately not a candidate. **None of it changes what the shader o
 
 `CS_Accum` and `PS_Accum` were the same state machine written twice, differing only in how a sample is
 spelled (`tex2Dlod` with an explicit level against `tex2D`) and in the drift channel the compute path
-alone has. The duplicated parts now live as three functions in `Shaders/AutoMask.fxh` (more joined them
+alone has. The duplicated parts now live as functions in `Shaders/AutoMask.fxh` (more joined them
 below):
 
 | helper | folds |
 | --- | --- |
 | `AutoMaskDrawn(share)` | the premise, previously stated five times in two spellings |
 | `AutoMaskDecay(conf, held, stable, drawn, earn, cost)` | the hold, the credit, the bridge and the banked debt |
-| `AutoMaskPublished(uv)` | the mask read in `PS_AntiBloom`, `PS_Restore` and `CS_Tile` |
 
 Each takes what it needs **already sampled**, so neither path's sampling form moved onto the other's. The
 drift terms stay behind `#if AutoMaskCompute == 1` in the `.fx`, because its ramp and the two extra rail
 comparisons are the compute path's alone and the pixel path is documented as having no drift pass.
+
+`AutoMaskPublished(uv)` was folded here too, but has since been moved back into `AutoMask.fx` beside
+`PS_AntiBloom`, its only remaining caller: it samples (`tex2D(AutoHistory, uv)`), which the header's
+helpers do not, and `PS_Restore` and `CS_Tile` now read the history alpha inline from a fetch they
+already make. It is the same test the drift terms fail — a helper with one consumer is naming rather than
+a fold — so it belongs in the `.fx`.
 
 A second reading, of the shader against its header and its two closing passes against each other,
 folds the values each site was deriving for itself:

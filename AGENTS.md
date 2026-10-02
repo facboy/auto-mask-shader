@@ -144,8 +144,8 @@ adds the same frame back. See `docs/performance.md` §10.
   hidden. See `docs/editing-conventions.md`.
 - The **accumulator's state machine is written once**, in `Shaders/AutoMask.fxh`. `PS_Accum` and
   `CS_Accum` differ only in how a texture is sampled and in the drift channel the compute path alone
-  carries, so the parts that sample nothing — the premise, the decay step, the published-mask read and
-  the values they read (the deadband, the pinned-colour count, the frame rate) — are those shared
+  carries, so the parts that sample nothing — the premise, the decay step and the values they read
+  (the deadband, the pinned-colour count, the frame rate) — are those shared
   functions. Every helper takes what it needs **already sampled**, or the two paths' sampling forms
   would move onto each other's, and the drift terms stay behind `AutoMaskCompute` in the `.fx`. The
   include sits after the uniforms and targets the helpers read, since the dialect has no forward

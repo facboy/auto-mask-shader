@@ -149,7 +149,7 @@ are listed under it.
 - **state machine** — the branch structure of `PS_Accum`, whose shared parts `CS_Accum` calls as the same
   helpers declared in `Shaders/AutoMask.fxh` (`docs/compute-path.md`).
 - **shared helper** — one of the functions `Shaders/AutoMask.fxh` holds: the premise, the decay step, the
-  published-mask read, the deadband, the pinned-colour count, the depth-change test and the frame rate.
+  deadband, the pinned-colour count, the depth-change test and the frame rate.
   Each takes what it needs sampled already, so neither path's sampling form moves onto the other's
   (`docs/refactor-candidates.md`).
 - **bank** — two senses, told apart by the object. Of *scenery*: wrongly taken into the mask as
