@@ -185,5 +185,8 @@ deferral costed it.
 - **`PS_AntiBloom` folded into the closing.** The blacking has to land after the pass that reads the
   frame the history is stored from, and a pass that names render targets does not write the back
   buffer — which is what every pass here that names one relies on.
-- **The diagnostics map's own pass and target.** A definition, off at rest, so a collapse buys nothing
-  while it is off.
+- **The diagnostics map's own pass and target — refused on the wrong basis, reopened.** It was refused as
+  "a definition, off at rest, so a collapse buys nothing while it is off", which weighs the default setting
+  rather than the on-build. ReShade exposes `AutoMaskDiagnostics` in the UI, so the on-build is a shipped
+  variant and pays its pass and target every frame; `docs/performance_diagnostics.md` is the account, and
+  §3 there is the fold this entry left on the table.

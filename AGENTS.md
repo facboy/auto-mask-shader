@@ -38,6 +38,7 @@ store/restore pattern and the anti-bloom suppression belongs to Kaiser (UIDetect
 | `docs/performance.md` | Where the frame's cost sits, read off the compiled bytecode, the closing-loop, back-edge, centre-step, store-target and depth-only-ramp savings it justified, and the openings left. |
 | `docs/performance-openings.md` | The savings after `docs/performance.md`: the closing's dead out-of-radius taps, the folded depth store and the drift store's re-centring into half precision, all landed, plus the pixel-path drift channel held open for a D3D9/D3D10 title. |
 | `docs/performance_compute.md` | What the two switches that ship off — compute and the depth check — cost when on: the depth block's per-pixel slots, the picture ramp depth-only mode now skips, `texAutoAccumA` narrowed on the compute path, and the measured step's guarded fetch. |
+| `docs/performance_diagnostics.md` | What the `AutoMaskDiagnostics=1` build costs, treated as a shipped variant: the overlay's own full-resolution pass and target, the extra sample it adds to the restore, and the pass-and-target fold its redundancy leaves open. |
 
 The one companion header is **`Shaders/AutoMask.fxh`, and it holds code and nothing else**: the shared
 arithmetic both accumulators call, no uniform, `texture`, `sampler` or technique. A header of **authored
@@ -166,6 +167,14 @@ adds the same frame back. See `docs/performance.md` §10.
   compiled out. Values tuned by watching stay live sliders; adding a definition for one of those would
   cost a recompile per adjustment for no elision worth having. `AutoMaskTargetFPS` is a further
   definition but not a structural switch — it elides nothing, and is named below.
+- **Every switch setting is a shipped variant, and off is a default rather than an exemption.** ReShade
+  exposes each definition in the UI, so a user can compile any of the sixteen combinations, and a feature
+  that exists only in an on-build still costs that build's frame. So a `#if` is read as **removing the
+  feature from that variant's compile, not as retiring it**: a change is weighed and reviewed against the
+  variant it lands in, and "off by default so the collapse buys nothing" is not a reason to leave an
+  on-build's pass, target or per-pixel tap unexamined. This is what the check's sixteen-variant crossing
+  is for — every combination is compiled because every combination can load — and `docs/performance_diagnostics.md`
+  is the first account written on that basis, for the overlay's build.
 - **`texAutoAccumA` is `RG16F` under `AutoMaskCompute == 1`**, and `RGBA16F` on the pixel path. It is
   written only as a render target and read as `.r`/`.g` alone, so the two dead channels cost bytes for
   nothing. `texAutoAccumB` **cannot** follow: it is written through `tex2Dstore`, whose overloads are only
