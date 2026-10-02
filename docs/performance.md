@@ -242,7 +242,28 @@ variants' `CS_Accum` moves; the pixel path has no `AutoStep` to fetch, since the
 compute-path feature. It is the same shape as §11 — a uniform that selects rather than branches, and the
 `[branch]` that makes it branch — and it is the last dead per-pixel tap on the compute path.
 
-## 13. Openings left
+## 13. The anti-bloom pass
+
+`PS_AntiBloom` runs on the build every user compiles by default — `AutoMaskAntiBloom` defaults to `1`.
+§1 folds it into "the other full-resolution passes at 1–3 each"; read off `PS_AntiBloom.asm` it is seven
+static slots and two samples — the same order as `PS_Restore`'s 8 and 2, and a fraction of the closing's
+53 and 68. What no table carries is its traffic: it binds no render target — it reads `BackBuffer` and
+`AutoHistory` and writes the live back buffer — so the `texAuto*` target tables miss it, and its two reads
+and one write move ~44 MB a frame at 1440p outside the frame's per-target accounting.
+
+It is accounted, not saved. **Folding it into the closing fails on placement**: the blacking must land
+after the pass that reads the frame the history is stored from — `PS_DilateV` samples `BackBuffer` into
+`texAutoHistory` — and a pass that names render targets does not write the back buffer, which every pass
+here that names one relies on (`docs/performance-openings.md` §8). **Removing it fails on what it is
+for**: blacking the masked pixels is what keeps a bloom pass downstream from picking the UI up, and the
+restore puts the real pixels back, so the final picture is unchanged.
+
+The switch is a base axis of the check's crossing rather than a crossed one, so the pass is compiled into
+eight of the sixteen variants and out of the other eight. The `antibloom-off` builds drop only this pass
+and leave every other entry point byte-identical (`PS_Accum` 93, `PS_DilateH` 53, `PS_DilateV` 68), so
+that pass is the whole of what the switch buys and pays.
+
+## 14. Openings left
 
 - **The isolation gate's four taps a loop step — measured, and left.** The note this replaces proposed
   a flat 3×3 gathering "cheaper per tap". It is not available: the four counts are runs of `2·reach + 1`

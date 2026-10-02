@@ -2,7 +2,8 @@
 
 What is left after `docs/performance.md`, whose §2–§9 are instruction-level or pass folds that landed,
 whose §10 is the drift store's re-centring into half precision, whose §11 skips the picture ramp in
-depth-only mode, whose §12 guards the measured step's fetch, and whose §13 records the two openings that
+depth-only mode, whose §12 guards the measured step's fetch, whose §13 accounts the anti-bloom pass, and
+whose §14 records the two openings that
 are closed. §2–§5 below **have since landed** — §2 and §3 as that §7 (the store target and the published
 map gone, the closing writing the frame with the mask in its alpha), §4 as that §8 (the closing's dead
 out-of-radius frame taps guarded), §5 as that §9 (the depth store folded into the closing) and §7 here as
@@ -11,7 +12,7 @@ pixel-path drift question, §6, which is the one proposal here that adds cost ra
 asks which games the pixel path serves rather than what the frame can stop doing. It is not built and has
 not been in a game, so it names what it would cost and what would have to be watched to accept it.
 
-Companions: `docs/performance.md` (the cost already measured, and §13's two closed items),
+Companions: `docs/performance.md` (the cost already measured, and §14's two closed items),
 `docs/refactor-candidates.md` (what a fold has to clear — an unmoved hash for every entry point it does
 not touch), `docs/core-model.md` and `docs/compute-path.md` (the pass and target counts these would
 change), `docs/review.md` §2.2 (the redundancy §2 follows to its conclusion).
@@ -179,12 +180,13 @@ deferral costed it.
 - **The two back-edges.** `docs/performance.md` §4: one side of the accumulator's pair must be read while
   the other is written, and the fixed pass list cannot alternate them.
 - **The isolation gate's four taps a loop step, and the accumulator's static footprint.**
-  `docs/performance.md` §13: the first is wrong at radius 2 or 3 as a flat gather, so there is no
+  `docs/performance.md` §14: the first is wrong at radius 2 or 3 as a flat gather, so there is no
   cheaper form of the same count; the second is arithmetic the verdict needs, not a saving — and
   `AutoMaskClipped`'s `int` return is a byte-order pin with no cost either way.
 - **`PS_AntiBloom` folded into the closing.** The blacking has to land after the pass that reads the
   frame the history is stored from, and a pass that names render targets does not write the back
-  buffer — which is what every pass here that names one relies on.
+  buffer — which is what every pass here that names one relies on. The pass ships on by default, so it is
+  accounted rather than saved: `docs/performance.md` §13.
 - **The diagnostics map's own pass and target — refused on the wrong basis, reopened.** It was refused as
   "a definition, off at rest, so a collapse buys nothing while it is off", which weighs the default setting
   rather than the on-build. ReShade exposes `AutoMaskDiagnostics` in the UI, so the on-build is a shipped

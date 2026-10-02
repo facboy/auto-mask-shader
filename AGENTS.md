@@ -35,7 +35,7 @@ store/restore pattern and the anti-bloom suppression belongs to Kaiser (UIDetect
 | `docs/review.md`, `docs/drift-snap-review.md`, `docs/optical-flow.md` | Recorded design history and closed investigations. |
 | `docs/ui-isolation-options.md` | Options for reading interface as a region rather than per pixel, none of them scoped. What §6's instrument decides between. |
 | `docs/refactor-candidates.md` | The folds that landed in the shader and the check, what was considered and left, and what is deliberately not a candidate. |
-| `docs/performance.md` | Where the frame's cost sits, read off the compiled bytecode, the closing-loop, back-edge, centre-step, store-target and depth-only-ramp savings it justified, and the openings left. |
+| `docs/performance.md` | Where the frame's cost sits, read off the compiled bytecode, the closing-loop, back-edge, centre-step, store-target and depth-only-ramp savings it justified, the anti-bloom pass that ships on by default, and the openings left. |
 | `docs/performance-openings.md` | The savings after `docs/performance.md`: the closing's dead out-of-radius taps, the folded depth store and the drift store's re-centring into half precision, all landed, plus the pixel-path drift channel held open for a D3D9/D3D10 title. |
 | `docs/performance_compute.md` | What the two switches that ship off — compute and the depth check — cost when on: the depth block's per-pixel slots, the picture ramp depth-only mode now skips, `texAutoAccumA` narrowed on the compute path, and the measured step's guarded fetch. |
 | `docs/performance_diagnostics.md` | What the `AutoMaskDiagnostics=1` build costs, treated as a shipped variant: the overlay's own full-resolution pass and target, the extra sample it adds to the restore, and the pass-and-target fold its redundancy leaves open. |
@@ -174,7 +174,10 @@ adds the same frame back. See `docs/performance.md` §10.
   variant it lands in, and "off by default so the collapse buys nothing" is not a reason to leave an
   on-build's pass, target or per-pixel tap unexamined. This is what the check's sixteen-variant crossing
   is for — every combination is compiled because every combination can load — and `docs/performance_diagnostics.md`
-  is the first account written on that basis, for the overlay's build.
+  is the first account written on that basis, for the overlay's build. **The inverse mistake is weighing
+  only what differs from the default**: `AutoMaskAntiBloom` ships at `1` and its pass is the one the
+  default user pays for every frame, so a doc framed as "what the switch adds" leaves it unmeasured
+  entirely — `docs/performance.md` §13 is the account that closes that gap.
 - **`texAutoAccumA` is `RG16F` under `AutoMaskCompute == 1`**, and `RGBA16F` on the pixel path. It is
   written only as a render target and read as `.r`/`.g` alone, so the two dead channels cost bytes for
   nothing. `texAutoAccumB` **cannot** follow: it is written through `tex2Dstore`, whose overloads are only
