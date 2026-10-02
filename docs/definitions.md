@@ -377,8 +377,9 @@ readings.
   luma the dilation reads from the frame. The horizontal pass reads it from the frame; the vertical pass
   reads the luma the horizontal one stored in `texAutoDilate`'s `.a`, quantized to that `RGBA8` grid, so a
   tap's edge within one level of `AutoMaskEdge` can land on either side of it.
-- **diagnostics overlay** — the `PS_DebugMap` pass, compiled only when `AutoMaskDiagnostics == 1`. It
-  reads the accumulator directly, so it cannot report on itself instead of on the shader.
+- **diagnostics overlay** — the block drawn in `AutoMask_Restore` only when `AutoMaskDiagnostics == 1`,
+  with no pass or target of its own. It reads the accumulator directly, so it cannot report on itself
+  instead of on the shader.
 - **motion view / verdict view / confidence view** — the overlay's per-pixel readings, picked by two
   live toggles: red where the frame sees a change; green where the pixel has earned protection *without*
   the closing radius; or, with the second toggle, the accumulator's own confidence as a grade, its middle
@@ -396,9 +397,9 @@ readings.
   draws it, and the five readings as bars are filled against
   `AUTOMASK_TILE_COUNT_MAX` for the two counts and their own share for the three. Compute-only, riding
   both the compute and diagnostics guards.
-- **corner marker** — the bottom-left block drawn by `AutoMask_Restore`, not the overlay, so nothing
-  downstream can paint over it: magenta while the world is drawn, yellow while it is not. It reads the
-  state about to govern the mask, one frame ahead of the decision.
+- **corner marker** — the bottom-left block drawn by `AutoMask_Restore`, so nothing downstream can paint
+  over it: magenta while the world is drawn, yellow while it is not. It reads
+  the state about to govern the mask, one frame ahead of the decision.
 - **variant** — one compiled combination of the preprocessor switches; the offline check compiles sixteen
   (`AutoMaskAntiBloom` and `AutoMaskDiagnostics` each at 0 and 1, crossed with `AutoMaskCompute` and
   `AutoMaskDepthMotion`).

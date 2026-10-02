@@ -209,8 +209,9 @@ Follows from what each pass reads:
 5. `PS_AntiBloom` — black the masked pixels in the live frame so a bloom pass downstream has no UI to
    pick up. It comes after the closing, which is what keeps the real UI for the restore pass; blacking
    earlier would bank the black instead.
-6. The diagnostics overlay, last, and only when `AutoMaskDiagnostics` is defined to 1 — a compile-time
-   guard on the pass and the shader both, so with it off neither is compiled. It reads the accumulator
+6. The diagnostics overlay, and only when `AutoMaskDiagnostics` is defined to 1 — a compile-time guard on
+   the readings, so with it off nothing of the overlay is compiled. It owns no pass and no target: the
+   readings are built in `PS_Restore`'s diagnostics block, which reads the accumulator and the statistic
    directly rather than recomputing the difference, so it cannot report on itself instead of on the
    shader. It draws one of three views: red where the graded motion reads, green where the accumulator's
    own confidence crosses the protection threshold, or — on the second live toggle — two flat colours
@@ -222,14 +223,9 @@ Follows from what each pass reads:
    along the top. The published mask is deliberately *not* used, so the verdict view shows an element's
    own area without the closing radius grown around it. Every per-pixel view tints the stored history
    frame and only where the chosen signal covers — the blend is scaled by the signal, so a pixel it does
-   not name is passed through untouched. The map packs the view's own channels into one target: red the
-   graded motion, green the verdict, blue the confidence grade, and alpha the screen state in two steps;
-   the tile view takes rgb together where it draws, which is why the grade is read from blue only while
-   it is off. The state is read from the same statistic the gate itself reads, one frame behind the frame
-   it describes, and its strictness must match the gate's: `> AutoMaskMotion`, not `step`, which is true
-   at the threshold itself and would disagree on exactly the boundary frame. The corner marker is **not**
-   drawn here: it is the one thing `AutoMask_Restore` adds, reading that alpha channel, because a block
-   drawn inside `AutoMask` is repainted by the restore pass over any pixel the mask covers and treated as
-   picture by every effect in between. Two states, two flat colours and no blending — magenta while the
-   world is being drawn, yellow while it is not and the mask is being held — so the marker is a reading
-   rather than part of the picture.
+   not name is passed through untouched. The corner marker is drawn here too, reading the same statistic
+   the gate itself reads, one frame behind the frame it describes, and its strictness must match the
+   gate's: `> AutoMaskMotion`, not `step`, which is true at the threshold itself and would disagree on
+   exactly the boundary frame. Two states, two flat colours and no blending — magenta while the world is
+   being drawn, yellow while it is not and the mask is being held — so the marker is a reading rather
+   than part of the picture.

@@ -33,7 +33,7 @@ Three facts follow, and none is in `docs/performance.md`:
   pixel default (`docs/performance.md` §1), and the switch moves that title to the accumulator.
 - **The compute path has no reduce passes at all.** `PS_Motion` (27) and `PS_MotionAvg` (24) are replaced
   by `CS_Accum`'s in-pass tally and `CS_Finish` (66); the technique is `CS_Accum`, `CS_Finish`, the two
-  closings, and the optional tile and overlay passes.
+  closings, and the optional tile pass.
 
 ## 2. The depth witness is per-pixel reconstruction, its picture ramp now skipped
 
@@ -72,16 +72,16 @@ With `AutoMaskCompute=1` and `AutoMaskDiagnostics=0`, `texAutoAccumB` is wider t
 | --- | --- | --- |
 | `.r` | confidence | `PS_DilateH` centre and tap, the accumulator next frame |
 | `.g` | hold | the accumulator next frame (through `PS_DilateH`'s carry to A) |
-| `.b` | motion | `CS_Tile` and `PS_DebugMap` — diagnostics only |
+| `.b` | motion | `CS_Tile` and the overlay in `PS_Restore` — diagnostics only |
 | `.a` | 1.0 | **none** — the eligible flag is `PS_Motion`'s, which does not exist under compute |
 
 `.b` is written for `PS_Motion`, which the switch removes, and its only readers are the two diagnostics
-passes, both compiled out unless the overlay is on. `.a` is `PS_Accum`'s eligible flag, read only by
+sites, both compiled out unless the overlay is on. `.a` is `PS_Accum`'s eligible flag, read only by
 `PS_Motion`; `CS_Accum` stores a constant `1.0` there and nothing reads it — the count that flag exists
 to divide is carried in the atomics instead. `texAutoAccumA` is the same picture without the diagnostics
 qualifier: it is written only as render targets, and every reader wants `.r`/`.g` alone — `prev.r`/`prev.g`
 and the four admission taps, which test `.r`. That holds with the overlay on as well, since the tile map
-and the debug map read `B`, never `A`.
+and the overlay read `B`, never `A`.
 
 **`B` cannot be narrowed, and the reason is the dialect rather than the arithmetic.** ReShade's
 `tex2Dstore` is declared for exactly six storage element types — `int`, `int4`, `uint`, `uint4`, `float`,

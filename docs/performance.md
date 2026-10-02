@@ -67,8 +67,8 @@ as `SV_Target1` is the copy at no extra sample, and its read of `texAutoDriftB` 
 drift copy, which costs one read — no other pass reads the drift channel — but no longer a pass or a
 dispatch. Two full-resolution passes go with them.
 
-The two other readers of the live side, `PS_DebugMap` and `CS_Tile`, moved from `A` to `B` with the fold.
-The drift writer stays `texAutoDriftB` and the reader `texAutoDriftA`, so the pair keeps its
+The two other readers of the live side, the overlay in `PS_Restore` and `CS_Tile`, moved from `A` to `B`
+with the fold. The drift writer stays `texAutoDriftB` and the reader `texAutoDriftA`, so the pair keeps its
 `A`-reads/`B`-writes convention. The drift fold is behind `#if AutoMaskCompute == 1`, since the pixel path
 has no drift channel: the shader has two `PS_DilateH` signatures under the guard, differing only by
 `SV_Target2`.

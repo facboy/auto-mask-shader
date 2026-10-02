@@ -5,9 +5,10 @@ whose §10 is the drift store's re-centring into half precision, whose §11 skip
 depth-only mode, whose §12 guards the measured step's fetch, whose §13 accounts the anti-bloom pass,
 whose §14 guards the isolation gate's test behind its own checkbox, and whose §15 records the three
 openings that are closed. §2–§5 below **have since landed** — §2 and §3 as that §7, §4 as that §8, §5 as
-that §9 and §7 here as that §10 — and what they argued is the reasoning behind it. The one entry still
-open is the pixel-path drift question, §6, the one proposal here that adds cost rather than removing it:
-it asks which games the pixel path serves rather than what the frame can stop doing.
+that §9 and §7 here as that §10 — and what they argued is the reasoning behind it. The diagnostics map's
+fold, §8 here, landed as `docs/performance_diagnostics.md` §2. The one entry still open is the
+pixel-path drift question, §6, the one proposal here that adds cost rather than removing it: it asks
+which games the pixel path serves rather than what the frame can stop doing.
 
 Companions: `docs/performance.md` (the cost already measured), `docs/refactor-candidates.md` (what a fold
 has to clear — an unmoved hash for every entry point it does not touch), `docs/core-model.md` and
@@ -158,8 +159,8 @@ saving stands on its own rather than as §6's enabler.
 - **`PS_AntiBloom` folded into the closing.** The blacking has to land after the pass that reads the
   frame the history is stored from, and a pass that names render targets does not write the back buffer.
   The pass ships on by default, so it is accounted rather than saved: `docs/performance.md` §13.
-- **The diagnostics map's own pass and target — refused on the wrong basis, reopened.** It was refused as
-  "a definition, off at rest, so a collapse buys nothing while it is off", which weighs the default
-  setting rather than the on-build. ReShade exposes `AutoMaskDiagnostics` in the UI, so the on-build is a
-  shipped variant and pays its pass and target every frame; `docs/performance_diagnostics.md` is the
-  account, and §3 there is the fold this entry left on the table.
+- **The diagnostics map's own pass and target — the fold landed.** It was once refused as "a definition,
+  off at rest, so a collapse buys nothing while it is off", which weighed the default setting rather than
+  the on-build; ReShade exposes `AutoMaskDiagnostics` in the UI, so the on-build is a shipped variant. The
+  overlay now reads the accumulator and the statistic inside `PS_Restore`, so it owns no pass and no
+  target of its own; `docs/performance_diagnostics.md` is the account and §2 there the fold.

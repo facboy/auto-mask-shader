@@ -38,7 +38,7 @@ store/restore pattern and the anti-bloom suppression belongs to Kaiser (UIDetect
 | `docs/performance.md` | Where the frame's cost sits, read off the compiled bytecode, the closing-loop, back-edge, centre-step, store-target and depth-only-ramp savings it justified, the anti-bloom pass that ships on by default and the isolation gate's test guarded behind its checkbox, and the openings left. |
 | `docs/performance-openings.md` | The savings after `docs/performance.md`: the closing's dead out-of-radius taps, the folded depth store and the drift store's re-centring into half precision, all landed, plus the pixel-path drift channel held open for a D3D9/D3D10 title. |
 | `docs/performance_compute.md` | What the two switches that ship off — compute and the depth check — cost when on: the depth block's per-pixel slots, the picture ramp depth-only mode now skips, `texAutoAccumA` narrowed on the compute path, and the measured step's guarded fetch. |
-| `docs/performance_diagnostics.md` | What the `AutoMaskDiagnostics=1` build costs, treated as a shipped variant: the overlay's own full-resolution pass and target, the extra sample it adds to the restore, and the pass-and-target fold its redundancy leaves open. |
+| `docs/performance_diagnostics.md` | What the `AutoMaskDiagnostics=1` build costs, treated as a shipped variant: the overlay's readings drawn in the restore with no pass or target of their own, and the extra sample those readings add. |
 
 The one companion header is **`Shaders/AutoMask.fxh`, and it holds code and nothing else**: the shared
 arithmetic both accumulators call, no uniform, `texture`, `sampler` or technique. A header of **authored
@@ -62,7 +62,7 @@ not attempted. Two techniques, and both placements are load-bearing:
    bloom pass downstream has no UI to pick up.
 2. `AutoMask_Restore` — must be **last**, putting the masked pixels back on top after the user's other
    effects have run. It is the only pass after which nothing else writes the frame, which is why the
-   diagnostics corner marker is drawn there rather than in the overlay.
+   diagnostics corner marker is drawn there rather than in `AutoMask`.
 
 This shader and `UIDetectMulti` are **alternatives, not companions**: both want those same two slots, so
 loading both means one reads a frame the other has already written into. The user avoids that rather than

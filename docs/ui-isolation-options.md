@@ -169,7 +169,7 @@ exactly `0.5` and turns `AutoMaskDensity` into "share of confidence", staying on
 **The view was built, and it drew two flat colours rather than a ramp.** `UIDebugConfidence` splits the
 accumulator's charge at the 0.5 verdict step: one colour for interface the mask already claims and another
 for the band under the line it does not, leaving everything at or below zero as the plain picture. It needs
-no pass, target or definition, draws on both paths, and rides `texAutoDebug`'s free `.b` channel. Flat
+no pass, target or definition, draws on both paths, and reads the accumulator's own `.b` channel. Flat
 colours were the second cut: a brightness ramp asked for shades to be compared and put the wide debt a move
 leaves into the lower part of the scale, so healing world read as a halo.
 

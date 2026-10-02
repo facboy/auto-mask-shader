@@ -125,8 +125,8 @@ the ceremony around it:
   `max(floor(AutoMaskIsolation + 0.5), 1.0)` and `step(0.001, …)` are real pairs with bodies too small to
   name, so they are worth taking only alongside one of the folds above.
 - **Naming the 0.5 verdict step.** It is written as `step(0.5, …)` across `AutoMaskPublished`, both
-  accumulators, both closing passes, the tile sampler and the debug map — a documentation gain only, which
-  is the constant-merging §6 already refuses.
+  accumulators, both closing passes, the tile sampler and the restore's diagnostics block — a
+  documentation gain only, which is the constant-merging §6 already refuses.
 - **`float2 texel = float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT)` in `CS_Accum`** where the pixel path
   writes `BUFFER_PIXEL_SIZE`: one value, two spellings, nothing else.
 

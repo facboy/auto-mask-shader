@@ -344,11 +344,6 @@ sampler AutoDilate { Texture = texAutoDilate; };
 	sampler MotionStat { Texture = texMotionStat; };
 #endif
 
-#if AutoMaskDiagnostics == 1
-	texture texAutoDebug { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
-	sampler AutoDebug { Texture = texAutoDebug; };
-#endif
-
 //The tile map: the picture as a coarse grid of squares, each cell a share of itself rather than a
 //count of its pixels. The grid is fixed at AUTOMASK_TILE_GRID across, so a reading means the same
 //thing at every screen size, and the cells are sampled rather than tallied, so the map costs no
@@ -1108,58 +1103,6 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 		> = false;
 	#endif
 
-	//Packs every view's channels into one map: the motion view in .r, the verdict in .g, the
-	//accumulator's charge in .b, the tile view's own colour in .rgb, and the screen state always in .a.
-	//The view selector only decides what `PS_Restore` draws from this map.
-	float4 PS_DebugMap(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
-	{
-		float4 accum = tex2D(AutoAccumB, texcoord);
-		float verdict = step(0.5, accum.r);
-		//The accumulator's charge, clamped: the restore splits it at the 0.5 verdict step into the two
-		//flat colours it draws, and below zero draws nothing. Stored raw so the threshold and the verdict
-		//stay the same number.
-		float confidence = saturate(accum.r);
-		float changed = saturate(accum.b * UIDebugGain);
-		float drawn = AutoMaskDrawn(tex2D(MotionStat, float2(0.5, 0.5)).r);
-		float screen = drawn ? 1.0 : 0.0;
-
-		//The normals probe: reconstructs the camera-space position of this pixel and its right and lower
-		//neighbours, crosses their differences for the surface's normal, and draws how much of it faces up
-		//or down. White is the floor and ceiling, black a wall facing the way you walk.
-		#if AutoMaskDepthMotion == 1
-			if (UIDebugDepthNormal){
-				float2 halfAngle = tan(radians(AutoMaskDepthFOV) * 0.5) * float2(BUFFER_ASPECT_RATIO, 1.0);
-				float2 dx = float2(BUFFER_RCP_WIDTH, 0.0);
-				float2 dy = float2(0.0, BUFFER_RCP_HEIGHT);
-				float3 p = AutoMaskCamPos(texcoord * 2.0 - 1.0, halfAngle, ReShade::GetLinearizedDepth(texcoord));
-				float3 px = AutoMaskCamPos((texcoord + dx) * 2.0 - 1.0, halfAngle, ReShade::GetLinearizedDepth(texcoord + dx));
-				float3 py = AutoMaskCamPos((texcoord + dy) * 2.0 - 1.0, halfAngle, ReShade::GetLinearizedDepth(texcoord + dy));
-				//The normal's sign depends on the winding, so only its magnitude means anything here.
-				float up = saturate(abs(normalize(cross(px - p, py - p)).y));
-				return float4(up.xxx, screen);
-			}
-		#endif
-
-		//The compute path packs the tile view's own colour in .rgb and the screen state in .a, so one map
-		//pass serves every view; the pixel path shares the .b below.
-		#if AutoMaskCompute == 1
-			//The tile view draws the region the readings are taken over: each cell in the class it landed in,
-			//so a wide change with no mask under it -- the arrival candidate -- shows as the region it is.
-			//Sampled point-wise from a 16x16 target, so a pixel shows the cell it falls in.
-			if (UIDebugTile){
-				float4 tile = tex2D(AutoTileKind, texcoord);
-				float cls = tile.r * 4.0;
-				if (cls > 2.5)
-					return float4(1.0, 0.0, 0.0, screen);      //wide change, no mask: an arrival candidate
-				if (cls > 1.5)
-					return float4(1.0, 0.6, 0.0, screen);      //enclosed by the contour: orange
-				if (cls > 0.5)
-					return float4(0.0, 1.0, 0.0, screen);      //mask: green
-				return float4(0.0, 0.0, 0.0, screen);          //world: black
-			}
-		#endif
-		return float4(changed, verdict, confidence, screen);
-	}
 #endif
 
 //Restores stored UI pixels over processed frame.
@@ -1174,22 +1117,39 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	#if AutoMaskDiagnostics == 1
 		//Tint over the restore, drawn after it so it sits on top of the stored UI: red where the motion
 		//view sees a change, green where the verdict view sees protection, a cyan grade where the
-		//confidence view reads, and the tile view's own colours.
-		float4 debug = tex2D(AutoDebug, texcoord);
-		float tint = UIDebugMotion ? debug.r : debug.g;
+		//confidence view reads, and the tile view's own colours. The readings come off the accumulator and
+		//the statistic directly, so the overlay needs no map pass or target of its own.
+		float4 accum = tex2D(AutoAccumB, texcoord);
+		float verdict = step(0.5, accum.r);
+		float changed = saturate(accum.b * UIDebugGain);
+		//The accumulator's charge, clamped only so a recovery reads as nothing: the confidence view splits
+		//it at the 0.5 verdict step, stored raw so the threshold and the verdict stay the same number.
+		float confidence = saturate(accum.r);
+		float tint = UIDebugMotion ? changed : verdict;
 		float3 mark = UIDebugMotion ? float3(1.0, 0.0, 0.0) : float3(0.0, 1.0, 0.0);
 		//The confidence view draws two flat colours rather than a brightness ramp: cyan where the verdict
 		//would already claim the pixel, magenta where it is earning but has not crossed, and nothing below
-		//zero. Read from the channel the tile view overrides below.
+		//zero.
 		if (!UIDebugMotion && UIDebugConfidence){
-			mark = debug.b >= 0.5 ? float3(0.0, 1.0, 1.0) : float3(1.0, 0.0, 1.0);
-			tint = debug.b > 0.0 ? 1.0 : 0.0;
+			mark = confidence >= 0.5 ? float3(0.0, 1.0, 1.0) : float3(1.0, 0.0, 1.0);
+			tint = confidence > 0.0 ? 1.0 : 0.0;
 		}
 		#if AutoMaskCompute == 1
-			//The tile view's own colour, packed by the map above, rather than a per-pixel mark: the blend
-			//is how strong that colour is, and the class is the mark. It overrides the confidence grade.
+			//The tile view draws the region the readings are taken over: each cell in the class it landed
+			//in, so a wide change with no mask under it -- the arrival candidate -- shows as the region it
+			//is. Sampled point-wise from a 16x16 target, so a pixel shows the cell it falls in. It overrides
+			//the confidence grade, and the class is the mark rather than the blend's strength.
 			if (UIDebugTile){
-				mark = saturate(debug.rgb);
+				float4 tile = tex2D(AutoTileKind, texcoord);
+				float cls = tile.r * 4.0;
+				if (cls > 2.5)
+					mark = float3(1.0, 0.0, 0.0);        //wide change, no mask: an arrival candidate
+				else if (cls > 1.5)
+					mark = float3(1.0, 0.6, 0.0);        //enclosed by the contour: orange
+				else if (cls > 0.5)
+					mark = float3(0.0, 1.0, 0.0);        //mask: green
+				else
+					mark = float3(0.0, 0.0, 0.0);        //world: black
 				tint = max(mark.r, max(mark.g, mark.b));
 			}
 		#endif
@@ -1197,9 +1157,19 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 
 		#if AutoMaskDepthMotion == 1
 			//The normals probe replaces the picture rather than tinting it: it is a field, not a mark, and
-			//only the shade carries the reading.
-			if (UIDebugDepthNormal)
-				color = debug.rgb;
+			//only the shade carries the reading. Reconstructs each pixel's camera-space position and its
+			//right and lower neighbours, crosses their differences for the surface's normal, and draws how
+			//much of it faces up or down: white the floor and ceiling, black a wall facing the walk.
+			if (UIDebugDepthNormal){
+				float2 halfAngle = tan(radians(AutoMaskDepthFOV) * 0.5) * float2(BUFFER_ASPECT_RATIO, 1.0);
+				float2 dx = float2(BUFFER_RCP_WIDTH, 0.0);
+				float2 dy = float2(0.0, BUFFER_RCP_HEIGHT);
+				float3 p = AutoMaskCamPos(texcoord * 2.0 - 1.0, halfAngle, ReShade::GetLinearizedDepth(texcoord));
+				float3 px = AutoMaskCamPos((texcoord + dx) * 2.0 - 1.0, halfAngle, ReShade::GetLinearizedDepth(texcoord + dx));
+				float3 py = AutoMaskCamPos((texcoord + dy) * 2.0 - 1.0, halfAngle, ReShade::GetLinearizedDepth(texcoord + dy));
+				//The normal's sign depends on the winding, so only its magnitude means anything here.
+				color = saturate(abs(normalize(cross(px - p, py - p)).y)).xxx;
+			}
 		#endif
 
 		//The five region readings as bars across the top, each filled left to right to its own value.
@@ -1227,10 +1197,10 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 			}
 		#endif
 
-		//Bottom-left diagnostic state marker: magenta=live, yellow=stopped.
+		//Bottom-left diagnostic state marker: magenta=live, yellow=stopped. Reads the same statistic the
+		//gate reads, so the corner reports the gate rather than a second copy of its verdict.
 		if (texcoord.x < 0.02 && texcoord.y > 0.98){
-			float state = tex2D(AutoDebug, float2(0.5, 0.5)).a;
-			if (state > 0.75){
+			if (AutoMaskDrawn(tex2D(MotionStat, float2(0.5, 0.5)).r)){
 				return float4(1.0, 0.0, 1.0, 1.0);
 			}
 			return float4(1.0, 1.0, 0.0, 1.0);
@@ -1310,14 +1280,6 @@ technique AutoMask
 		pass {
 			VertexShader = PostProcessVS;
 			PixelShader = PS_AntiBloom;
-		}
-	#endif
-
-	#if AutoMaskDiagnostics == 1
-		pass {
-			VertexShader = PostProcessVS;
-			PixelShader = PS_DebugMap;
-			RenderTarget = texAutoDebug;
 		}
 	#endif
 }
