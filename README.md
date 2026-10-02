@@ -50,8 +50,8 @@ it through brief animation.
 | Setting | What it does |
 | --- | --- |
 | **Frames still before marked as interface** | How many frames a pixel holds still, while the world is being drawn, before it is added to the mask. Raise it if a backdrop that stops when you do keeps getting caught; lower it if a HUD that only briefly holds still fails to appear. |
-| **Frames moving before unmarked as interface** | How many frames a pixel has to keep changing before it is dropped from the mask, on top of the frames **Frames of absence before decay starts** absorbs. Lower clears a region faster once the world moves over it again; higher makes the mask linger. |
-| **Frames of absence before decay starts** | Keeps an element covered while it animates a little — a draining bar, a scrolling list, a blinking cursor — by absorbing this many frames of animation before the pixel starts to be dropped. Raise it when you get holes over exactly the parts of a HUD that move. |
+| **Frames moving before unmarked as interface** | How many frames a pixel has to keep changing before it is dropped from the mask, on top of the frames **Frames of change absorbed before a still pixel starts decaying out of the mask** absorbs. Lower clears a region faster once the world moves over it again; higher makes the mask linger. |
+| **Frames of change absorbed before a still pixel starts decaying out of the mask** | Keeps an element covered while it animates a little — a draining bar, a scrolling list, a blinking cursor — by absorbing this many frames of animation before the pixel starts to be dropped. Raise it when you get holes over exactly the parts of a HUD that move. |
 | **Frames a move is remembered** | How long a pixel stays out of the mask after the frame shows it moving. Raise it to stop a wall you just walked past being added to the mask the moment you stop; `0` forgets a move the frame after it happens. |
 
 ### Is the scene in motion?
@@ -178,8 +178,8 @@ time:
 - **A frame that is fully black or fully white never counts as still**, since a colour at the top or
   bottom of its range may be saturated rather than motionless. A letterbox bar or a hard fade gains no
   protection while it stays that colour.
-- **Interface that animates for a long stretch loses its protection.** Raise **Frames of absence before
-  decay starts** for an element like that.
+- **Interface that animates for a long stretch loses its protection.** Raise **Frames of change absorbed
+  before a still pixel starts decaying out of the mask** for an element like that.
 - **A player character tethered to the camera in third-person games.** Running forward, the camera moves
   with you, so your character's back stays locked at the same screen position — identical to a HUD
   element as far as the comparison can tell.
@@ -193,8 +193,8 @@ time:
 - **Bloom can still find an edge at the HUD contour.** Suppression removes the interface as a bloom
   source, but a hard black step against a bright scene is itself contrast, so a faint edge can remain.
 - **A wrong mask shows the whole time.** A hand-painted mask toggles an effect at the wrong moment;
-  this one is continuously visible if it is wrong. If in doubt, tune toward a longer **Frames of absence
-  before decay starts** and a smaller mask grow radius.
+  this one is continuously visible if it is wrong. If in doubt, tune toward more **Frames of change absorbed
+  before a still pixel starts decaying out of the mask** and a smaller mask grow radius.
 - **It is expensive.** Several full-screen passes every frame and several full-resolution buffers while
   it's loaded. If your frame rate is tight, this is not the shader to add.
 

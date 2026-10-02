@@ -129,9 +129,9 @@ here — `bank`, `gate`, `hold`, `motion` — both are listed under it.
   mask lingers over moving scenery.
 - **hold (the counter)** — `.g`: the bridge's balance, not the confidence. A changing frame adds one while
   the world is drawn; a still frame pays half of one back.
-- **forget / grace period** — `AutoMaskForget`: frames of absence absorbed before decay starts. The
-  README's *grace period*, and the most important slider, because bridgeable animation is the common HUD
-  case.
+- **forget / grace period** — `AutoMaskForget`: frames of change absorbed before a still pixel starts
+  decaying out of the mask. The README's *grace period*, and the most important slider, because
+  bridgeable animation is the common HUD case.
 - **bridge** — what the hold does: animation that fits inside the window is bridged and never banked as a
   move, so a draining bar or a scrolling list keeps its mask.
 - **move memory** — `AutoMaskMoveMemory`: the duration of still frames a move is remembered for. A
@@ -277,8 +277,8 @@ readings.
 | Uniform | Panel label | The term, in one line |
 | --- | --- | --- |
 | `AutoMaskRise` | Frames still before marked as interface | Duration of stillness needed to mark; sets the gain. |
+| `AutoMaskForget` | Frames of change absorbed before a still pixel starts decaying out of the mask | The bridge's window; animation inside it is never banked. |
 | `AutoMaskFall` | Frames moving before unmarked as interface | Duration of change before unmarking; sets the cost. |
-| `AutoMaskForget` | Frames of absence before decay starts | The bridge's window; animation inside it is never banked. |
 | `AutoMaskMoveMemory` | Frames a move is remembered | Duration of still frames a move is remembered for; the debt clamp. |
 | `AutoMaskMotion` | Motion needed to trust stillness (percent) | Share of the screen that must change before stillness is credited. The premise; opens `Is the scene in motion?`. |
 | `AutoMaskDepthEps` | Depth step counted as a change (metres) | How far a surface must move toward or away from the view in one frame to count; uniform across the screen, since the change converts back to metres against the far plane ReShade supplies. The depth ramp is footed at half this, so smaller changes add nothing. Read only with `AutoMaskDepthMotion`. |
