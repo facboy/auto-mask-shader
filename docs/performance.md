@@ -29,6 +29,14 @@ for the vertical pass with it on — a figure neither the source nor the static 
 §7's store fold hands the vertical pass one more back-buffer tap — the frame the store pass used to
 read — taking the closing to 6 + 4, in exchange for a whole full-resolution pass.
 
+The one part of the shipped chain the per-pixel table cannot carry is the pixel path's own reduce.
+`PS_Motion` (27 slots) reads four taps a coarse texel over a 16×16 grid and `PS_MotionAvg` (24) sums
+256 of those in a 1×1 pass, so ~1,280 taps a frame stand in for every pixel — a figure of its own
+scale rather than a per-pixel cost, which is why it is not a row above and why its two passes are the
+only sub-resolution ones at the defaults. Compute removes the pair outright in place of `CS_Accum`'s
+in-pass tally and `CS_Finish` (`docs/performance_compute.md` §1), so it is the shipped pixel default
+that pays it.
+
 ## 2. The taps neither radius wants
 
 Both loops ran `AUTOMASK_DILATE_MAX` either side whatever the sliders say, so at the default
@@ -308,8 +316,20 @@ for free.
   `iadd`/`itof` against `and`/`add` without changing the instruction count, so it is neither a saving nor
   a blocker — `docs/refactor-candidates.md` records it as type honesty plus a bytecode-stability choice
   made during a fold, not a performance decision.
+- **The move-memory clamp's uniform test — measured, and left.** `AutoMaskMoveMemory > 0.0` guards the
+  banked-debt clamp inside `AutoMaskDecay`, and fxc flattens it to a predicate and a `movc` rather than
+  a branch: `PS_Accum.asm:242-246` is `lt r3.x, l(0), cb0[0].w`, a `mul` and a `min` inside a one-line
+  `[branch] if`, then the `movc` that selects the clamped value. It is the same shape as §11, §12 and
+  §14, but it is not the same conclusion: the branch's slot is paid at every setting, while the `mul`
+  and `min` it skips per pixel are wanted at the default — `AutoMaskMoveMemory` ships at `2.0 ×
+  AutoMaskTargetFPS`, so the clamp runs almost every frame a pixel is falling, and only `0` turns it
+  dead. Adding `[branch] if` costs one static slot on each accumulator (93 → 94, 198 → 199; the depth
+  variants 152 → 153, 259 → 260) to speed up `0`, the low end whose own tooltip is "forgets a move the
+  frame after it happens" while the slider ships at `2.0 × AutoMaskTargetFPS`. Measured and left, on the
+  trade rather than the arithmetic — the same wrong-way-round trade
+  `docs/performance_compute.md` §5 refuses for the drift channel.
 
-Both are instruction-level and closed. The one opening left is the pixel-path drift question, a
+All three are instruction-level and closed. The one opening left is the pixel-path drift question, a
 full-resolution pass rather than an instruction, which `docs/performance-openings.md` §6 collects.
 
 §14 is the third instance of the mistake the shipped-variant bullet in `AGENTS.md` names — an off default
