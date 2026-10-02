@@ -94,11 +94,12 @@ Nothing here is automatically testable, so verification is a review pass plus an
 
 ## The prose budget, which the same tool refuses
 
-`uv run tools/verify_shaders.py check-docs` reads `README.md`, `AGENTS.md` and `docs/*.md` and exits
-non-zero on two things the budget bans. The first is framing that describes the writing rather than its
-subject, or restates the sentence before it; the second is the stale form of a design's history, because a
-doc describes what ships, not how it changed. `--list` prints every phrase with its reason, and
-`docs/editing-conventions.md` holds the reasoning and the exception for a record of an investigation.
+`uv run tools/verify_shaders.py check-docs` reads `README.md`, `AGENTS.md`, `docs/*.md`, the shader sources
+and `tools/verify_shaders.py` itself, and exits non-zero on two things the budget bans. The first is
+framing that describes the writing rather than its subject, or restates the sentence before it; the second
+is the stale form of a design's history, because a comment or a doc states what the code does now, not how
+it changed. `--list` prints every phrase with its reason, and `docs/editing-conventions.md` holds the
+reasoning and the exception for a record of an investigation.
 
 - It is the only rule here whose absence was silent: the compile check never opens a `.md`, so nothing
   caught the framing until a review pass did. A pass means only "no phrase from the list", and judgement
@@ -113,11 +114,12 @@ doc describes what ships, not how it changed. `--list` prints every phrase with 
 - Exercise it by hand before committing a change to the list: add a refused phrase to a doc and it must
   exit non-zero naming the phrase, then add `prose-ok` on that line and it must pass. Both the framing
   and the stale-form lists are exercised the same way.
-- **The same run covers the HLSL half of the budget**, which the phrase list cannot: a `//` comment block
-  in any `Shaders/*.fx` or `*.fxh` longer than `COMMENT_BLOCK_MAX` (4 lines) is refused the same way.
-  Adjacent `//` lines are one block, so wrapping a comment lengthens it rather than spreading it; the
-  credit block at the head of the shader is exempt by its `////...` fence, and `prose-ok` inside a block
-  skips it.
+- **The same run covers the source half of the budget**, which the phrase list alone cannot: a comment
+  block longer than `COMMENT_BLOCK_MAX` (4 lines) is refused in any `Shaders/*.fx` or `*.fxh`, in
+  `tools/verify_shaders.py`'s comments and docstrings, and in a doc — the shader's `//` runs, the Python
+  file's comment and docstring blocks alike. Adjacent `//` lines are one block, so wrapping a comment
+  lengthens it rather than spreading it; the credit block at the head of the shader is exempt by its
+  `////...` fence, and `prose-ok` inside a block skips it.
 - The four blocks that predate the rule carry `prose-ok` rather than being cut, and are exercised by hand
   as the rule's own tests — 5 lines must fail naming the range, 4 must pass, and `prose-ok` must clear it
   — before any change to the limit.

@@ -3,17 +3,19 @@
 The reasoning behind the rules condensed in `AGENTS.md`. Read this when a change touches a uniform's
 annotation, the frame-count sliders' conversion, the prose budget, or the drift channel's reset step.
 
-- **Say it and stop.** The prose budget is the one the HLSL comments keep, and it covers the README, the
-  docs and this file alike. It buys words for what a reader cannot work out — a value, a cause, a
-  consequence — not framing that describes the writing instead of the subject, nor a clause restating the
-  sentence before it. Reasoning earns a sentence only where it changes what an editor would do — a cap
-  that would cross another threshold, a widget family that must match a declared type.
-- **A doc describes what ships now, not how it changed.** The reader's question is what the shader does,
-  not what it did, so a fact framed by the design it replaced makes them work out which design is current
-  — and once one landed change is narrated, the next seems to belong there too. Weighing a shipped design
-  against a retired one is a real claim and stays: `RGBA16F` *where* the whole-value form could not resolve
-  the creep. So does language that is not history at all — `no longer`, `the old behaviour`, a first
-  *pass* of the frame. `check-docs` refuses only the stale forms, and `--list` prints them.
+- **Say it and stop.** The prose budget covers every comment the project keeps — the HLSL `//` lines, the
+  comments and docstrings in `tools/verify_shaders.py`, the README, the docs and this file. It buys words
+  for what a reader cannot work out — a value, a cause, a consequence — not framing that describes the
+  writing instead of the subject, nor a clause restating the sentence before it. Reasoning earns a
+  sentence only where it changes what an editor would do — a cap that would cross another threshold, a
+  widget family that must match a declared type. `check-docs` holds source comments and docs to the same
+  list, so a shader comment and a doc line are judged alike.
+- **A comment describes what the code does now, not how it changed.** The reader is a developer reading
+  the code as it stands, so a fact framed by the design it replaced makes them work out which design is
+  current — and once one landed change is narrated, the next seems to belong there too. Weighing a shipped
+  design against a retired one is a real claim and stays: `RGBA16F` *where* the whole-value form could not
+  resolve the creep. So does language that is not history at all — `no longer`, `the old behaviour`, a
+  first *pass* of the frame. `check-docs` refuses only the stale forms, and `--list` prints them.
   **A record of an investigation is the exception**, because its argument is the thing being kept:
   `docs/review.md`, `docs/drift-snap-review.md`, `docs/optical-flow.md` and
   `docs/ui-isolation-options.md` are read to know what a design answered, so they may name the design and

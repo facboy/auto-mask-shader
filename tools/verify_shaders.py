@@ -29,8 +29,7 @@ Eight properties are deliberate and must survive any change to this file:
 
 - Every failure is loud. A shader that compiles *and emits no bytecode* is an
   error here, not a pass, because a missing hash compares equal to another
-  missing hash. An earlier version of the companion tool reported a clean pass
-  while producing nothing at all.
+  missing hash -- so a run that produced nothing would read as clean.
 - An entry point that is missed is a failure. The guard is not line-anchored:
   a macro-generated entry point can sit mid-line once macros expand, and a
   silently skipped entry point is indistinguishable from a passing one.
@@ -83,11 +82,13 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tokenize
 import urllib.request
 from pathlib import Path
 from typing import NamedTuple
@@ -456,29 +457,17 @@ def workspace_sources() -> list[Path]:
 
 
 # ---------------------------------------------------------------------- check-docs
-# Two prose rules, no compile consequence (the compile check never opens a `.md`), so
-# the mechanically detectable half of each is refused here rather than left to memory.
-# `docs/editing-conventions.md` holds the reasoning; `--list` prints the entries.
-#
-# 1. The *framing* budget: state the fact and stop, without describing the writing
-#    rather than its subject. Matched by its verb, not a noun alone -- "this section
-#    explains X" is banned, "this section calls the cheapest half the pair" is an
-#    internal cross-reference. Deliberately NOT here, each usually a real claim:
-#    `which is why` (a causal link is information), `load-bearing` (a design fact),
-#    `should`/`must` (an instruction, which is what a convention is).
-#
-# 2. The *time* budget, the same idea applied to history: a doc describes what ships,
-#    not how it changed, because a fact framed by the design it replaced makes the
-#    reader work out which design is current. Comparing a shipped design against a
-#    retired one is a real claim and stays ("the store is RGBA16F where the
-#    whole-value one could not resolve the creep"); the *stale* forms that leave the
-#    reader to infer which is current do not. Deliberately NOT here, each being
-#    ordinary comparison language: `used to`, `no longer`, `the old`, `previously`
-#    alone, and `the first pass` where the pass is a pass of the frame.
-#
-# A record of a closed investigation is the exception to rule 2 -- its argument is the
-# thing being kept -- but it carries `prose-ok` on a line that genuinely names the
-# design, so this list stays exact rather than file-scoped.
+# Two prose rules, neither with a compile consequence, so the mechanically detectable
+# half of each is refused here rather than left to memory; `docs/editing-conventions.md`
+# holds the reasoning and `--list` prints the entries.
+# - *Framing*: state the fact, not the writing. `which is why`, `load-bearing` and
+#   `should`/`must` are left alone, each usually a real claim.
+# - *Time*: a comment describes what the code does now, not how it changed, so a fact
+#   framed by the design it replaced is refused; comparing a shipped design against a
+#   retired one states a fact and stays. `used to`, `no longer`, `the old` and
+#   `previously` alone are left alone.
+# A record of a closed investigation is the exception to the second rule and carries
+# `prose-ok` where it names the design.
 PROSE_PHRASES = (
     (r"this (?:section|document|review|file|page|chapter)\s+(?:explains?|describes?|shows?|outlines?|"
      r"lists?|covers?|presents?|states?|sets out|summarises|summarizes|examines)",
@@ -568,6 +557,27 @@ def prose_lines(text: str) -> list[tuple[int, str]]:
     return list(enumerate(blanked.splitlines(), 1))
 
 
+def source_prose_lines(path: Path) -> list[tuple[int, str]]:
+    """The `//` lines of a shader, or the comments and docstrings of a Python file.
+
+    The prose rules are the same in a source comment as in a doc, so the scan
+    covers both. Line numbers are the file's own, so a hit points at the line to
+    edit; inline code spans are blanked the same way `prose_lines` blanks them.
+    """
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if path.suffix in (".fx", ".fxh"):
+        return [(number, line) for number, line in prose_lines(text)
+                if line.strip().startswith("//")]
+    kept: list[tuple[int, str]] = []
+    for token in tokenize.generate_tokens(io.StringIO(text).readline):
+        if token.type == tokenize.COMMENT:
+            kept.append((token.start[0], token.string))
+        elif token.type == tokenize.STRING and token.string[:3] in ('"""', "'''"):
+            for offset, line in enumerate(token.string.splitlines()):
+                kept.append((token.start[0] + offset, line))
+    return [(number, re.sub(r"`[^`]*`", " ", line)) for number, line in kept]
+
+
 def comment_block_hits() -> list[str]:
     """Every `//` block in the shaders and their headers longer than COMMENT_BLOCK_MAX.
 
@@ -605,7 +615,7 @@ def cmd_check_docs(args) -> int:
     if args.list:
         for pattern, why in PROSE_PHRASES:
             print("%-72s %s" % (pattern, why))
-        print("%-72s %s" % ("// block longer than %d lines" % COMMENT_BLOCK_MAX,
+        print("%-72s %s" % ("a comment block over %d lines" % COMMENT_BLOCK_MAX,
                             "the HLSL half of the budget: short and sparse, or marked prose-ok"))
         return 0
     files = [path for path in PROSE_FILES if path.is_file()]
@@ -615,6 +625,15 @@ def cmd_check_docs(args) -> int:
     hits: list[str] = []
     for path in files:
         for number, line in prose_lines(path.read_text(encoding="utf-8", errors="replace")):
+            if PROSE_ALLOW in line:
+                continue
+            for pattern, why in PROSE:
+                match = pattern.search(line)
+                if match:
+                    hits.append("%s:%d: %r -- %s"
+                                % (path.relative_to(REPO), number, match.group(0), why))
+    for path in source_files() + header_files() + [Path(__file__)]:
+        for number, line in source_prose_lines(path):
             if PROSE_ALLOW in line:
                 continue
             for pattern, why in PROSE:
@@ -1233,7 +1252,7 @@ def main() -> int:
     check.set_defaults(func=cmd_check)
 
     docs = sub.add_parser("check-docs",
-                          help="refuse prose framing in README.md, AGENTS.md and docs/*.md")
+                          help="refuse prose framing in the docs and in source comments")
     docs.add_argument("--list", action="store_true",
                       help="print the refused phrases and why each is refused")
     docs.set_defaults(func=cmd_check_docs)

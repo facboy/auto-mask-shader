@@ -119,18 +119,20 @@ adds the same frame back. See `docs/performance.md` §10.
 
 ## Editing conventions
 
-- HLSL comments are **short and sparse** (`//UINr 13`). Do not add tutorial narration to the shader. The
-  one exception is the ruled credit block at the top of `Shaders/AutoMask.fx` — title, licence and the
-  credit to Kaiser's `UIDetectMulti` and Brussels1 — which follows the companion pack's style. Do not add
-  per-function attribution below it.
-- The same prose budget covers the HLSL comments and the docs here; `docs/editing-conventions.md` holds
-  its reasoning and the worked example. `uv run tools/verify_shaders.py check-docs` refuses the framing
-  phrases, the stale forms of a design's history (`has since been`, `first version`, `previously stated`),
-  and a `//` block longer than `COMMENT_BLOCK_MAX` (4 lines); `--list` prints all three; a line or block
-  that genuinely needs the room carries `prose-ok`. A doc describes what ships, not how it changed. The
-  credit block's `////...` fence is exempt. Naming a retired design to weigh the shipped one against it is
-  left alone — as is a record of an investigation (`docs/review.md`, `docs/drift-snap-review.md`,
-  `docs/optical-flow.md`, `docs/ui-isolation-options.md`), whose argument is the thing being kept.
+- HLSL comments are **short and sparse** (`//UINr 13`). Do not add tutorial narration to the shader. A
+  comment states what the code does now, for a developer reading it — not what it did, not why in the
+  form of a story. The one exception is the ruled credit block at the top of `Shaders/AutoMask.fx` —
+  title, licence and the credit to Kaiser's `UIDetectMulti` and Brussels1 — which follows the companion
+  pack's style. Do not add per-function attribution below it.
+- The same prose budget covers the HLSL comments, the comments and docstrings in `tools/verify_shaders.py`,
+  and the docs here; `docs/editing-conventions.md` holds its reasoning and the worked example.
+  `uv run tools/verify_shaders.py check-docs` refuses the framing phrases, the stale forms of a design's
+  history (`has since been`, `first version`, `previously stated`), and a comment block longer than
+  `COMMENT_BLOCK_MAX` (4 lines) anywhere a source or doc carries one; `--list` prints every entry; a line
+  or block that genuinely needs the room carries `prose-ok`. Naming a retired design to weigh the shipped
+  one against it is left alone — as is a record of an investigation (`docs/review.md`,
+  `docs/drift-snap-review.md`, `docs/optical-flow.md`, `docs/ui-isolation-options.md`), whose argument is
+  the thing being kept. The credit block's `////...` fence is exempt.
 - LF line endings.
 - A uniform annotation must match the declared type: `__UNIFORM_SLIDER_FLOAT1`/`_FLOAT3` for floats,
   `__UNIFORM_SLIDER_BOOL1` for bools. A mismatch is a silent ReShade UI bug. The widget family is chosen
