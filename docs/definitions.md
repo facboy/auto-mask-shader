@@ -155,6 +155,11 @@ here — `bank`, `gate`, `hold`, `motion` — both are listed under it.
   interface, i.e. kept protected because neither comparison caught it — "the sky is banked". Of a *cost*
   or *debt*: accrued — "the debt it banks". Both are about laying something away
   (`docs/drift-snap-review.md`).
+- **retention / established pixel** — `AutoMaskEstablished`: a pixel the mask already claims keeps its
+  place through a change while a still masked pixel sits beside it, so an element's animating parts ride
+  on the still part around them. The mirrored counterpart of admission, which gates entry; the claim is
+  last frame's published mask and the still neighbour is a walked reach (`AutoMaskEstablishReach`) in
+  `PS_DilateH`. A region the world has taken over flips whole and clears as usual (`docs/core-model.md`).
 
 ## The gate
 

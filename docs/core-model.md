@@ -145,6 +145,38 @@ region anywhere near it: the seed rate reaches it, only twice as late. That is w
 the rise rather than a refusal. It is a live checkbox (`AutoMaskNeighbour`) inside `AutoMask`, off by
 default, because it owns no pass, shader or target.
 
+### Retention, the spatial term that holds a claim
+
+Admission gates entry; nothing held a claim. A pixel the mask already carries is still re-judged every
+frame on its own colour alone, so an element whose parts animate — a health or stamina bar refilling, a
+spinner, a scrolling list — loses exactly those parts once the animation outlasts the hold, and the move
+memory then keeps them out for its whole duration. The premise is screen-wide, so nothing downstream
+knows the changed pixels are a minority inside a still element.
+
+Retention is the mirror of admission: a pixel **the mask already claims** keeps its place while a still
+masked pixel sits beside it, so an element's animating parts ride on the still part around them. The
+claim is last frame's published mask, read from `texAutoHistory`'s alpha, which the vertical closing only
+then overwrites; the still neighbour is a walked reach along the row, read from this frame's verdict and
+motion channels in `texAutoAccumB`, bounded by the closing's own luma step so a closed region cannot rest
+on a different element that happens to sit within the reach. Retention can only keep a pixel last frame's
+mask already carried — the centre must itself have been published — so it never newly claims one. A pixel
+with neither the claim nor a still neighbour is not retained, which is what leaves the rule behaving after
+the element is gone: a region the world has taken over flips whole, so no still masked pixel remains
+inside it, the reach finds nothing to rest on, and the region clears at the fall rate exactly as it did.
+Retention therefore cannot extend how long a menu lingers — the case the move memory's duration was too
+blunt for — while it does hold a wide animating chunk, because the chunk is only ever a part of the element.
+In a stopped scene it still holds an element's animating part, since the still element around it stays
+claimed and still; that keeps a pixel the mask already carried and adds none, so the mask still cannot
+gain a pixel where the world has stopped.
+
+The reach is a live slider (`AutoMaskEstablishReach`, 1–32 px), separate from the grow and isolation
+radii: it is how far a changed part may lie from the still part that vouches for it, and beyond it the
+pixel falls back to the move memory. It is floored at 1 so the feature cannot silently switch off, and it
+is a slider rather than a constant because it is the lever on the case it exists for — a wider animating
+band needs a wider reach. The checkbox `AutoMaskEstablished` opens the `Retention` category and hides the
+reach under it, off by default, by the rule admission and the isolation gate follow: the feature owns no
+pass, shader or target, taking its samples in the horizontal closing the mask already runs.
+
 ### The isolation gate, the spatial term that removes
 
 The verdict carries no spatial term, so a still pixel with no still pixel near it is protected on the

@@ -97,10 +97,18 @@ changing the verdict, the hold, the move memory, the clip exclusion or the accum
   region can only start from a pixel still for twice the rise and a lone speck cannot seed one — the
   cheapest spatial prior, four taps against the verdict the accumulator already holds. `AutoMaskNeighbour`
   gates it as a live checkbox inside `AutoMask`, because it owns no pass, shader or target; it is off by
-  default, so the mask is the verdict exactly as before. **The isolation gate is the term downstream:** a
-  masked pixel is kept only while enough still pixels surround it, counted on the verdict rather than on
-  colour, over its own isolation radius. It is the only thing that removes a pixel the verdict claimed, so
-  it ships off too.
+  default, so the mask is the verdict exactly as before. **Retention is the term that holds a claim:** a
+  pixel the mask already carries is still re-judged on its own colour alone, so an element whose parts
+  animate — a refilling bar, a spinner — loses exactly those parts once the animation outlasts the hold.
+  A pixel the mask already claims keeps its place while a still masked pixel sits beside it, so the
+  animating parts ride on the still part around them. It is a walked reach (`AutoMaskEstablishReach`,
+  1–32 px) along the row in `PS_DilateH`, reading last frame's published mask and this frame's verdict and
+  motion, so a region the world has taken over flips whole and clears as usual. `AutoMaskEstablished`
+  opens the `Retention` category with the tick and hides the reach under it, off by default, by the same
+  rule as admission. **The isolation gate is
+  the term downstream:** a masked pixel is kept only while enough still pixels surround it, counted on the
+  verdict rather than on colour, over its own isolation radius. It is the only thing that removes a pixel
+  the verdict claimed, so it ships off too.
 
 `docs/compute-path.md` holds what `AutoMaskCompute=1` swaps in — the exact motion count, the change-size
 histogram and auto-deadband, the `RGBA16F` drift channel, and the pass order inside `AutoMask`. The drift

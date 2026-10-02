@@ -258,6 +258,27 @@ uniform float AutoMaskIsolation <
 	ui_step = 1.0;
 > = 1.0;
 
+//Retention, the mirror of admission: a pixel the mask already claims keeps its place through a change
+//while a still masked pixel sits beside it. It opens its own category so the reach below hides with it.
+uniform bool AutoMaskEstablished <
+	__UNIFORM_SLIDER_BOOL1
+	ui_label = "Keep an already-claimed pixel through a move";
+	ui_tooltip = "On, a pixel the mask already claims keeps its place through a change while a still masked pixel sits beside it.\nHolds the animating parts of a bar or a spinner, whose still neighbours outlast the animation\nA region the world has taken over clears as usual: its pixels leave together, leaving nothing still to rest on\nOff, a changed pixel is dropped and regrown only through the move memory";
+	ui_category = "Retention";
+	ui_category_toggle = true;
+> = false;
+
+//How far retention walks for a still masked neighbour; a wider changed part falls back to the move
+//memory. Its own reach, independent of the grow and isolation radii.
+uniform float AutoMaskEstablishReach <
+	__UNIFORM_SLIDER_FLOAT1
+	ui_label = "Retention reach in pixels";
+	ui_tooltip = "How far a still masked pixel can vouch for a changed one, as a distance in pixels.\nRaise it if a wide animating band still drops out, lower it if a revealed region lingers\nRead as 1 at the bottom, so retention cannot silently switch off";
+	ui_category = "Retention";
+	ui_min = 1.0; ui_max = 32.0;
+	ui_step = 1.0;
+> = 16.0;
+
 //Targets
 //Accumulator ping-pong: .r=confidence/debt, .g=hold, .b=motion, .a=whether the verdict could speak,
 //which the motion reduce divides the changed share by on the pixel path and the compute tally carries.
@@ -756,6 +777,39 @@ float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
 		//The count is the verdict, unbounded by luma: a contour inside a HUD must not cost it support.
 		nearby += abs(float(i)) <= reach ? step(0.5, neighbour) : 0.0;
 		mask = max(mask, neighbour * keep);
+	}
+	//Retention: a pixel the mask claimed last frame keeps its place while a still masked pixel sits
+	//beside it on the same side of the contour. The claim is tested first, so only a published pixel
+	//that has now dropped pays for the walk. `tex2Dlod`, because the break makes the iteration vary.
+	[branch]
+	if (AutoMaskEstablished && mask < 0.5
+	    && step(0.5, tex2Dlod(AutoHistory, float4(texcoord, 0.0, 0.0)).a) > 0.5){
+		//One pixel wide at least, so retention cannot silently switch off; integral, since a fractional
+		//bound would just round.
+		int retReach = int(max(floor(AutoMaskEstablishReach + 0.5), 1.0));
+		float rest = 0.0;
+		[loop]
+		for (int d = 0; d < 2; d++){
+			float2 dir = (d == 0) ? float2(texel.x, 0.0) : float2(0.0, texel.y);
+			[loop]
+			for (int j = -retReach; j <= retReach; j++){
+				if (j == 0)
+					continue;
+				float2 uvN = texcoord + dir * float(j);
+				float4 nb = tex2Dlod(AutoAccumB, float4(uvN, 0.0, 0.0));
+				//The closing's own luma bound, so a closed region cannot rest on a different element
+				//across a contour within the reach.
+				float nbLuma = AutoMaskLuma(tex2Dlod(ReShade::BackBuffer, float4(uvN, 0.0, 0.0)).rgb);
+				if (nb.r > 0.5 && nb.b < 0.5 && abs(nbLuma - lumaCentre) * 255.0 <= AutoMaskEdge){
+					rest = 1.0;
+					break;
+				}
+			}
+			if (rest > 0.5)
+				break;
+		}
+		if (rest > 0.5)
+			mask = 1.0;
 	}
 	//.b is the centre's own verdict, which the vertical pass needs to count a column or a diagonal:
 	//those runs cross this pass rather than lying along it, so a row count cannot supply them. .a is the

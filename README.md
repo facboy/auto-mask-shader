@@ -34,8 +34,8 @@ game dir. Then you have to enable it in the ReShade UI.
 
 All of them live in the ReShade panel, and the defaults are meant to be usable as-is. The panel groups
 them as **Frame timing**, **Is the scene in motion?**, **AutoMask**, **RGB step detection**,
-**Isolated pixels** and **Diagnostics**. The tables below follow that order, and the compile-time
-switches that add to it are explained after them.
+**Isolated pixels**, **Retention** and **Diagnostics**. The tables below follow that order, and the
+compile-time switches that add to it are explained after them.
 
 Four switches are compile-time, so changing one recompiles the shader rather than taking effect
 instantly, and each hides the settings only it can read: **anti-bloom** (on by default), the
@@ -99,6 +99,17 @@ The filter below ships off, so the mask is unchanged out of the box.
 | **Enable isolated pixel removal** | On, a masked pixel is kept only while enough of its neighbourhood is still, or a line through it is still along most of its length, so lone specks and scenery are not protected. Off, nothing extra is removed: the mask is exactly what the grow radius produces. |
 | **Still neighbourhood density (percent)** | What share of the neighbourhood must be still — the pixel itself counted — for a masked pixel to stay. Raise it to drop sparser specks, lower it if something solid comes back with holes. |
 | **Isolation radius in pixels** | How far that neighbourhood reaches, as a square `2 × this + 1` across. It is separate from the mask grow radius: a wider box is stricter against thin strokes. |
+
+### Retention
+
+Holds the parts of an element that animate — a health or stamina bar refilling, a spinner, a scrolling
+list — while the still part of the element around them keeps the mask. It ships off, so the mask is
+unchanged out of the box.
+
+| Setting | What it does |
+| --- | --- |
+| **Keep an already-claimed pixel through a move** | On, a pixel already in the mask keeps its place through a change while a still protected pixel sits beside it. A region the world has taken over still clears as usual, since every pixel there leaves at once and there is nothing still to rest on. |
+| **Retention reach in pixels** | How far a still protected pixel can vouch for a changed one. Raise it if a wide animating band still drops out; lower it if a revealed region lingers. Shown only while the switch above is on. |
 
 ### Anti-bloom
 
@@ -174,12 +185,17 @@ time:
   movement, so a small or slow one may not be.
 - **Something that moves while the world is stopped falls out of the mask.** A spinner, a flashing icon,
   a looping background: those pixels keep changing and drop out. This is the trade that keeps a stopped
-  scene from filling in.
+  scene from filling in. **Keep an already-claimed pixel through a move** is the exception for the parts
+  of an element that were already in the mask, since the still element around them still vouches for them.
 - **A frame that is fully black or fully white never counts as still**, since a colour at the top or
   bottom of its range may be saturated rather than motionless. A letterbox bar or a hard fade gains no
   protection while it stays that colour.
 - **Interface that animates for a long stretch loses its protection.** Raise **Frames of change absorbed
-  before a still pixel starts decaying out of the mask** for an element like that.
+  before a still pixel starts decaying out of the mask**, or turn on **Keep an already-claimed pixel
+  through a move** so the animating parts are held by the still part of the element around them.
+- **An animating part wider than twice the retention reach may still drop out.** Retention holds a
+  changed pixel only while a still protected pixel is close enough to vouch for it, so a very wide moving
+  band is left to the move memory and the fall timing. Raise **Retention reach in pixels** for one.
 - **A player character tethered to the camera in third-person games.** Running forward, the camera moves
   with you, so your character's back stays locked at the same screen position — identical to a HUD
   element as far as the comparison can tell.

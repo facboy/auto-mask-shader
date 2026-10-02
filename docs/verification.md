@@ -189,6 +189,24 @@ looking at is current.
   screen throughout — a draining bar or a scrolling list moving longer than `AutoMaskForget` — which
   should lose its protection to the memory and get it back once the animation stops and the world is
   drawn again.
+- **Retention, `AutoMaskEstablished`, on both paths and off by default.** The case it exists for is a
+  bar whose parts animate while the rest of the element holds still: a stamina or health bar refilling
+  during combat, a spinner, a scrolling list. It is a live checkbox rather than a definition, so the
+  branch is compiled in either way and the hashes move with it; what must be identical is the **output** —
+  with the box off the branch is skipped and the mask is exactly the pre-change one, which is the
+  property to re-read off-GPU as the mask, not as the bytecode. On: the animating part must stay in the
+  mask while the still part of the element surrounds it, forming on without the two-second blank the move
+  memory would otherwise leave. The negative control is the
+  whole point of the rule and the one to watch hardest: close a menu, or reveal world behind any element,
+  and the region must clear at the **fall** timing exactly as it did before — if it lingers for
+  `AutoMaskMoveMemory` instead, the retention is reading a still neighbour where it should not, and the
+  reach or the neighbour test is what to look at. Two properties to read on the overlay: the confidence
+  view must show the animating part held at or above the verdict while the still part is cyan, and the
+  motion view must show the same part red, which is the reading retention is overriding. Its bound is the
+  reach: a changed part wider than about `2 × AutoMaskEstablishReach` pixels has no still neighbour to
+  rest on and falls back to the memory, so a full-width moving band is the expected non-fix. The reach is
+  a live slider in its own `Retention` category, so a bar that still drops out is widened rather than
+  recompiled.
 - The drift channel's pair, both on the compute path: pan slowly across otherwise still scenery — a
   sky, a distant backdrop — and the backdrop must stay out of the mask while a HUD in the same frame
   stays in, which the overlay's motion view is where to watch, since the short comparison alone shows

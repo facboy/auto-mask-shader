@@ -276,7 +276,23 @@ read as an exemption rather than a variant, so a branch inside a pass was left c
 discards. §11 and §12 are the first two; §14's is on the shipped default itself, which is why it went
 unexamined for so long.
 
-## 15. Openings left
+## 15. The retention walk, behind its checkbox
+
+`AutoMaskEstablished` adds a walk of both axes in `PS_DilateH` to hold an element's animating parts while a
+still masked pixel sits beside them. It is a live checkbox with a live reach (`AutoMaskEstablishReach`), so
+neither is a variant: the branch and the bound are compiled into every variant and the walk's cost is a
+runtime question. `PS_DilateH` 53 → **107** on the pixel path and 56 → **110** with compute — of which 10
+are the uniform bound's own index setup (`round_ni`/`ftoi` for the loop limit, an `itof` a step to rebuild
+the int index as a float), the rest the reach of 16 either way plus the frame tap each step bounds it by.
+The static rise is the unrolling the `[loop]` directive suppresses at run time, not code that runs: the walk
+is gated on the checkbox, on the pixel having dropped, and on last frame's mask having published it, so the
+pixel path the checkbox defaults to issues one `if_nz` and none of it. With the box on, only a pixel that
+was in the mask last frame and has just left pays the walk, and the walk ends at the first still masked
+pixel within the luma bound, so a bar with its still part a few pixels away pays a few taps rather than the
+whole reach. Nothing here is a variant's cost: with the box off no pass moves and the published mask is
+byte-identical.
+
+## 16. Openings left
 
 - **The isolation gate's four taps a loop step — measured, and left.** The four counts are runs of
   `2·reach + 1` pixels *through* the pixel, so a 3×3 gather holds only the `reach = 1` case: at
