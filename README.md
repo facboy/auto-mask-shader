@@ -114,8 +114,8 @@ a compile-time switch and on by default.
 On, the overlay draws one reading over the picture, and the toggles below pick which. Each tints only
 the pixels it names and leaves the rest exactly as the game drew it. Compare it against the game
 underneath: that is the only way to tell a genuine mistake from something the shader can never get
-right. The **motion view**, with the **motion gain** that belongs to it, is the one to use; the three
-views below them are development readings.
+right. The **motion view**, with the **motion gain** that belongs to it, is the one to use; the two
+views below it are development readings.
 
 | Setting | What it draws |
 | --- | --- |
@@ -123,11 +123,15 @@ views below them are development readings.
 | **Diagnostics: motion gain** | Brightens the red motion reading, so a change too small to see becomes visible. |
 | **Diagnostics: confidence view** | Two flat colours rather than a grade: **cyan** where the mask already includes the pixel, **magenta** where it is part-way there but has not made it yet. Magenta over dim scenery, with no interface there, is the shader part-way to protecting the world. |
 | **Diagnostics: depth normals** *(depth check only)* | White where the surface faces up or down — the floor and ceiling, which depth motion cannot see on a walk — and black where it faces the way you walk. |
-| **Diagnostics: tile view** *(Use Compute Shaders only)* | The screen as a 16×16 grid, each square coloured for what the mask is doing in it: **green** mostly masked interface, **black** not masked, **red** changed a lot and not masked while the world is quiet, **orange** a hole sealed inside a protected element. Five bars along the top are the region counts: how many pieces the mask is in, the largest piece's share of the mask, the share of the screen sealed off, and how many wide-change patches there are and how much they cover. |
 
 The small block in the bottom-left corner is always drawn, and its colour tells you what the whole
 screen is doing: **magenta** while the world is being drawn, so what you are looking at is a live
 judgement, and **yellow** while it is not, so the mask is frozen and can only shrink.
+
+With **Use Compute Shaders** on and **Auto-detect RGB step** ticked, a small **digit** is drawn in the
+bottom-right corner: the RGB step the measurement has settled on, from 1 to 8. Higher means the shader is
+currently forgiving more small movement as noise. It shows nothing when auto-detect is off, since there is
+no measured value to show.
 
 ### The depth check
 

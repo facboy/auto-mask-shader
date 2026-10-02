@@ -67,9 +67,9 @@ as `SV_Target1` is the copy at no extra sample, and its read of `texAutoDriftB` 
 drift copy, which costs one read — no other pass reads the drift channel — but no longer a pass or a
 dispatch. Two full-resolution passes go with them.
 
-The two other readers of the live side, the overlay in `PS_Restore` and `CS_Tile`, moved from `A` to `B`
-with the fold. The drift writer stays `texAutoDriftB` and the reader `texAutoDriftA`, so the pair keeps its
-`A`-reads/`B`-writes convention. The drift fold is behind `#if AutoMaskCompute == 1`, since the pixel path
+The overlay in `PS_Restore` moved from `A` to `B` with the fold. The drift writer stays `texAutoDriftB`
+and the reader `texAutoDriftA`, so the pair keeps its `A`-reads/`B`-writes convention. The drift fold is
+behind `#if AutoMaskCompute == 1`, since the pixel path
 has no drift channel: the shader has two `PS_DilateH` signatures under the guard, differing only by
 `SV_Target2`.
 
@@ -136,8 +136,8 @@ It has to be the vertical closing. Whichever pass writes the history must know t
 that pass does — so the frame and the mask go into one `float4` from one pass, rather than the frame from
 `PS_DilateH`, which would leave the vertical pass sampling a target it writes (error `3020`). The
 accumulator already read the history earlier in the frame, so it is safe to write there; only the rgb is
-its comparison, and the alpha it now carries is why both accumulators read `.rgb`. `CS_Tile` moves to the
-last pass to read the closing's output, and `PS_Store` and its dispatch are gone.
+its comparison, and the alpha it now carries is why both accumulators read `.rgb`. `PS_Store` and its
+dispatch are gone.
 
 A full-resolution pass goes, and two full-resolution targets (`texAutoFrame`, `texAutoMap`) with it —
 ~29.4 MB of VRAM at 1440p — together with ~58.8 MB a frame of traffic. The restore also reads back one

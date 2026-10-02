@@ -49,7 +49,7 @@ holds only once the history is written by a pass that also knows the final mask,
 Nothing read `texAutoHistory`'s `.a`, and both accumulators take `.rgb`, so the channel was free at both
 ends of the frame. That makes `texAutoMap` removable as well: the pass publishing the mask writes it into
 the history's alpha beside the frame it is already storing, and `AutoMaskPublished` reads
-`step(0.5, …a)`. The three readers — `PS_AntiBloom`, `PS_Restore`, `CS_Tile` — take the mask out of a
+`step(0.5, …a)`. The two readers — `PS_AntiBloom` and `PS_Restore` — take the mask out of a
 target they touch for the frame or for a neighbouring reading, and `PS_Restore` drops from three
 full-resolution samples to two.
 
@@ -159,8 +159,10 @@ saving stands on its own rather than as §6's enabler.
 - **`PS_AntiBloom` folded into the closing.** The blacking has to land after the pass that reads the
   frame the history is stored from, and a pass that names render targets does not write the back buffer.
   The pass ships on by default, so it is accounted rather than saved: `docs/performance.md` §13.
-- **The diagnostics map's own pass and target — the fold landed.** It was once refused as "a definition,
-  off at rest, so a collapse buys nothing while it is off", which weighed the default setting rather than
-  the on-build; ReShade exposes `AutoMaskDiagnostics` in the UI, so the on-build is a shipped variant. The
-  overlay now reads the accumulator and the statistic inside `PS_Restore`, so it owns no pass and no
-  target of its own; `docs/performance_diagnostics.md` is the account and §2 there the fold.
+- **The diagnostics map's pass and targets, and the tile map — both folds landed.** The map was once
+  refused as "a definition, off at rest, so a collapse buys nothing while it is off", which weighed the
+  default setting rather than the on-build; ReShade exposes `AutoMaskDiagnostics` in the UI, so the
+  on-build is a shipped variant. The overlay now reads the accumulator and the statistic inside
+  `PS_Restore`, so it owns no pass and no target of its own, `docs/performance_diagnostics.md` §2. Its
+  compute-only tile map went further, removed outright once its brief was spent rather than folded: its
+  pass, both targets and its `groupshared` arrays are gone (`docs/performance_diagnostics.md` §3).

@@ -216,8 +216,10 @@ looking at is current.
   screen at once and for a fraction of a second at a time, because a step following the share up
   forgives the very motion that raised it. Watch the motion view over a steady mover — grass in wind, a
   waterfall — for a minute: the red must stay on it, and a red that blinks off and back across
-  everything at once is the step moving rather than the scene. The step's own value is not drawn
-  anywhere, so the failure to look for is the red, not a number.
+  everything at once is the step moving rather than the scene. The step's own value is now drawn as a
+  digit in the bottom-right corner (compute path, auto-detect on), so the failure to look for is that
+  digit changing — a red that blinks with the digit steady is the scene, one that blinks with the digit
+  moving is the step; a digit that never settles is the measurement flapping.
   Two of this feature's properties are checkable off-GPU and should be re-checked that way after any
   change to the histogram, rather than looked for on screen. **The reading must be unchanged by how the
   bins are counted**: the walk's answer for the reduced 8-bin groupshared tally must be identical to the
@@ -228,13 +230,24 @@ looking at is current.
   against ReShade v6.8.0's own parser and codegen instead, which emits
   `groupshared uint V__groupHist[8];` and `InterlockedAdd(V__groupHist[bin], 1u, _res)`. A construct this
   check cannot judge has to be verified against ReShade's source, not inferred from a passing compile.
+- **The step readout, in the bottom-right corner and on the compute path only.** It draws the committed
+  auto-detected step, 1–8, as a seven-segment numeral read from the 1×1 `texAutoStep.r`, in bright red on a
+  dark box, and only while **Auto-detect RGB step** is on. Off-GPU the guard is the check: the draw is behind
+  `AutoMaskCompute` *and* the toggle, so the pixel path and the toggle-off build must be **byte-identical** to the
+  pre-change build, and only the four compute variants' `PS_Restore` may move. On screen: with the toggle
+  off there must be no digit at all; on, the digit must agree with the level the red implies — a clean
+  scene settles low, a noisy one high — and it must change only when the auto-deadband commits, i.e. after
+  `AUTOMASK_STEP_DWELL` frames, not every frame the histogram wobbles. Because it leads the mask by one
+  frame, a single-frame disagreement with the red is expected and is not a fault. The box is sized so the
+  seven-segment glyph stays square in pixels (the corner inset is aspect-corrected), so check the bars are
+  even rather than smeared, and that the digit stays in the corner and legible at a low resolution.
 - **The premise's denominator, which a large dark region defeats.** The share is
   `changed / pixels that could change` rather than `changed / every pixel`, so a frame with a big
   black or letterboxed region has no ceiling below what movement can reach — were the share over every
   pixel, a high **Motion needed to trust
   stillness** would read the world as stopped while it was plainly moving, giving the corner marker yellow
-  during a walk and the whole screen red on the tile view because a stopped world makes every wide cell
-  an arrival. Watch the corner marker over a scene with a large permanent black area: it must be magenta
+  during a walk and the whole screen red wherever the wide grading caught the drawing. Watch the corner
+  marker over a scene with a large permanent black area: it must be magenta
   while moving, at any setting the movement can actually reach. Two properties are checkable off-GPU and
   were: the corrected share agrees with a direct `changed / active` count over 300 random frames on
   *both* paths (0 mismatches), and a fully inert frame divides by a floor of one rather than zero. The
@@ -262,9 +275,9 @@ looking at is current.
   head-bob are real movement of a few centimetres. The two off-GPU properties the design rests on: a
   buffer sampled where nothing is bound returns one constant on both sides of the comparison, so the
   term is exactly zero, and the term is only ever added to the changed count, never the verdict. One
-  side effect to expect: the depth change is folded into the same graded channel the motion view draws
-  and the tile map reads, so with the switch on a **depth**-only change shows there as red or as a wide
-  cell — the motion view can no longer be read as picture-only while the switch is on. The auto-deadband
+  side effect to expect: the depth change is folded into the same graded channel the motion view draws,
+  so with the switch on a **depth**-only change shows there as red — the motion view can no longer be read
+  as picture-only while the switch is on. The auto-deadband
   *measurement* is unaffected, since it bins the picture's own `maxDiff`.
 - **The depth normals probe, `UIDebugDepthNormal`, and the surface exclusion it decides.** It exists only
   with `AutoMaskDepthMotion` and `AutoMaskDiagnostics` both on, and draws a field rather than a mark:
@@ -323,7 +336,7 @@ looking at is current.
   second **AutoMask** block, or **Is the scene in motion?** drawn in the midst of **AutoMask** with a
   second **AutoMask** heading under it, is the failure to look for after any move of a uniform. Inside
   **Diagnostics** the order is the guide first: **motion view** with **motion gain** directly under it,
-  then the three development readings — **confidence view**, **depth normals** and **tile view**.
+  then the two development readings — **confidence view** and **depth normals**.
 - The isolation gate, in the panel and in the mask: the checkbox ships off, so on first load **Isolated
   pixels** must show the gate alone with the count and radius hidden under it, and it must be a *second*
   gated category beside **RGB step detection**. With it on, a still speck with no still neighbourhood —
@@ -368,34 +381,8 @@ looking at is current.
   accumulator tap for the isolation count, so the closing must produce exactly the mask the unguarded
   form did. Sweep grow `0`–`3` against **Isolation radius** 1–3 and confirm the mask does not change
   shape where the two radii differ. Only `PS_DilateH`'s hash may move.
-- **The tile map, which is the instrument rather than a filter.** It exists only with the compute path
-  and the diagnostics overlay both on, so the first check is that the tile view (and its five bars) is
-  absent, not merely inert, with either switch off. With it on: the map must show green over interface,
-  black over world, red over a change with no mask on it, and orange around a hole sealed inside a
-  protected element — those four colours are the legend in `README.md`, and a map whose greens and
-  blacks are swapped, or whose red and orange are the wrong way round, is what a mis-wired class test
-  looks like. **Interface must read green as soon as the mask touches the square**, so a bar or a line
-  of text crossing one shows green along its length rather than black with a red flicker: a UI square
-  that alternates unshaded and red is the three failures this feature was landed with — the share
-  threshold, the map measuring wide for itself, and the mask absorbing the enclosure growth. **Panning
-  must not turn the screen orange, and must not turn it red either**: movement cannot seal anything off
-  from the screen edge, and it is not an arrival — the corner marker is magenta during a pan, so the red
-  bar must stay empty and the orange bar near zero while the camera moves. A screen-wide orange wash on
-  a pan is the enclosure growth reading the movement itself, and a screen-wide red one is the arrival
-  class doing without the premise. The bars must move as the picture does: the component count falling
-  when a panel opens and rising when the mask breaks into specks, the enclosed share rising while a
-  hole is open inside a protected element, and the arrival patches appearing exactly when something wide
-  changes that the mask has not claimed. A count bar that stays empty over a mask visibly broken into a
-  dozen specks is the scale — `AUTOMASK_TILE_COUNT_MAX` — being read wrong. The bars decided §5.2's fill
-  and §5.4's arrival detection of `docs/ui-isolation-options.md`, both recorded there as measured out,
-  so a bar that never moves is no longer a pending question — but a bar that moves the wrong way still
-  is. Toggling the tile view on and off must leave the final image and the mask identical, which is the
-  check that the instrument is read-only. Two of its properties are checkable off-GPU and were: the
-  component, arrival-patch and enclosure readings were mirrored statement for statement in a scratch
-  probe (`tools/.work/`, not committed) and compared against an independent BFS labelling and flood over
-  300 grids — 0 mismatches.
 - **The confidence view, the reading §5.5 asked for, and the answer it produced.** It is a per-pixel
-  read of the accumulator, so unlike the tile view it exists on the pixel path too: it must be
+  read of the accumulator, so it exists on the pixel path too: it must be
   selectable with the compute switch either way, and absent only with the diagnostics overlay compiled
   out. With the motion toggle off it must **draw two flat colours, not a ramp** — cyan where the verdict
   would already claim the pixel and magenta where it is earning but has not crossed — since a grade asks
@@ -434,16 +421,14 @@ looking at is current.
   accumulators, so the two paths must agree.
 - **The mask rides the history's alpha, and the closing stores it.** The store pass and the map target
   are gone: `PS_DilateV` writes `float4(frame.rgb, mask)` into `texAutoHistory`, the restore reads the
-  frame back off that alpha, and `PS_AntiBloom` and `CS_Tile` take the mask from the same. The pass list
+  frame back off that alpha, and `PS_AntiBloom` takes the mask from the same. The pass list
   is the first check — `AutoMask` must show no `PS_Store` and `texAutoFrame`/`texAutoMap` must appear in
   no pass's targets — and the accumulator's history read must still compare against the frame, not the
   alpha that now neighbours it, so a mask that builds over scenery or fails to build over HUD is the
   `.rgb` read having been dropped. With the mask correct, the picture out of `AutoMask_Restore` has to
   be identical to the pre-change one over both HUD and world, since the restore's
-  `lerp(live, stored, mask)` was the same expression before. The one ordering consequence is the tile
-  map, which now runs after the closing: a cell that reads the wrong class is `CS_Tile` having been left
-  before the pass whose output it now wants. The off-GPU half is the hash set: `PS_DilateV`,
-  `PS_Restore`, `PS_AntiBloom` and `CS_Tile` are expected to move, and `PS_DilateH` and `CS_Accum` are
+  `lerp(live, stored, mask)` was the same expression before. The off-GPU half is the hash set:
+  `PS_DilateV`, `PS_Restore` and `PS_AntiBloom` are expected to move, and `PS_DilateH` and `CS_Accum` are
   the ones that should not.
 - **The depth store rides the closing.** With `AutoMaskDepthMotion` on, `PS_DilateV` writes `texAutoDepth`
   as a second target instead of a `PS_StoreDepth` pass: the pass list must show the store gone with the

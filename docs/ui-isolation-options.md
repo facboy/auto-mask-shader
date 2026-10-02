@@ -6,8 +6,9 @@ What element-level isolation could do better. **Options, not a plan**: nothing h
 have been settled by building or measuring:
 
 - §5.1's four-axis door **shipped**, and §5.3's admission test **shipped**.
-- §5.6's tile map and §6's readings **were built** as the instrument that decides the rest, and the map
-  is kept as the tuning instrument for those two shipped rules.
+- §5.6's tile map and §6's readings **were built** as the instrument that decides the rest, then
+  **removed** once the readings were settled — its one unique view answered a shipped-off gate, and the
+  rule it was kept for works far below a cell.
 - §5.2's fill, §5.4's arrivals, §5.5's confidence weighting, §5.7's deadzone, §5.8's ratio and §5.10's
   premise are all **measured out or dropped**, each with its reason below. §5.9's depth use **shipped**
   as `AutoMaskDepthMotion`; §5.10's question against it was answered rare, so its selector
@@ -219,18 +220,20 @@ same trick with a different index. A group is `[numthreads(64, 4, 1)]`, so the e
 64×4 block, not a square tile; a square map takes its own index and target, still at a handful of global
 adds per group, and a fixed-size target keeps it resolution-independent.
 
-**Built, with §6's readings, and kept for the spatial rules rather than for those options.** The map is
-`CS_Tile`: a fixed 16×16 grid, 8 sample points per axis, each cell a *share* of itself rather than a tally,
-which is what makes it resolution-independent without a per-pixel atomic. The readings are relaxations over
-that grid, so their round count is `G × G`, a property of the grid rather than of the picture. It is gated
-by the compute *and* diagnostics switches, because it is an instrument and exists only where it can be
-seen, and nothing in the mask reads it.
+**Built, with §6's readings, then removed.** The map was `CS_Tile`: a fixed 16×16 grid, 8 sample points
+per axis, each cell a *share* of itself rather than a tally, which is what made it resolution-independent
+without a per-pixel atomic. The readings were relaxations over that grid, so their round count was `G × G`,
+a property of the grid rather than of the picture. It was gated by the compute *and* diagnostics switches,
+because it was an instrument and existed only where it could be seen, and nothing in the mask read it.
 
-Its own questions are settled — §5.2's fill, §5.4's arrivals and §5.8's ratio are all closed — so its
-standing is now the tuning instrument for the isolation gate and the admission seed, which are region
-questions no per-pixel view can show. It earns that on the test the repo applies to any instrument: honest
-(its three readings were mirrored against an independent labelling and flood, 0 mismatches) and free at
-rest (absent from all four compute-off and diagnostics-off variants).
+Its own questions were settled — §5.2's fill, §5.4's arrivals and §5.8's ratio are all closed — and it
+was kept for a while as the tuning instrument for the isolation gate and the admission seed. **That
+reason did not survive a second reading**: those rules work per pixel at a radius of 1–3 px, a region
+twenty times finer than a 160×90 cell, so a grid could not show what they do; and the map's own view was
+mostly the verdict and motion views at cell resolution, with only region shape — the mask's components and
+its holes — unique to it, for a gate that ships off. It was removed with its two targets and its
+`groupshared` arrays; `docs/performance_diagnostics.md` §3 is the removal's account, and §6 below the
+reasoning that decided each of its readings.
 
 ### 5.7 Auto-place the center deadzone — dropped with the manual region
 
@@ -246,12 +249,12 @@ Semi-transparent UI composites as `pixel = α · ui + (1 − α) · world`, so i
 world's change attenuated by a spatially constant factor, and the ratio of a pixel's motion to its
 neighbourhood's was to carry the `α`.
 
-**The instrument it needs is not the one §5.6 built.** `CS_Tile` accumulates *coverage*, never magnitude —
-a share of a region that changed cannot form a ratio of a pixel's motion to its neighbourhood's. The
-magnitude exists only in the change-size histogram behind the auto-deadband, which is one distribution for
-the whole frame with no spatial locality. So it was built as its own pass, `CS_Alpha`, each cell the mean
-of the accumulator's graded motion over the taps that moved at all, against the grid's own rate over the
-cells the mask does not touch.
+**The instrument it needs is not the one §5.6 built.** The tile map accumulated *coverage*, never
+magnitude — a share of a region that changed cannot form a ratio of a pixel's motion to its
+neighbourhood's. The magnitude exists only in the change-size histogram behind the auto-deadband, which is
+one distribution for the whole frame with no spatial locality. So it was built as its own pass, `CS_Alpha`,
+each cell the mean of the accumulator's graded motion over the taps that moved at all, against the grid's
+own rate over the cells the mask does not touch.
 
 **It was watched in a game and removed.** The failure is the graded channel, and it is arithmetic rather
 than tuning: the accumulator stores `smoothstep(deadband−1, deadband+2, maxDiff)`, which **saturates at
@@ -334,8 +337,9 @@ drawn, the same degradation the additive form turns into a harmless zero.
 
 ## 6. Measure first: the instrument
 
-The repo's method is that a claim is measured before it is mechanised. The instrument here is a third
-reading on the diagnostics overlay, beside the motion and verdict views:
+The repo's method is that a claim is measured before it is mechanised. The instrument here was a third
+reading on the diagnostics overlay, beside the motion and verdict views — built, then removed with §5.6's
+map:
 
 - **Region coherence:** the connected-component count of the current mask, and the largest component's
   share of it. A mask of one or two large components makes §5.1's component test not worth its cost; a
@@ -347,8 +351,12 @@ reading on the diagnostics overlay, beside the motion and verdict views:
 - **Arrival candidates:** for §5.4, the count and total area of contiguous wide-change patches per frame
   during a stopped scene.
 
-**Built, as one step with §5.6.** `CS_Tile` writes all three and the tile view (`UIDebugTile`) draws the
-map behind them. The decisions left open:
+**Built, as one step with §5.6, then removed.** `CS_Tile` wrote all three and the tile view
+(`UIDebugTile`) drew the map behind them; both are gone, once the two spatial rules that shipped — the
+admission seed and the isolation gate — were settled and the readings the map was built to decide were
+all closed. What it established, kept here because it is why the map was never the instrument for the
+rule that stayed: *the region readings were the map's only unique view, and they answer a gate that ships
+off*. The decisions left open when it was built:
 
 - **The readings are relaxations over the grid, and the round count is its size.** A label only ever
   decreases toward the least index in its own region, so `G × G` sweeps settle any shape exactly. This is
@@ -373,18 +381,16 @@ map behind them. The decisions left open:
 
 ## 7. Conventions any of this must keep
 
-- **Compute-only where the tile map is needed**, following the drift channel and the histogram: guarded by
-  `AutoMaskCompute`, owning its targets, leaving the `AutoMaskCompute = 0` entry-point hashes
-  byte-identical.
+- **Compute-only where a compute-only reading is needed**, following the drift channel and the histogram:
+  guarded by `AutoMaskCompute`, owning its targets, leaving the `AutoMaskCompute = 0` entry-point hashes
+  byte-identical. The tile map was built that way and is the shape any replacement should take.
 - **A live checkbox, not a structural switch**, for anything that owns no pass, shader or target of its
   own — the deadzone and isolation precedent — with the gate first in its own category. Anything with a
-  pass or a target of its own gets a definition, read the other way: the tile view is the live toggle
-  `UIDebugTile`, while the pass and targets behind it are the compute definition. The tile map needs
-  **two** definitions at once, since the instrument is only usable where it can be seen.
+  pass or a target of its own gets a definition.
 - **A named bound** (`AUTOMASK_..._MAX`) for any capped iteration, as `AUTOMASK_DILATE_MAX` does, so the
   cap cannot drift from the loop that reads it.
 - **Cost honesty in `README.md`.** The drift channel's cost claim and the flow probe's both had to be
-  corrected once already; a tile map plus a reconstruction loop is an *addition*, not a retune.
+  corrected once already.
 - **Verification stays a review pass plus the offline check** — `uv run tools/verify_shaders.py check`,
   pixel-path hashes unchanged, no new warnings. None of this is verifiable without a game.
 
@@ -399,14 +405,15 @@ map behind them. The decisions left open:
 | 5.4 | arrival detection | §3.3 | tile map + a patch test | live checkbox, compute-only — **measured out: the window is narrower than the rise it would unlock** |
 | 5.5.1 | confidence-weighted count | tuning sharpness | an overlay view off the accumulator, no pass or target | live checkbox inside the gate — **measured out: the band under the line is dim scenery drifting below the comparison's resolution, so weighting keeps more of it** |
 | 5.5.2 | magnitude weighting | tuning sharpness, and only where the deadband is 2+ | none for the rule; it charges the pixels 5.5.1 was measured on faster | none — **closed on 5.5.1's reading** |
-| 5.6 | tile map | its three readings; kept as the tuning instrument for the shipped spatial rules | a pass, a 16×16 target and a 2×1 reading target | compute + diagnostics — **shipped, and kept after the options it was built to decide were settled** |
+| 5.6 | tile map | its three readings | a pass, a 16×16 target and a 2×1 reading target | compute + diagnostics — **built, then removed: the spatial rules it was kept to tune are per-pixel at 1–3 px, which a 160×90 cell cannot show** |
 | 5.7 | auto-placed deadzone | §3.4's manual tuning | off the tile map | — **dropped: the manual region was removed as unused** |
 | 5.8 | alpha-composite ratio | reading only | a new per-cell magnitude statistic, built as a pass with a `RGBA32F` grid and a share target | compute + diagnostics — **measured out and removed: the graded channel saturates, so the ratio cannot separate a panel from moving world** |
 | 5.9 | depth check | §3.3 in the common case (the panel no longer hides the drawing), not the panel over a stopped world | one `R32F` target, written on the closing pass; degrades to the picture's own premise with no depth bound | preprocessor definition, off — **shipped as `AutoMaskDepthMotion`** |
 | 5.10 | viewpoint-change premise | the animated-neighbour form of §3.3 — a still patch banked because a *different* region repaints | a depth-change share in place of the colour share; still misses animated geometry, and withholds stillness in textural-only scenes | live checkbox — **the selector shipped as `AutoMaskDepthOnly` and the case measured rare in a game, so the selector is enough; the premise itself is not scoped** |
 
-The four-axis door and the admission seed shipped; the tile map and §6's readings were built as one
-instrument step with nothing wired into the mask, and the map outlived its brief because the two spatial
-rules that *did* ship are region questions it is the only view of. §5.2's fill, §5.4's arrivals, §5.5's
-confidence weighting, §5.8's ratio and §5.10's premise are closed with the reasons in their sections, and
-§5.9's depth check is the one depth use that survives.
+The four-axis door and the admission seed shipped. §6's tile map and its readings were built as one
+instrument step with nothing wired into the mask, and **removed once the readings were settled**: its one
+unique view answered a gate that ships off, and the rule it was kept to tune — the isolation gate — works
+at a radius far below a cell. §5.2's fill, §5.4's arrivals, §5.5's confidence weighting, §5.8's ratio and
+§5.10's premise are closed with the reasons in their sections, and §5.9's depth check is the one depth use
+that survives.

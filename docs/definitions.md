@@ -12,7 +12,7 @@ here — `bank`, `gate`, `hold`, `motion` — both are listed under it.
 - **mask** — one full-resolution HUD/non-HUD value per pixel, written into `texAutoHistory`'s alpha.
   Not one per element: per-element identity is not attempted, and conflating health with inventory is
   accepted by design (`docs/core-model.md`).
-- **published mask** — the mask as the restore, anti-bloom and tile passes read it, i.e. after the closing
+- **published mask** — the mask as the restore and anti-bloom passes read it, i.e. after the closing
   radius. The verdict is the same decision *before* the radius, which is what the verdict view draws. It
   rides the history's alpha beside the frame, so the same target answers "what were these pixels" and
   "which of them are interface".
@@ -298,7 +298,6 @@ readings.
 | `UIDebugGain` | Diagnostics: motion gain | Multiplier making a small change visible in the overlay. |
 | `UIDebugConfidence` | Diagnostics: confidence view | Whether the overlay draws the accumulator's own confidence as two flat colours — cyan claimed, magenta earning — instead of the graded reading. |
 | `UIDebugDepthNormal` | Diagnostics: depth normals | Whether the overlay draws each surface's orientation instead — white where it faces up or down. Read only with `AutoMaskDepthMotion`, which is the only thing that can sample depth. |
-| `UIDebugTile` | Diagnostics: tile view | Whether the overlay draws the tile map instead: a cell in its class, with the region readings as bars. Compute-only, since the map is. |
 
 - **structural switch** — a preprocessor definition that removes a feature from the compile: each is
   `#ifndef`-guarded and owns its pass, technique entry, shader and private targets. The four are
@@ -382,24 +381,21 @@ readings.
   instead of on the shader.
 - **motion view / verdict view / confidence view** — the overlay's per-pixel readings, picked by two
   live toggles: red where the frame sees a change; green where the pixel has earned protection *without*
-  the closing radius; or, with the second toggle, the accumulator's own confidence as a grade, its middle
-  the 0.5 protection line. It draws **two flat colours rather than a ramp** — cyan where the verdict would
+  the closing radius; or, with the second toggle, the accumulator's own confidence split at the 0.5
+  protection line. It draws **two flat colours rather than a ramp** — cyan where the verdict would
   already claim the pixel, magenta where it is earning but has not crossed — and leaves everything at or
   below zero untinted, so the wide debt range a move leaves does not read as a halo. Read in a game it
   found a thin band over UI interiors and a much larger one over dim scenery with no interface in it:
   scenery drifting too slowly to change a pixel between two frames reads as still, and still is what the
-  verdict credits — §5.5.1 of `docs/ui-isolation-options.md`. The tile view overrides both per-pixel views.
-- **tile map / tile view** — the picture as a fixed 16×16 grid, each cell sampled at `AUTOMASK_TILE_TAPS`²
-  points, reduced to region readings: the mask's component count and largest share, the enclosed share,
-  and the count and area of contiguous wide-change patches *while the world is stopped* — a wide change
-  during a camera move is that move, not an arrival. A cell is mask as soon as the mask touches it — a
-  footprint reading, not a filled one. An instrument only, nothing in the mask reads it; `UIDebugTile`
-  draws it, and the five readings as bars are filled against
-  `AUTOMASK_TILE_COUNT_MAX` for the two counts and their own share for the three. Compute-only, riding
-  both the compute and diagnostics guards.
+  verdict credits — §5.5.1 of `docs/ui-isolation-options.md`.
 - **corner marker** — the bottom-left block drawn by `AutoMask_Restore`, so nothing downstream can paint
   over it: magenta while the world is drawn, yellow while it is not. It reads
   the state about to govern the mask, one frame ahead of the decision.
+- **step readout** — the bottom-right digit drawn by `AutoMask_Restore` on the compute path only, while
+  **Auto-detect RGB step** is on: the committed measured step as a bright-red seven-segment numeral, 1–8.
+  It reads the 1×1 `texAutoStep.r` the walk commits, so like the corner marker it leads the mask by one
+  frame. It is a digit rather than a bar because it names a number; ReShade has no text renderer, so the
+  glyph is drawn from UV-space segments.
 - **variant** — one compiled combination of the preprocessor switches; the offline check compiles sixteen
   (`AutoMaskAntiBloom` and `AutoMaskDiagnostics` each at 0 and 1, crossed with `AutoMaskCompute` and
   `AutoMaskDepthMotion`).

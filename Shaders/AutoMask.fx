@@ -272,8 +272,8 @@ sampler AutoAccumA { Texture = texAutoAccumA; };
 sampler AutoAccumB { Texture = texAutoAccumB; };
 
 //The untouched frame for stability comparison, and the published mask in its alpha: the closing stores
-//the frame it was drawn over beside the mask it just settled, so the comparison, the restore and the
-//tile map all read one target.
+//the frame it was drawn over beside the mask it just settled, so the comparison and the restore both
+//read one target.
 texture texAutoHistory { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
 sampler AutoHistory { Texture = texAutoHistory; };
 
@@ -342,53 +342,6 @@ sampler AutoDilate { Texture = texAutoDilate; };
 	sampler MotionCoarse { Texture = texMotionCoarse; };
 	texture texMotionStat { Width = 1; Height = 1; Format = RGBA8; };
 	sampler MotionStat { Texture = texMotionStat; };
-#endif
-
-//The tile map: the picture as a coarse grid of squares, each cell a share of itself rather than a
-//count of its pixels. The grid is fixed at AUTOMASK_TILE_GRID across, so a reading means the same
-//thing at every screen size, and the cells are sampled rather than tallied, so the map costs no
-//target per screen and no atomic per pixel. It exists as an instrument only: nothing reads it.
-#if AutoMaskCompute == 1 && AutoMaskDiagnostics == 1
-	//Cells across the grid.
-	#define AUTOMASK_TILE_GRID 16
-	//A relaxation round per cell of the longest path: a connected region of a fixed GxG grid is at most
-	//G^2 cells, so that many sweeps settle any region exactly. The grid's own bound is why the region
-	//readings are taken here rather than at full resolution.
-	#define AUTOMASK_TILE_ROUNDS (AUTOMASK_TILE_GRID * AUTOMASK_TILE_GRID)
-	//Taps per axis inside one cell, so the coverage a cell reports is what this many points see.
-	#define AUTOMASK_TILE_TAPS 8
-	//The mask needs to touch this many sample points for a cell to count as interface: a footprint
-	//reading, since most interface is thin against a cell.
-	#define AUTOMASK_TILE_HITS 1.0
-	//The count a bar is drawn against: a region count over 256 cells would otherwise move a bar by a
-	//percent of its length for a reading of a few. A reading of 16 fills the bar.
-	#define AUTOMASK_TILE_COUNT_MAX 16
-
-	//How far up the accumulator's own graded motion a cell's pixels must sit to count as an arrival
-	//candidate: a channel the mask computed rather than a raw difference measured here. A raw difference
-	//calls a held UI edge red, a sub-pixel shift of a hard contour being tens of levels.
-	#define AUTOMASK_TILE_WIDE 0.75
-	//.r the cell's class over 4 (0 world, 1 mask, 2 hole, 3 arrival candidate), .g the coverage the mask
-	//gave it and .b the coverage the accumulator's graded motion did. Point filtered: a cell is a
-	//reading, not a picture to interpolate.
-	texture texAutoTileKind { Width = AUTOMASK_TILE_GRID; Height = AUTOMASK_TILE_GRID; Format = RGBA8; };
-	storage2D<float4> AutoTileKindStore { Texture = texAutoTileKind; };
-	sampler AutoTileKind { Texture = texAutoTileKind; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
-	//The readings as bars: (0) component count against `AUTOMASK_TILE_COUNT_MAX`, the largest component's
-	//share of the mask, hole share of the grid and masked share of the grid; (1) arrival patch count
-	//against the same bound and the share of the grid those patches cover. Point filtered.
-	texture texAutoTileStat { Width = 2; Height = 1; Format = RGBA32F; };
-	storage2D<float4> AutoTileStatStore { Texture = texAutoTileStat; };
-	sampler AutoTileStat { Texture = texAutoTileStat; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
-	//One cell per thread: the class each cell landed in, the grid a relaxation works on, the second grid
-	//holding a round's answer, one region's size per label, and the two results kept past the last
-	//relaxation.
-	groupshared uint tileState[AUTOMASK_TILE_GRID * AUTOMASK_TILE_GRID];
-	groupshared uint tileLabel[AUTOMASK_TILE_GRID * AUTOMASK_TILE_GRID];
-	groupshared uint tileScratch[AUTOMASK_TILE_GRID * AUTOMASK_TILE_GRID];
-	groupshared uint tileArea[AUTOMASK_TILE_GRID * AUTOMASK_TILE_GRID];
-	groupshared uint tileWide[AUTOMASK_TILE_GRID * AUTOMASK_TILE_GRID];
-	groupshared uint tileHole[AUTOMASK_TILE_GRID * AUTOMASK_TILE_GRID];
 #endif
 
 //The shared verdict arithmetic, from `AutoMask.fxh`. Included here because the dialect has no forward
@@ -622,154 +575,6 @@ sampler AutoDilate { Texture = texAutoDilate; };
 		for (int i = 0; i < AUTOMASK_STEP_MAX; i++)
 			tex2Dstore(AutoMotionHist, int2(i, 0), 0u);
 	}
-
-#if AutoMaskDiagnostics == 1
-	//Reads the picture as a coarse grid of cells and reduces it to the region readings: how many pieces
-	//the mask is in, how much of it sits inside a contour, and how the widely-changed cells clump. Each
-	//read is a relaxation over the grid.
-	[numthreads(AUTOMASK_TILE_GRID, AUTOMASK_TILE_GRID, 1)]
-	void CS_Tile(uint3 tid : SV_DispatchThreadID)
-	{
-		uint G = AUTOMASK_TILE_GRID;
-		uint cells = G * G;
-		uint cell = tid.y * G + tid.x;
-		float2 span = float2(BUFFER_WIDTH, BUFFER_HEIGHT) / float(G);
-		float2 tapStep = span / float(AUTOMASK_TILE_TAPS);
-		float2 origin = float2(tid.xy) * span;
-
-		float masked = 0.0;
-		float wide = 0.0;
-		for (int ty = 0; ty < AUTOMASK_TILE_TAPS; ty++){
-			for (int tx = 0; tx < AUTOMASK_TILE_TAPS; tx++){
-				float2 uv = (origin + (float2(tx, ty) + 0.5) * tapStep) * float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT);
-				masked += step(0.5, tex2Dlod(AutoHistory, float4(uv, 0.0, 0.0)).a);
-				//The accumulator's own graded motion, read rather than recomputed: a panel over a stopped
-				//scene is a patch the mask calls strongly moving with no mask on it.
-				wide += step(AUTOMASK_TILE_WIDE, tex2Dlod(AutoAccumB, float4(uv, 0.0, 0.0)).b);
-			}
-		}
-		float taps = float(AUTOMASK_TILE_TAPS * AUTOMASK_TILE_TAPS);
-		//The premise, from the share `CS_Finish` has just published: an arrival is a panel over a
-		//*stopped* world, so while the world is drawn every moving cell is that drawing and none is an
-		//arrival.
-		bool stopped = !AutoMaskDrawn(tex2Dlod(MotionStat, float4(0.5, 0.5, 0.0, 0.0)).r);
-		//A cell is mask before it is an arrival candidate: a wide change inside a region the mask
-		//already covers is that region being redrawn, not a panel appearing over it.
-		tileState[cell] = masked >= AUTOMASK_TILE_HITS ? 1u
-		              : ((stopped && wide / taps >= AUTOMASK_TILE_WIDE) ? 3u : 0u);
-		//.r is the class the tile view draws; .g, .b and .a are written but read nowhere.
-		tex2Dstore(AutoTileKindStore, int2(tid.xy), float4(float(tileState[cell]) * 0.25,
-			masked / taps, wide / taps, 1.0));
-
-		//The mask's components: a label only ever decreases and only toward the least index in its own
-		//region, so the full round count leaves every cell holding its region's least index. `cells` is
-		//the sentinel -- one past every index -- so a cell that is not mask spreads no label.
-		tileLabel[cell] = tileState[cell] == 1u ? cell : cells;
-		barrier();
-		for (uint sr = 0u; sr < AUTOMASK_TILE_ROUNDS; sr++){
-			//A cell that is not mask keeps its sentinel: a label spreads only among mask cells, or a
-			//world cell would absorb its neighbour's label and carry it across the grid, collapsing
-			//every region into one.
-			uint best = tileLabel[cell];
-			if (best != cells){
-				if (tid.x > 0u)     best = min(best, tileLabel[cell - 1u]);
-				if (tid.x < G - 1u) best = min(best, tileLabel[cell + 1u]);
-				if (tid.y > 0u)     best = min(best, tileLabel[cell - G]);
-				if (tid.y < G - 1u) best = min(best, tileLabel[cell + G]);
-			}
-			tileScratch[cell] = best;
-			barrier();
-			tileLabel[cell] = tileScratch[cell];
-			barrier();
-		}
-		//Each region's size, scattered onto the label its cells settled on: the label is the least index
-		//in the region and unique to it, so one array indexed by label counts them all.
-		tileArea[cell] = 0u;
-		barrier();
-		if (tileLabel[cell] != cells)
-			atomicAdd(tileArea[tileLabel[cell]], 1u);
-		barrier();
-
-		//The same relaxation over the widely-changed cells, so the arrival reading counts contiguous
-		//patches rather than cells. A patch of one counts.
-		tileWide[cell] = tileState[cell] == 3u ? cell : cells;
-		barrier();
-		for (uint pr = 0u; pr < AUTOMASK_TILE_ROUNDS; pr++){
-			uint best = tileWide[cell];
-			if (best != cells){
-				if (tid.x > 0u)     best = min(best, tileWide[cell - 1u]);
-				if (tid.x < G - 1u) best = min(best, tileWide[cell + 1u]);
-				if (tid.y > 0u)     best = min(best, tileWide[cell - G]);
-				if (tid.y < G - 1u) best = min(best, tileWide[cell + G]);
-			}
-			tileScratch[cell] = best;
-			barrier();
-			tileWide[cell] = tileScratch[cell];
-			barrier();
-		}
-
-		//A cell is outside the contour if a chain of outside cells reaches the border, so the growth starts
-		//there and spreads through every cell but the mask: the mask is the wall, and whatever the growth
-		//never reaches is enclosed. Only world cells are *counted*; a wide-change cell still *conducts* it,
-		//or a pan's own wide cells would wall off the world and the screen would read as enclosed.
-		tileHole[cell] = (tileState[cell] != 1u
-		              && (tid.x == 0u || tid.y == 0u || tid.x == G - 1u || tid.y == G - 1u)) ? 1u : 0u;
-		barrier();
-		for (uint hr = 0u; hr < AUTOMASK_TILE_ROUNDS; hr++){
-			uint outer = 0u;
-			if (tileState[cell] != 1u){
-				outer = tileHole[cell];
-				if (tid.x > 0u)     outer = max(outer, tileHole[cell - 1u]);
-				if (tid.x < G - 1u) outer = max(outer, tileHole[cell + 1u]);
-				if (tid.y > 0u)     outer = max(outer, tileHole[cell - G]);
-				if (tid.y < G - 1u) outer = max(outer, tileHole[cell + G]);
-			}
-			tileScratch[cell] = outer;
-			barrier();
-			tileHole[cell] = tileScratch[cell];
-			barrier();
-		}
-		//Class 2 is an enclosed world cell: the contour closes around it.
-		if (tileState[cell] == 0u && tileHole[cell] == 0u)
-			tex2Dstore(AutoTileKindStore, int2(tid.xy), float4(0.5, 0.0, 0.0, 1.0));
-
-		//One thread reduces the grid: a cell whose label is its own index is its region's least, so it
-		//is the one that counts the region, and `tileArea` holds that region's size.
-		barrier();
-		if (cell == 0u){
-			uint maskCells = 0u;
-			uint components = 0u;
-			uint largest = 0u;
-			uint arrivalCells = 0u;
-			uint arrivals = 0u;
-			uint holes = 0u;
-			for (uint ci = 0u; ci < cells; ci++){
-				if (tileState[ci] == 1u){
-					maskCells++;
-					if (tileLabel[ci] == ci){
-						components++;
-						largest = max(largest, tileArea[ci]);
-					}
-				} else if (tileState[ci] == 3u){
-					arrivalCells++;
-					if (tileWide[ci] == ci)
-						arrivals++;
-				} else if (tileHole[ci] == 0u){
-					holes++;
-				}
-			}
-			//Each reading stored on the scale its own bar is drawn against: the two counts against
-			//`AUTOMASK_TILE_COUNT_MAX` and the three shares as the shares they are.
-			float countScale = 1.0 / float(AUTOMASK_TILE_COUNT_MAX);
-			float perCell = 1.0 / float(cells);
-			float perMask = maskCells > 0u ? 1.0 / float(maskCells) : 0.0;
-			tex2Dstore(AutoTileStatStore, int2(0, 0), float4(float(components) * countScale,
-				float(largest) * perMask, float(holes) * perCell, float(maskCells) * perCell));
-			tex2Dstore(AutoTileStatStore, int2(1, 0), float4(float(arrivals) * countScale,
-				float(arrivalCells) * perCell, 0.0, 1.0));
-		}
-	}
-#endif
 
 #else
 //Accumulates confidence from stillness while the world is drawn; a stopped world can only lose it.
@@ -1037,7 +842,7 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 
 #if AutoMaskAntiBloom == 1
 	//Applied to a live frame the anti-bloom pass has taken no history read for: the mask comes off the
-	//history's alpha. `PS_Restore` and `CS_Tile` take the alpha from a fetch they already make.
+	//history's alpha. `PS_Restore` takes the alpha from a fetch it already makes.
 	float AutoMaskPublished(float2 uv)
 	{
 		return step(0.5, tex2D(AutoHistory, uv).a);
@@ -1053,7 +858,7 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 #endif
 
 #if AutoMaskDiagnostics == 1
-	//Diagnostics view toggle. Both readings tint only the pixels they name.
+	//Diagnostics view toggles. Each reading tints only the pixels it names.
 	uniform bool UIDebugMotion <
 		__UNIFORM_SLIDER_BOOL1
 		ui_label = "Diagnostics: motion view";
@@ -1071,12 +876,12 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 		ui_step = 1.0;
 	> = 8.0;
 
-	//Confidence view: the accumulator's confidence drawn as a grade, so the pixels just under the
-	//protection line -- the mass a count of crossings throws away -- can be seen.
+	//Confidence view: the accumulator's confidence split at the protection line, so the pixels just under
+	//it -- the mass a count of crossings throws away -- can be seen.
 	uniform bool UIDebugConfidence <
 		__UNIFORM_SLIDER_BOOL1
 		ui_label = "Diagnostics: confidence view";
-		ui_tooltip = "On, the overlay draws each pixel in one of two flat colours instead of grading it: cyan where the mask already includes it, magenta where it is on its way in but not there yet.\nNothing at all below zero, so a pixel still recovering from a move shows as the plain picture.\nOverridden by the tile view where that exists";
+		ui_tooltip = "On, the overlay draws each pixel in one of two flat colours instead of grading it: cyan where the mask already includes it, magenta where it is on its way in but not there yet.\nNothing at all below zero, so a pixel still recovering from a move shows as the plain picture";
 		ui_category = "Diagnostics";
 	> = false;
 
@@ -1091,18 +896,35 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 		> = false;
 	#endif
 
-	#if AutoMaskCompute == 1
-		//The one view that is compute-only, because the tile map exists only there. It replaces the other
-		//views while it is on rather than tinting with them, because it draws a whole-cell class rather
-		//than a per-pixel reading.
-		uniform bool UIDebugTile <
-			__UNIFORM_SLIDER_BOOL1
-			ui_label = "Diagnostics: tile view";
-			ui_tooltip = "On, the overlay draws the screen as a 16 x 16 grid of squares, each square one colour for what the mask is doing in it: green mostly masked interface, black not masked, red changed widely with no mask on it while the world is quiet (a panel the shader has not caught), orange a hole the mask closes around.\nFive bars along the top are the region counts that grid produced: how many pieces the mask is in, the largest piece's share of it, the share of the screen inside a contour, how many wide-change patches there are, and the share of the screen they cover.\nOff, the overlay shows the motion or verdict view as usual";
-			ui_category = "Diagnostics";
-		> = false;
-	#endif
+#endif
 
+#if AutoMaskCompute == 1 && AutoMaskDiagnostics == 1
+//Seven-segment digit for the step readout, in the readout's square box.
+float AutoMaskStepDigit(float2 uv, int d)
+{
+	float t = 0.2;
+	float c = t * 0.5;
+	float c1 = 1.0 - c;
+	bool hbar = uv.x > c && uv.x < c1;
+	bool a = uv.y < t && hbar;
+	bool g = abs(uv.y - 0.5) < c && hbar;
+	bool ds = uv.y > 1.0 - t && hbar;
+	bool vmid = uv.y > c && uv.y < 1.0 - c;
+	bool f = uv.x < t && vmid;
+	bool b = uv.x > 1.0 - t && vmid;
+	bool e = uv.x < t && uv.y > 0.5 && uv.y < 1.0 - c;
+	bool cseg = uv.x > 1.0 - t && uv.y > 0.5 && uv.y < 1.0 - c;
+	bool on;
+	if (d == 1) on = b || cseg;
+	else if (d == 2) on = a || b || g || e || ds;
+	else if (d == 3) on = a || b || g || cseg || ds;
+	else if (d == 4) on = f || g || b || cseg;
+	else if (d == 5) on = a || f || g || cseg || ds;
+	else if (d == 6) on = a || f || g || e || cseg || ds;
+	else if (d == 7) on = a || b || cseg;
+	else on = a || b || cseg || ds || e || f || g;
+	return on ? 1.0 : 0.0;
+}
 #endif
 
 //Restores stored UI pixels over processed frame.
@@ -1116,9 +938,9 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 
 	#if AutoMaskDiagnostics == 1
 		//Tint over the restore, drawn after it so it sits on top of the stored UI: red where the motion
-		//view sees a change, green where the verdict view sees protection, the confidence view's two flat
-		//colours, and the tile view's own colours. The readings come off the accumulator and
-		//the statistic directly, so the overlay needs no map pass or target of its own.
+		//view sees a change, green where the verdict view sees protection, and the confidence view's two
+		//flat colours. The readings come off the accumulator and the statistic directly, so the overlay
+		//needs no map pass or target of its own.
 		float4 accum = tex2D(AutoAccumB, texcoord);
 		float verdict = step(0.5, accum.r);
 		float changed = saturate(accum.b * UIDebugGain);
@@ -1134,25 +956,6 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 			mark = confidence >= 0.5 ? float3(0.0, 1.0, 1.0) : float3(1.0, 0.0, 1.0);
 			tint = confidence > 0.0 ? 1.0 : 0.0;
 		}
-		#if AutoMaskCompute == 1
-			//The tile view draws the region the readings are taken over: each cell in the class it landed
-			//in, so a wide change with no mask under it -- the arrival candidate -- shows as the region it
-			//is. Sampled point-wise from a 16x16 target, so a pixel shows the cell it falls in. It overrides
-			//the confidence grade, and the class is the mark rather than the blend's strength.
-			if (UIDebugTile){
-				float4 tile = tex2D(AutoTileKind, texcoord);
-				float cls = tile.r * 4.0;
-				if (cls > 2.5)
-					mark = float3(1.0, 0.0, 0.0);        //wide change, no mask: an arrival candidate
-				else if (cls > 1.5)
-					mark = float3(1.0, 0.6, 0.0);        //enclosed by the contour: orange
-				else if (cls > 0.5)
-					mark = float3(0.0, 1.0, 0.0);        //mask: green
-				else
-					mark = float3(0.0, 0.0, 0.0);        //world: black
-				tint = max(mark.r, max(mark.g, mark.b));
-			}
-		#endif
 		color = lerp(color, mark, tint * 0.7);
 
 		#if AutoMaskDepthMotion == 1
@@ -1172,28 +975,15 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 			}
 		#endif
 
-		//The five region readings as bars across the top, each filled left to right to its own value.
 		#if AutoMaskCompute == 1
-			if (UIDebugTile && texcoord.y < 0.02){
-				float4 a = tex2D(AutoTileStat, float2(0.25, 0.0));
-				float4 b = tex2D(AutoTileStat, float2(0.75, 0.0));
-				float u = texcoord.x / 0.2;
-				int slot = int(u);
-				float within = frac(u);
-				float value = 0.0;
-				float3 bar = float3(0.0, 0.0, 0.0);
-				//1 white: how many separate pieces the mask is in.
-				if (slot == 0){ value = a.r; bar = float3(1.0, 1.0, 1.0); }
-				//2 green: the largest piece's share of the mask.
-				else if (slot == 1){ value = a.g; bar = float3(0.0, 1.0, 0.0); }
-				//3 orange: the share of the screen sitting inside a contour.
-				else if (slot == 2){ value = a.b; bar = float3(1.0, 0.6, 0.0); }
-				//4 red: how many contiguous wide-change patches there are.
-				else if (slot == 3){ value = b.r; bar = float3(1.0, 0.0, 0.0); }
-				//5 magenta: the share of the screen those patches cover.
-				else if (slot == 4){ value = b.g; bar = float3(1.0, 0.0, 1.0); }
-				if (within < saturate(value))
-					color = lerp(color, bar, 0.9);
+			//Bottom-right step readout: the measured RGB step, square so the digit is not stretched.
+			float2 stepSize = float2(0.02, 0.02 * (5.0 / 3.0) * BUFFER_ASPECT_RATIO);
+			float2 stepMin = 1.0 - stepSize;
+			if (AutoMaskAutoStep && all(texcoord > stepMin)){
+				float2 g = (texcoord - stepMin) / stepSize;
+				int step = clamp(int(tex2D(AutoStep, float2(0.5, 0.0)).r + 0.5), 1, 8);
+				color = lerp(color, float3(0.0, 0.0, 0.0), 0.8);
+				color = lerp(color, float3(1.0, 0.0, 0.0), AutoMaskStepDigit(g, step));
 			}
 		#endif
 
@@ -1266,15 +1056,6 @@ technique AutoMask
 			RenderTarget1 = texAutoDepth;
 		#endif
 	}
-	#if AutoMaskCompute == 1 && AutoMaskDiagnostics == 1
-		//The tile map and its readings, last: the closing above wrote the frame the history did not yet
-		//hold, and both readings are of the mask and the accumulator that pass leaves behind.
-		pass {
-			ComputeShader = CS_Tile;
-			DispatchSizeX = 1;
-			DispatchSizeY = 1;
-		}
-	#endif
 
 	#if AutoMaskAntiBloom == 1
 		pass {

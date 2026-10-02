@@ -33,27 +33,6 @@ taps cannot tell a level of dithering from a level of real motion.
   of one, which reads as stopped — the side to be wrong on.
 - The count replaces `PS_Motion`/`PS_MotionAvg` and the 16×16 coarse target. The gate was 1,024 taps
   standing in for every pixel; it is now exact.
-- The **tile map** rides in its own pass, `CS_Tile`, guarded by the compute switch *and* the diagnostics
-  one: the map is an instrument, so it exists only where it can be seen. It reads the picture as a
-  `AUTOMASK_TILE_GRID`-square grid, `AUTOMASK_TILE_TAPS`² sample points per cell, and reduces it to three
-  region readings — the mask's connected-component count and its largest component's share, the share of
-  the grid enclosed by the mask, and the count and area of contiguous wide-change patches. A cell is a
-  share of itself rather than a tally of its pixels, which is what keeps the map the same size at any
-  resolution, and the readings are relaxations over that fixed grid: a label only ever decreases toward
-  the least index in its own region, so `AUTOMASK_TILE_ROUNDS` sweeps — `G × G`, the longest a connected
-  region of a `G×G` grid can be — settle any shape exactly. That bound is the whole reason the readings
-  are taken here and not at full resolution, where the same test is unbounded. The two *count* readings —
-  components and arrival patches — are stored against `AUTOMASK_TILE_COUNT_MAX` rather than as a share of
-  the grid, because a count of a few regions against 256 cells moves a bar by one percent of its length;
-  the three share readings are stored as the shares they are. A cell is interface as soon as the mask
-  **touches** it (`AUTOMASK_TILE_HITS` samples), not when it fills it: this is a footprint reading, and
-  most interface is thin against a 160×90 cell. The arrival class is the one reading the map may not take
-  on its own: a wide-change cell is an arrival only while the world is **not** being drawn, read from the
-  same share `CS_Finish` publishes for the premise, because a panel appearing over an already-stopped
-  world is the only case the reading is for and a camera pan is a screen-wide *drawing*, not an arrival.
-  That gate inherits the premise's denominator, so a large black or letterboxed region that caps the
-  share below the threshold leaves the world reading stopped while it is moving, and every wide cell then
-  becomes an arrival. Nothing in the mask reads any of it.
 - The **change-size histogram** rides in the same pass and is guarded with it, and it counts the whole
   distribution of the frame's movement rather than only the pixels above a threshold — which is why an
   auto-deadband is possible at all. The walk's rule: **the measured step is the smallest change size 1–8
@@ -64,8 +43,9 @@ taps cannot tell a level of dithering from a level of real motion.
   units, same boundary. `CS_Finish` walks the bins from level 1 up, subtracting each level's own bin as it
   passes it, and stops at the first that satisfies the rule; that level goes into the committed step, the
   `RGBA32F` 1×1 target the next frame's `CS_Accum` reads through a sampler named `AutoStep`, one frame
-  behind exactly as the share is. The target's other two channels carry the answer being compared against
-  the committed one and the frames it has stood for, so the commit below costs no second target. The
+  behind exactly as the share is. With the overlay on, the same target is what the bottom-right step
+  readout draws (`docs/verification.md`). The target's other two channels carry the answer being compared
+  against the committed one and the frames it has stood for, so the commit below costs no second target. The
   measurement is per frame and never writes back into the slider. The walk covers levels 1 to 8 only,
   where the `AutoMaskEps` slider ends: running out of the range means no level separated the frame's noise
   from its content — what a fully live frame looks like — and there the slider's own value stands rather
@@ -202,30 +182,22 @@ Follows from what each pass reads:
    over with the settled mask in the alpha, so one target carries both the pixels the restore puts back
    and the reading of where to put them — and, with `AutoMaskDepthMotion` on, this frame's linearized
    depth, which the accumulator read earlier in the frame so nothing samples what this writes.
-4. `CS_Tile` — the tile map and its region readings, only with `AutoMaskCompute` **and**
-   `AutoMaskDiagnostics` both on. It is the last pass now that the closing stores the history, reading
-   the mask the closing published and the accumulator's own graded motion, both of which describe this
-   frame.
-5. `PS_AntiBloom` — black the masked pixels in the live frame so a bloom pass downstream has no UI to
+4. `PS_AntiBloom` — black the masked pixels in the live frame so a bloom pass downstream has no UI to
    pick up. It comes after the closing, which is what keeps the real UI for the restore pass; blacking
    earlier would bank the black instead.
-6. The diagnostics overlay, and only when `AutoMaskDiagnostics` is defined to 1 — a compile-time guard on
+5. The diagnostics overlay, and only when `AutoMaskDiagnostics` is defined to 1 — a compile-time guard on
    the readings, so with it off nothing of the overlay is compiled. It owns no pass and no target: the
    readings are built in `PS_Restore`'s diagnostics block, which reads the accumulator and the statistic
    directly rather than recomputing the difference, so it cannot report on itself instead of on the
-   shader. It draws one of three views: red where the graded motion reads, green where the accumulator's
-   own confidence crosses the protection threshold, or — on the second live toggle — two flat colours
+   shader. It draws two views: red where the graded motion reads, or green where the accumulator's
+   own confidence crosses the protection threshold — or, on the second live toggle, two flat colours
    split at that threshold, one the mask already claims and one it does not, with everything at or below
-   zero left plain, so no shade has to be compared. A third, `UIDebugTile` (compute-only, since the tile
-   map it draws exists only there), replaces both with the cell classes `CS_Tile` wrote: a square of the
-   16×16 grid drawn in its class — green mask, black world, red a wide change with no mask on it while
-   the world is stopped, orange a world cell sealed off by mask — and the five region readings as bars
-   along the top. The published mask is deliberately *not* used, so the verdict view shows an element's
-   own area without the closing radius grown around it. Every per-pixel view tints the stored history
-   frame and only where the chosen signal covers — the blend is scaled by the signal, so a pixel it does
-   not name is passed through untouched. The corner marker is drawn here too, reading the same statistic
-   the gate itself reads, one frame behind the frame it describes, and its strictness must match the
-   gate's: `> AutoMaskMotion`, not `step`, which is true at the threshold itself and would disagree on
-   exactly the boundary frame. Two states, two flat colours and no blending — magenta while the world is
-   being drawn, yellow while it is not and the mask is being held — so the marker is a reading rather
-   than part of the picture.
+   zero left plain, so no shade has to be compared. The published mask is deliberately *not* used, so the
+   verdict view shows an element's own area without the closing radius grown around it. Every per-pixel
+   view tints the stored history frame and only where the chosen signal covers — the blend is scaled by
+   the signal, so a pixel it does not name is passed through untouched. The corner marker is drawn here
+   too, reading the same statistic the gate itself reads, one frame behind the frame it describes, and its
+   strictness must match the gate's: `> AutoMaskMotion`, not `step`, which is true at the threshold itself
+   and would disagree on exactly the boundary frame. Two states, two flat colours and no blending —
+   magenta while the world is being drawn, yellow while it is not and the mask is being held — so the
+   marker is a reading rather than part of the picture.

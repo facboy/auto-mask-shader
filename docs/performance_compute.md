@@ -32,8 +32,8 @@ Three facts follow, and none is in `docs/performance.md`:
   `CS_Accum` 198 against `PS_DilateH` 56 and `PS_DilateV` 72. The closing is the heaviest pass on the
   pixel default (`docs/performance.md` §1), and the switch moves that title to the accumulator.
 - **The compute path has no reduce passes at all.** `PS_Motion` (27) and `PS_MotionAvg` (24) are replaced
-  by `CS_Accum`'s in-pass tally and `CS_Finish` (66); the technique is `CS_Accum`, `CS_Finish`, the two
-  closings, and the optional tile pass.
+  by `CS_Accum`'s in-pass tally and `CS_Finish` (66); the technique is `CS_Accum`, `CS_Finish` and the
+  two closings.
 
 ## 2. The depth witness is per-pixel reconstruction, its picture ramp now skipped
 
@@ -72,7 +72,7 @@ With `AutoMaskCompute=1` and `AutoMaskDiagnostics=0`, `texAutoAccumB` is wider t
 | --- | --- | --- |
 | `.r` | confidence | `PS_DilateH` centre and tap, the accumulator next frame |
 | `.g` | hold | the accumulator next frame (through `PS_DilateH`'s carry to A) |
-| `.b` | motion | `CS_Tile` and the overlay in `PS_Restore` — diagnostics only |
+| `.b` | motion | the overlay in `PS_Restore` — diagnostics only |
 | `.a` | 1.0 | **none** — the eligible flag is `PS_Motion`'s, which does not exist under compute |
 
 `.b` is written for `PS_Motion`, which the switch removes, and its only readers are the two diagnostics
@@ -80,8 +80,8 @@ sites, both compiled out unless the overlay is on. `.a` is `PS_Accum`'s eligible
 `PS_Motion`; `CS_Accum` stores a constant `1.0` there and nothing reads it — the count that flag exists
 to divide is carried in the atomics instead. `texAutoAccumA` is the same picture without the diagnostics
 qualifier: it is written only as render targets, and every reader wants `.r`/`.g` alone — `prev.r`/`prev.g`
-and the four admission taps, which test `.r`. That holds with the overlay on as well, since the tile map
-and the overlay read `B`, never `A`.
+and the four admission taps, which test `.r`. That holds with the overlay on as well, since the overlay
+reads `B`, never `A`.
 
 **`B` cannot be narrowed, and the reason is the dialect rather than the arithmetic.** ReShade's
 `tex2Dstore` is declared for exactly six storage element types — `int`, `int4`, `uint`, `uint4`, `float`,
@@ -181,6 +181,6 @@ slows the one the README recommends, so it is left as a costed option rather tha
   accumulators are separate entry points, where the toggle and the target do not exist.
 
 Neither is observable offline beyond the hashes. Whether a depth-only branch reads the same scene the same
-way, whether a narrower accumulator leaves the compute gate and the tile map intact, or whether the
+way, whether a narrower accumulator leaves the compute gate and the overlay intact, or whether the
 measured step still settles where it did, needs the overlay on a game — `docs/verification.md` lists the
 scenarios, and an agent cannot run one.

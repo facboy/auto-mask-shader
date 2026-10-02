@@ -217,30 +217,21 @@ adds the same frame back. See `docs/performance.md` §10.
   instead opens `Isolated pixels` with `ui_category_toggle`, which is what makes the two settings below it
   live and hideable at once. A feature with a pass, a shader or a target to its name still gets a
   definition; a branch inside an existing pass does not.
-- The **tile map is an instrument, not a filter**: `CS_Tile` reads the picture as a fixed 16×16 grid,
-  reduces it to a component count, an enclosed share and the wide-change patches, and nothing in the mask
-  reads any of it. Four things decide whether it means anything, and each was got wrong once: a cell is
-  interface when the mask **touches** it rather than fills it (a footprint reading; a share made thin UI
-  read black), **wide is read off the accumulator's own graded motion** rather than a raw difference (the
-  map's own test called a held UI edge red), and the enclosure growth is **conducted by every non-mask
-  cell** with only world cells counted (letting the mask absorb it let a pan's wide cells read the screen
-  as enclosed). The fourth is the premise: **an arrival candidate exists only while the world is not
-  being drawn**, read off the share the verdict's own gate uses, because a camera pan is a screen-wide
-  drawing and reading it as arrivals turned every cell of the grid red. The two *count* readings are
-  stored against `AUTOMASK_TILE_COUNT_MAX`, not as a share of the grid: a count of a few regions against
-  256 cells would move a bar by one percent of its length. It rides both the compute and diagnostics
-  guards, since it exists only to be watched, and it was the first thing built of
-  `docs/ui-isolation-options.md` §6's readings, because the other two needed it. **It outlived them**:
-  the options it was built to decide (§5.2's fill, §5.4's arrivals and §5.8's ratio) are all closed, and
-  it stays as the tuning instrument for the two spatial rules that shipped — the isolation gate and the
-  admission seed — which are region questions no per-pixel view can show. Honest and free at rest, which
-  is the test that keeps it: absent from every variant but the one where the overlay and the compute path
-  are both on.
-- The **confidence view is the same kind of instrument as the tile map, and deliberately not on it.**
+- The **tile map instrument was removed, and it is not a candidate to restore.** `CS_Tile` read the
+  picture as a fixed 16×16 grid and reduced it to a component count, an enclosed share and the
+  wide-change patches, behind the compute and diagnostics guards together; it was built to decide
+  `docs/ui-isolation-options.md` §5.2, §5.4 and §5.8, all three since measured out, and was then kept to
+  tune the two spatial rules that shipped. That reason failed: those rules work per pixel at 1–3 px, a
+  region 20× below a 160×90 cell, and the map's own view was mostly the verdict and motion views at cell
+  resolution — its one unique reading, region shape, answers a gate that ships off. Its pass, its two
+  targets and its `groupshared` arrays are gone. The design reasoning, including the four things each got
+  wrong once, is kept in `docs/ui-isolation-options.md` §6; `docs/performance_diagnostics.md` §3 is the
+  removal's account.
+- The **confidence view is a per-pixel instrument, not a map.**
   `UIDebugConfidence` reads the accumulator's own confidence instead of deciding it, so the mass sitting
   just under the 0.5 line — what §5.5 of `docs/ui-isolation-options.md` would have weighed rather than
   counted — is visible. It owns no pass, target or definition and rides the channel the pixel path
-  already carried the verdict in, so unlike the tile view it draws on **both** paths: it answers a
+  already carried the verdict in, so it draws on **both** paths, unlike the removed tile view: it answers a
   per-pixel question, which no map does, and §5.5 rides no map for the same reason. It draws **two flat
   colours rather than a ramp** — cyan already claimed, magenta earning but short of the line — and leaves
   everything at or below zero plain, since a move's debt is not evidence; a grade would ask shades to be
@@ -249,6 +240,13 @@ adds the same frame back. See `docs/performance.md` §10.
   weighted gate would keep *more* of, and it comes from the comparison crediting scenery that drifts too
   slowly to change a pixel between two frames — sub-resolution drift, not a forgiving deadband. The same
   finding closed §5.5.2, which would charge exactly those bit-still pixels faster, so both halves are shut.
+- The **step readout is a second corner marker, not a view.** `AutoMask_Restore` draws the committed
+  auto-detected step as a seven-segment numeral in the bottom-right, read from the 1×1 `texAutoStep.r` the
+  walk commits. It is guarded by `AutoMaskCompute` *and* `AutoMaskAutoStep`, so the pixel path and the
+  toggle-off build are untouched — the measured step does not exist on the pixel path, and the value is
+  read by nothing else when the toggle is off. It leads the mask by one frame like the bottom-left marker,
+  and the glyph is drawn from UV-space segments in a square box, because ReShade has no text renderer and a
+  non-square segment box smears the bars together. See `docs/verification.md`.
 - **The isolation gate follows admission's rule** rather than getting a definition of its own: it owns
   no pass, shader or target, its counts riding in the two channels `texAutoDilate` carries for it on the
   two closing passes. `AutoMaskIsolated` opens `Isolated pixels` with `ui_category_toggle`, and the test it
@@ -292,7 +290,7 @@ adds the same frame back. See `docs/performance.md` §10.
   to be the vertical pass, and the frame and the mask have to go into it together: whichever pass writes
   the history must know the settled mask, and were the mask published in a target of its own the frame's
   write would have no pass left able to host it without sampling what it writes. Both accumulators
-  therefore read the history's `.rgb`; `CS_Tile` reads the mask from its `.a` and is the last pass. See
+  therefore read the history's `.rgb`, and the published mask rides its `.a` for the restore. See
   `docs/performance.md` §7 and `docs/performance-openings.md` §2–§3.
 - The **isolation radius is its own setting** (`AutoMaskIsolation`), not the closing radius: shape and
   evidence are different questions, and tying them would move what `AutoMaskDensity` means whenever the

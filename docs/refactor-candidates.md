@@ -36,8 +36,8 @@ comparisons are the compute path's alone and the pixel path is documented as hav
 
 `AutoMaskPublished(uv)` was folded here too, and now sits back in `AutoMask.fx` beside
 `PS_AntiBloom`, its only remaining caller: it samples (`tex2D(AutoHistory, uv)`), which the header's
-helpers do not, and `PS_Restore` and `CS_Tile` read the history alpha inline from a fetch they
-already make. It is the same test the drift terms fail — a helper with one consumer is naming rather than
+helpers do not, and `PS_Restore` reads the history alpha inline from a fetch it already makes. It is
+the same test the drift terms fail — a helper with one consumer is naming rather than
 a fold — so it belongs in the `.fx`.
 
 A second reading, of the shader against its header and its two closing passes against each other,
@@ -76,16 +76,6 @@ conversion is at the call site and the accumulator's own uses are untouched.
 
 ## 3. Considered and left
 
-- **The three grid relaxations in `CS_Tile`.** `tileLabel`, `tileWide` and `tileHole` are one relaxation
-  written three times, differing only in the combine op (`min` against `max`) and the sentinel guard.
-  Folding it means passing a `groupshared` array to a function or hiding a `barrier()` in a macro, and
-  both are exactly the dialect constructs §1 says this check cannot judge. The round count and the
-  barrier placement are what keeps each reading exact, so a mis-translation is a wrong reading rather
-  than a compile error. The histogram's dynamically indexed `groupshared` array is the precedent: that
-  was settled against ReShade's parser, not against a passing `check`.
-- **The five-bar block in `PS_Restore`.** An `if`/`else if` chain mapping a slot to a value and a colour.
-  `static const float3 BARS[5]` indexed by the slot would shrink it, but that is a runtime-indexed const
-  array, the same class of construct as above.
 - **`PS_Motion`/`PS_MotionAvg`.** They look like a candidate against `CS_Accum`'s tally and are not: they
   are the pixel path's replacement for it, one of the two is a 1×1 reduce whose taps are its whole body,
   and the pair is what makes the `AutoMaskCompute = 0` hashes meaningful.
@@ -125,13 +115,12 @@ the ceremony around it:
   `max(floor(AutoMaskIsolation + 0.5), 1.0)` and `step(0.001, …)` are real pairs with bodies too small to
   name, so they are worth taking only alongside one of the folds above.
 - **Naming the 0.5 verdict step.** It is written as `step(0.5, …)` across `AutoMaskPublished`, both
-  accumulators, both closing passes, the tile sampler and the restore's diagnostics block — a
+  accumulators, both closing passes and the restore's diagnostics block — a
   documentation gain only, which is the constant-merging §6 already refuses.
 - **`float2 texel = float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT)` in `CS_Accum`** where the pixel path
   writes `BUFFER_PIXEL_SIZE`: one value, two spellings, nothing else.
 
-Nothing in that reading reopens §3: the three `CS_Tile` relaxations, the `PS_Restore` bar block and the
-`PS_Motion`/`PS_MotionAvg` pair stand as argued.
+Nothing in that reading reopens §3: the `PS_Motion`/`PS_MotionAvg` pair stands as argued.
 
 ## 6. What is not a candidate
 
