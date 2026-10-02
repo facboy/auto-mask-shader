@@ -1,7 +1,6 @@
-//Shared arithmetic: the verdict is one state machine run by both accumulators, so the parts that sample
-//nothing live here rather than twice. Each takes what it needs already sampled, since the pixel path
-//reads with tex2D and the compute path with tex2Dlod, and a helper that sampled would move one path's
-//form onto the other's. The drift terms stay behind AutoMaskCompute in the shader that includes this.
+//Shared verdict arithmetic, written once for both accumulators: the helpers take what they need already
+//sampled, because the pixel path reads with tex2D and the compute path with tex2Dlod, and a sampling
+//helper would move one path's form onto the other's. The drift terms stay behind AutoMaskCompute.
 
 //The RGB step in whole levels: the deadband the verdict reads, and the floor the auto-step walks from.
 float AutoMaskDeadband()
@@ -15,9 +14,9 @@ bool AutoMaskDrawn(float share)
 	return share * 100.0 > AutoMaskMotion;
 }
 
-//Pinned-colour count over the sampled pair: a colour held at all 0 or all 255 shows no difference
-//while it stays there, but that is saturation, not stillness, so it voids the still verdict. `all`
-//makes each term a scalar, avoiding the X3206 truncation warning fxc emits for a vector form.
+//Pinned-colour count over the sampled pair: a colour held at 0 or 255 shows no difference, but that is
+//saturation, not stillness, so it voids the still verdict. `all` keeps each term scalar, avoiding the
+//X3206 truncation warning fxc emits for a vector form.
 int AutoMaskClipped(float3 now, float3 before)
 {
 	return all(now == 0.0.xxx) + all(now == 1.0.xxx)
@@ -25,30 +24,29 @@ int AutoMaskClipped(float3 now, float3 before)
 }
 
 #if AutoMaskDepthMotion == 1
-//The premise's other witness: whether the surface behind a pixel moved toward or away from the view.
-//The linearized depth is a distance divided by the far plane, so multiplying the change by that plane --
-//which ReShade supplies, off the user's own depth settings -- gives metres: the same at any range, where
-//a share of the distance falls off and vanishes behind the far field's quantisation. Footed at half.
+//The premise's other witness: whether the surface behind the pixel moved toward or away from the view.
+//Linearized depth is a distance divided by the far plane, so multiplying the change by that plane gives
+//metres -- the same at any range, where a share of the distance vanishes behind the far field's
+//quantisation. Footed at half.
 float AutoMaskDepthMoved(float now, float before, float metres)
 {
 	float moved = abs(now - before) * RESHADE_DEPTH_LINEARIZATION_FAR_PLANE;
 	return smoothstep(metres * 0.5, metres, moved);
 }
 
-//Reconstructs the camera-space position of a pixel from its depth and its place on the screen, so the
-//surface's orientation can be read. Depth is a distance along the view axis, not along the ray, so the
-//ray's own z is the cosine of its angle to that axis: with the screen half-angle from the field of view,
-//that is one over the length of the unit ray the two screen offsets and the 1 make.
+//Camera-space position of a pixel from its depth and screen offset, so a surface's orientation can be
+//read. Depth is a distance along the view axis, not along the ray, so the ray is scaled to unit length
+//before the depth is applied.
 float3 AutoMaskCamPos(float2 offset, float2 halfAngle, float depth)
 {
 	float3 ray = float3(offset * halfAngle, 1.0);
 	return depth * ray / length(ray);
 }
 
-//Whether the surface here can never show a depth change to a camera that walks: `n . t` is zero for it,
-//so its stillness is not evidence the world stopped and it is left out of the depth share. A normal
-//across the walk covers the floor, the ceiling and a wall walked alongside, while the wall ahead points
-//down the walk and stays in; a vertical normal holds that even when the camera is pitched.
+//Whether the surface here can never show a depth change to a walking camera, so its stillness is not
+//evidence the world stopped and it is left out of the depth share. A normal across the walk covers the
+//floor, ceiling and a wall walked alongside; the wall ahead points down the walk and stays in. A
+//vertical normal holds that even when the camera is pitched.
 bool AutoMaskDepthInvariant(float3 p, float3 px, float3 py)
 {
 	float3 n = abs(normalize(cross(px - p, py - p)));
@@ -56,8 +54,8 @@ bool AutoMaskDepthInvariant(float3 p, float3 px, float3 py)
 }
 #endif
 
-//The sliders speak in frames; the accumulator is confidence against the 0.5 verdict step, so a frame
-//of credit is that step over the frame count, a hair above the exact share for half precision.
+//The sliders speak in frames; confidence is measured against the 0.5 verdict step, so a frame of credit
+//is that step over the frame count -- 0.504, a hair above the exact share for half precision.
 float AutoMaskRate(float frames)
 {
 	return 0.504 / max(frames, 1.0);

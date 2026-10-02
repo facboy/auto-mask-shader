@@ -40,9 +40,8 @@
 #endif
 
 //Uniforms
-//One of the four frame-count durations, kept together in the "Frame timing" section: still frames a
-//pixel needs before it is taken for interface. A pixel seen moving repays its move memory first, so
-//that countdown passes before this one starts.
+//Frames a pixel must hold still before it is taken for interface. A pixel seen moving repays its move
+//memory first, so that countdown passes before this one starts.
 uniform float AutoMaskRise <
 	__UNIFORM_DRAG_FLOAT1
 	ui_label = "Frames still before marked as interface";
@@ -85,9 +84,8 @@ uniform float AutoMaskMoveMemory <
 	ui_step = 5.0;
 > = 2.0 * AutoMaskTargetFPS;
 
-//The premise: the readings that say whether the world is being drawn -- the picture's own share of the
-//screen changing, and the depth buffer's distance change. Compiled in together, so the switch that adds
-//depth is what opens the settings below it.
+//The premise: whether the world is being drawn, read either as the picture's share of the screen
+//changing or as the depth buffer's distance change.
 uniform float AutoMaskMotion <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Motion needed to trust stillness (percent)";
@@ -98,10 +96,9 @@ uniform float AutoMaskMotion <
 > = 50.0;
 
 #if AutoMaskDepthMotion == 1
-	//The step as a distance the surface moved toward or away from the view in one frame. The linearized
-	//depth is normalized by the far plane, so multiplying the change by that plane gives metres -- the
-	//same metres at any range, where a share of the distance would shrink with it. The far plane comes
-	//from ReShade's depth settings, which the user sets with the depth buffer.
+	//The step as a distance the surface moved toward or away from the view in one frame. Linearized
+	//depth is normalized by the far plane, so multiplying the change by that plane gives metres, the
+	//same at any range.
 	uniform float AutoMaskDepthEps <
 		__UNIFORM_DRAG_FLOAT1
 		ui_label = "Depth step counted as a change (metres)";
@@ -111,10 +108,9 @@ uniform float AutoMaskMotion <
 		ui_step = 0.001;
 	> = 0.05;
 
-	//Which witness the world-drawn reading is taken from with depth compiled in -- depth added to the
-	//picture, or depth alone, so the two can be compared in a game. Off, the reading is the union; on, a
-	//scene whose only motion is texture reads as stopped and the premise holds. Depth alone needs a bound
-	//depth buffer: with none the premise never fires and the corner marker stays yellow.
+	//Which witness the world-drawn reading is taken from: off, depth added to the picture; on, depth
+	//alone, so a scene whose only motion is texture reads as stopped. Depth alone needs a bound depth
+	//buffer: with none the premise never fires.
 	uniform bool AutoMaskDepthOnly <
 		__UNIFORM_SLIDER_BOOL1
 		ui_label = "Depth only, not added to the picture";
@@ -182,9 +178,9 @@ uniform float AutoMaskEdge <
 	> = 2.0;
 #endif
 
-//Admission, the second spatial term and the one upstream of the verdict. A pixel no claimed neighbour
-//touches earns at half rate, so a region starts from whichever pixel holds still for twice the rise
-//and a lone still pixel cannot seed one. It reaches a genuinely new element, only later.
+//Admission, the spatial term upstream of the verdict: a pixel no claimed neighbour touches earns at
+//half rate, so a region starts only from a pixel still for twice the rise and a lone speck cannot seed
+//one.
 uniform bool AutoMaskNeighbour <
 	__UNIFORM_SLIDER_BOOL1
 	ui_label = "Stop specks entering the mask";
@@ -193,8 +189,8 @@ uniform bool AutoMaskNeighbour <
 > = false;
 
 //RGB change deadband in whole levels out of 255, the smallest change counted as motion. It decides
-//only whether a pixel moved; what moving then costs is AutoMaskRise and AutoMaskFall's business. Last
-//row of "AutoMask", so it sits directly above the section that measures it.
+//only whether a pixel moved; what moving costs is AutoMaskRise and AutoMaskFall's business. Declared
+//last in "AutoMask" so its row sits above the section that measures it.
 uniform float AutoMaskEps <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "RGB step counted as a change";
@@ -205,10 +201,10 @@ uniform float AutoMaskEps <
 > = 1.0;
 
 #if AutoMaskCompute == 1
-	//Gates the floor below, so it must open its own category -- ReShade reads ui_category_toggle off
-	//the variable that opens one, and unticking it would hide the rest of "AutoMask" if it lived there.
-	//The step measured rather than tuned: on, it is the level the last frame's histogram found the
-	//scene's noise floor at. Off, AutoMaskEps applies as on the pixel path.
+	//Gates the floor below, so it opens its own category: ReShade reads ui_category_toggle off the
+	//variable that opens one, and unticking it would hide the rest of "AutoMask" if it lived there. On,
+	//the step is the level the last frame's histogram found the scene's noise floor at; off,
+	//AutoMaskEps applies.
 	uniform bool AutoMaskAutoStep <
 		__UNIFORM_SLIDER_BOOL1
 		ui_label = "Auto-detect RGB step";
@@ -217,9 +213,8 @@ uniform float AutoMaskEps <
 		ui_category_toggle = true;
 	> = false;
 
-	//The measured step is the smallest change size 1-8 at which no more than this share of the screen is
-	//still changing by that much or more. Shown only while the toggle above is on, because nothing
-	//reads it otherwise.
+	//The measured step is the smallest change size 1-8 at which no more than this share of the screen
+	//is still changing by that much or more.
 	uniform float AutoMaskNoiseFloor <
 		__UNIFORM_SLIDER_FLOAT1
 		ui_label = "Noise floor (percent)";
@@ -230,8 +225,8 @@ uniform float AutoMaskEps <
 	> = 0.5;
 #endif
 
-//Keeps a masked pixel only while enough still pixels are around it, so a lone speck the comparison
-//cannot tell from a HUD is not protected. Its own category, gated by the checkbox first in it.
+//Keeps a masked pixel only while enough still pixels surround it, so a lone speck the comparison
+//cannot tell from a HUD is not protected.
 uniform bool AutoMaskIsolated <
 	__UNIFORM_SLIDER_BOOL1
 	ui_label = "Enable isolated pixel removal";
@@ -252,9 +247,8 @@ uniform float AutoMaskDensity <
 	ui_step = 1.0;
 > = 33.0;
 
-//How far the neighbourhood reaches, independent of the mask grow radius: shape and evidence are different
-//questions, and tying this to AutoMaskDilate would move the gate's meaning whenever the grow radius is
-//retuned. Rides the closing's loop rather than adding one, so it costs no pass or target of its own.
+//How far the neighbourhood reaches, independent of the mask grow radius: shape and evidence are
+//different questions. Rides the closing's loop, so it costs no pass or target of its own.
 uniform float AutoMaskIsolation <
 	__UNIFORM_SLIDER_FLOAT1
 	ui_label = "Isolation radius in pixels";
@@ -277,10 +271,9 @@ texture texAutoAccumB { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = R
 sampler AutoAccumA { Texture = texAutoAccumA; };
 sampler AutoAccumB { Texture = texAutoAccumB; };
 
-//The untouched frame for stability comparison, and the published mask in its alpha: the closing pass
-//stores the frame it was drawn over there beside the mask it just settled, so the comparison, the
-//restore and the tile map all read one target. The frame is stored at full resolution anyway, so the
-//channel is free.
+//The untouched frame for stability comparison, and the published mask in its alpha: the closing stores
+//the frame it was drawn over beside the mask it just settled, so the comparison, the restore and the
+//tile map all read one target.
 texture texAutoHistory { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA8; };
 sampler AutoHistory { Texture = texAutoHistory; };
 
@@ -291,9 +284,8 @@ texture texAutoDilate { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = R
 sampler AutoDilate { Texture = texAutoDilate; };
 
 #if AutoMaskDepthMotion == 1
-	//Last frame's linearized depth, for the change the depth check counts. One target, not a pair: the
-	//accumulator reads it in its own pass and the closing below writes it in a later one, so nothing
-	//reads what is being written. Full precision, since a level of 255 is well under a half-precision ulp.
+	//Last frame's linearized depth, for the change the depth check counts. The accumulator reads it and
+	//the closing writes it later, so nothing reads what is being written.
 	texture texAutoDepth { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = R32F; };
 	sampler AutoDepth { Texture = texAutoDepth; };
 #endif
@@ -331,8 +323,8 @@ sampler AutoDilate { Texture = texAutoDilate; };
 	//a held reading lasts rather than naming a value anyone tunes.
 	#define AUTOMASK_STEP_DWELL (1.0 * AutoMaskTargetFPS)
 	//The drift ping-pong, holding the average's offset from the frame it was taken against rather than
-	//the average: the offset is held inside AUTOMASK_DRIFT_LAG deadbands of zero, where half precision
-	//resolves the creep a whole-value store froze at this level, and the pair is half the size for it.
+	//the average: the offset sits inside AUTOMASK_DRIFT_LAG deadbands of zero, where half precision still
+	//resolves the creep, and the pair is half the size for it.
 	texture texAutoDriftA { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA16F; };
 	texture texAutoDriftB { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = RGBA16F; };
 	//Point filtered: the offset is data rather than a picture, so interpolating it would blend one
@@ -362,28 +354,24 @@ sampler AutoDilate { Texture = texAutoDilate; };
 //thing at every screen size, and the cells are sampled rather than tallied, so the map costs no
 //target per screen and no atomic per pixel. It exists as an instrument only: nothing reads it.
 #if AutoMaskCompute == 1 && AutoMaskDiagnostics == 1
-	//Cells across the grid, and one relaxation round per cell of its longest path: a connected region of
-	//a fixed GxG grid can be at most G^2 cells long, so that many sweeps settle any region exactly. It
-	//is a property of the grid's size and not of the picture -- which is the whole reason the region
-	//readings are taken here rather than at full resolution, where the same test has no bound to name.
+	//Cells across the grid.
 	#define AUTOMASK_TILE_GRID 16
+	//A relaxation round per cell of the longest path: a connected region of a fixed GxG grid is at most
+	//G^2 cells, so that many sweeps settle any region exactly. The grid's own bound is why the region
+	//readings are taken here rather than at full resolution.
 	#define AUTOMASK_TILE_ROUNDS (AUTOMASK_TILE_GRID * AUTOMASK_TILE_GRID)
 	//Taps per axis inside one cell, so the coverage a cell reports is what this many points see.
 	#define AUTOMASK_TILE_TAPS 8
-	//Samples that must be masked for a cell to count as interface. One: this is a footprint view, so the
-	//question is whether the mask covers the cell at all, not whether it fills it -- most interface is
-	//thin against a 160x90 cell, and a health bar ten pixels tall is under a fifth of one. Asking for a
-	//share instead made every partial UI cell read black, which is the unshaded UI in the screenshots.
+	//The mask needs to touch this many sample points for a cell to count as interface: a footprint
+	//reading, since most interface is thin against a cell.
 	#define AUTOMASK_TILE_HITS 1.0
-	//The count the two count bars are drawn against. Both are counts of regions over a 256-cell grid, so
-	//their own scale is 0..256 and a reading of a few -- the interesting range -- would move a bar by one
-	//percent of its length. Against this, a reading of 16 or more fills the bar, which is the point past
-	//which "how many pieces" has stopped being the question.
+	//The count a bar is drawn against: a region count over 256 cells would otherwise move a bar by a
+	//percent of its length for a reading of a few. A reading of 16 fills the bar.
 	#define AUTOMASK_TILE_COUNT_MAX 16
 
 	//How far up the accumulator's own graded motion a cell's pixels must sit to count as an arrival
-	//candidate. A channel the mask computed, not a raw difference measured here: measuring its own is how
-	//the map came to call a held UI edge red, a sub-pixel shift of a hard contour being tens of levels.
+	//candidate: a channel the mask computed rather than a raw difference measured here. A raw difference
+	//calls a held UI edge red, a sub-pixel shift of a hard contour being tens of levels.
 	#define AUTOMASK_TILE_WIDE 0.75
 	//.r the cell's class over 4 (0 world, 1 mask, 2 hole, 3 arrival candidate), .g the coverage the mask
 	//gave it and .b the coverage the accumulator's graded motion did. Point filtered: a cell is a
@@ -391,16 +379,15 @@ sampler AutoDilate { Texture = texAutoDilate; };
 	texture texAutoTileKind { Width = AUTOMASK_TILE_GRID; Height = AUTOMASK_TILE_GRID; Format = RGBA8; };
 	storage2D<float4> AutoTileKindStore { Texture = texAutoTileKind; };
 	sampler AutoTileKind { Texture = texAutoTileKind; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
-	//The readings, one bar each: (0) component count against `AUTOMASK_TILE_COUNT_MAX`, the largest
-	//component's share of the mask, hole share of the grid and masked share of the grid; (1) arrival
-	//patch count against the same bound and the share of the grid those patches cover. Point filtered,
-	//since a texel is read by name rather than as a picture.
+	//The readings as bars: (0) component count against `AUTOMASK_TILE_COUNT_MAX`, the largest component's
+	//share of the mask, hole share of the grid and masked share of the grid; (1) arrival patch count
+	//against the same bound and the share of the grid those patches cover. Point filtered.
 	texture texAutoTileStat { Width = 2; Height = 1; Format = RGBA32F; };
 	storage2D<float4> AutoTileStatStore { Texture = texAutoTileStat; };
 	sampler AutoTileStat { Texture = texAutoTileStat; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
 	//One cell per thread: the class each cell landed in, the grid a relaxation works on, the second grid
 	//holding a round's answer, one region's size per label, and the two results kept past the last
-	//relaxation -- the wide patches and the cells the contour closes around.
+	//relaxation.
 	groupshared uint tileState[AUTOMASK_TILE_GRID * AUTOMASK_TILE_GRID];
 	groupshared uint tileLabel[AUTOMASK_TILE_GRID * AUTOMASK_TILE_GRID];
 	groupshared uint tileScratch[AUTOMASK_TILE_GRID * AUTOMASK_TILE_GRID];
@@ -409,22 +396,22 @@ sampler AutoDilate { Texture = texAutoDilate; };
 	groupshared uint tileHole[AUTOMASK_TILE_GRID * AUTOMASK_TILE_GRID];
 #endif
 
-//The shared verdict arithmetic, in its own header. It holds no coordinate, colour or table, only the
-//functions both accumulators call. Included here because the dialect has no forward declaration, so a
-//call may only name what is already declared. Both files go into the ReShade folder together.
+//The shared verdict arithmetic, from `AutoMask.fxh`. Included here because the dialect has no forward
+//declaration, so a call may only name what is already declared. Both files go into the ReShade folder
+//together.
 #include "AutoMask.fxh"
 
 //Pixel shaders
 #if AutoMaskCompute == 1
-	//Per-group tallies, so the counter and the histogram take a handful of adds per group rather
-	//than one per pixel. Every group zeroes them before any of them counts.
+	//Per-group tallies, so the counter and the histogram take a handful of adds per group rather than
+	//one per pixel. Every group zeroes them before any of them counts.
 	groupshared uint groupChanged;
 	groupshared uint groupActive;
 	groupshared uint groupHist[AUTOMASK_STEP_MAX];
 
 	//The accumulator as compute, plus the moved-pixel count the gate reads. The bounds guard is a
-	//predicate, not an early return, because a barrier has to sit in uniform flow control; and
-	//compute has no implicit derivatives, so every sample names its level.
+	//predicate rather than an early return, since a barrier must sit in uniform flow control; and compute
+	//has no implicit derivatives, so every sample names its level.
 	[numthreads(64, 4, 1)]
 	void CS_Accum(uint3 tid : SV_DispatchThreadID, uint gi : SV_GroupIndex)
 	{
@@ -435,18 +422,17 @@ sampler AutoDilate { Texture = texAutoDilate; };
 		float3 now = tex2Dlod(ReShade::BackBuffer, float4(texcoord, 0.0, 0.0)).rgb;
 		//The history carries the mask in its alpha, so only the rgb is the frame the comparison wants.
 		float3 before = tex2Dlod(AutoHistory, float4(texcoord, 0.0, 0.0)).rgb;
-		//The stored offset against the frame it was taken from, which is `before`: adding it back is
-		//the average the ramp reads, and the store never held the average itself.
+		//The stored offset against the frame it was taken from, which is `before`: adding it back gives
+		//the average the ramp reads.
 		float3 drift = tex2Dlod(AutoDriftA, float4(texcoord, 0.0, 0.0)).rgb + before;
 		#if AutoMaskDepthMotion == 1
-			//The depth the world's drawing is read from, against the frame the store pass left. Both
-			//sides are the depth buffer's own constant when none is bound, so the difference is zero and
-			//this reading contributes nothing to the premise.
+			//The depth the world's drawing is read from. Both sides are the depth buffer's own constant
+			//when none is bound, so the difference is zero.
 			float depthNow = ReShade::GetLinearizedDepth(texcoord);
 			float depthBefore = tex2Dlod(AutoDepth, float4(texcoord, 0.0, 0.0)).r;
 		#endif
 		//The comparison subtracts the level counts, not the quantized colours: those differ by a float
-		//residue -- 0.9999999 for most of the 255 adjacent pairs -- which the deadband would forgive.
+		//residue -- 0.9999999 for most adjacent pairs -- which the deadband would forgive.
 		float3 nowLevels = round(now * 255.0);
 		float3 beforeLevels = round(before * 255.0);
 		now = nowLevels / 255.0;
@@ -462,17 +448,16 @@ sampler AutoDilate { Texture = texAutoDilate; };
 		float maxDiff = max(diff.r, max(diff.g, diff.b));
 		float maxDrift = max(driftDiff.r, max(driftDiff.g, driftDiff.b));
 		//The step is tuned (AutoMaskEps) or measured (last frame's histogram); the clamp keeps an
-		//unwritten target off the slider's own scale. The measured fetch is inside the branch, so the
-		//toggle off does not sample the 1x1 target at every pixel to discard it.
+		//unwritten target off the slider's own scale. The measured fetch sits inside the branch, so the
+		//toggle off does not sample the 1x1 target to discard it.
 		float deadband = AutoMaskDeadband();
 		[branch]
 		if (AutoMaskAutoStep)
 			deadband = clamp(tex2Dlod(AutoStep, float4(0.5, 0.5, 0.0, 0.0)).r, 1.0, 8.0);
 		#if AutoMaskDepthMotion == 1
 			//The world being drawn, measured on depth: the overlay writes no depth, so a panel cannot
-			//hide the drawing as it hides it in the picture. The step is a distance in metres, so a metre
-			//is a metre at any range. The tick takes the reading from depth alone, and the picture's own
-			//ramp is then not built at all.
+			//hide the drawing as it hides it in the picture. A metre is a metre at any range. The tick
+			//takes the reading from depth alone, and the picture's ramp is not built at all.
 			float depthMoved = AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps);
 			float motion = depthMoved;
 			[branch]
@@ -484,8 +469,7 @@ sampler AutoDilate { Texture = texAutoDilate; };
 			float motion = max(smoothstep(deadband - 1.0, deadband + 2.0, maxDiff),
 			                   smoothstep(deadband, deadband * AUTOMASK_DRIFT_LAG, maxDrift));
 		#endif
-		//Whether this pixel sits on a floor or ceiling, which the depth reading leaves out. Off the
-		//depth path nothing is dropped, so the two variants' counts stay identical without it.
+		//Whether this pixel sits on a floor or ceiling, which the depth reading leaves out.
 		bool upright = false;
 		#if AutoMaskDepthMotion == 1
 			//A floor or ceiling faces up, so a walk across it changes no pixel's depth there: the
@@ -506,9 +490,8 @@ sampler AutoDilate { Texture = texAutoDilate; };
 		float horizon = max(AutoMaskDrift * AutoMaskTargetFPS, 1.0);
 		float3 next = (maxDiff < max(deadband, 8.0)) ? lerp(now, drift, 1.0 - 1.0 / horizon) : now;
 		//Held inside that reach: a sustained move otherwise leaves the average a rate x horizon levels
-		//behind, and the screen goes on reading as drawn for a horizon after the view stops. The reach
-		//is in level counts and `now` is normalized, so it is divided back onto that scale: left in
-		//levels it is 255 times the reach it names, and holds nothing.
+		//behind and the screen reading as drawn for a horizon after the view stops. The reach is in level
+		//counts and `now` is normalized, so it is divided back onto that scale.
 		float3 reach = deadband * AUTOMASK_DRIFT_LAG / 255.0;
 		next = max(now - reach, min(now + reach, next));
 
@@ -520,8 +503,7 @@ sampler AutoDilate { Texture = texAutoDilate; };
 		float held = prev.g;
 
 		//Admission: a pixel no claimed neighbour touches earns at half rate, so a region starts only
-		//from a pixel that holds still for twice the rise. The cross is the same channel the isolation
-		//gate counts on, read a frame behind like the centre tap.
+		//from a pixel that holds still for twice the rise.
 		float earn = gain;
 		if (AutoMaskNeighbour){
 			float2 texel = float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT);
@@ -542,15 +524,12 @@ sampler AutoDilate { Texture = texAutoDilate; };
 
 		//Count first, then reduce, so a group agrees on the tallies once every thread has added to
 		//them. Both are tallied in groupshared, so the screen costs a handful of adds per group
-		//rather than one per pixel: a global bin would take an add from every pixel, and on a still
-		//screen nearly all of them land on the same bin.
+		//rather than one per pixel.
 		bool changed = live && step(0.001, motion) > 0.5;
 		//One bin per whole level of frame-to-frame difference, so the next frame can be told where
 		//this scene's noise ends. The index truncates, so bin level-1 is exactly the difference the
-		//verdict calls motion at deadband level, and the levels above the walk's own share the top
-		//bin. A pixel that did not change takes no bin at all: the walk sums the bins, so the quiet
-		//majority is counted by its absence rather than by an add onto one bin apiece. The index is
-		//only read when there is a bin, so a still pixel cannot reach the array off its low end. prose-ok
+		//verdict calls motion at deadband level, and the walk's top level shares the top bin. A pixel
+		//that did not change takes no bin, and the index is read only when there is a bin.
 		bool binned = live && AutoMaskAutoStep && maxDiff >= 1.0;
 		int bin = min(int(maxDiff), AUTOMASK_STEP_MAX) - 1;
 		if (gi == 0){
@@ -570,11 +549,9 @@ sampler AutoDilate { Texture = texAutoDilate; };
 		if (binned)
 			atomicAdd(groupHist[bin], 1u);
 		barrier();
-		//One thread hands both tallies over. The bins are read with constant indices, so the reads
-		//are in bounds whatever the group size; a bin no pixel reached is skipped, which is what
-		//makes a still frame's histogram cost almost nothing, and the whole flush is gated on the
-		//toggle so the off path does no histogram work at all -- the clear above is the shared
-		//memory the group is about to discard, not the bins the next frame reads. prose-ok
+		//One thread hands both tallies over, the flush gated on the toggle so the off path does no
+		//histogram work. The bins are read with constant indices, so the reads stay in bounds, and a bin
+		//no pixel reached is skipped.
 		if (gi == 0){
 			atomicAdd(AutoMotionCount, int2(0, 0), groupChanged);
 			atomicAdd(AutoMotionActive, int2(0, 0), groupActive);
@@ -587,8 +564,8 @@ sampler AutoDilate { Texture = texAutoDilate; };
 		if (live){
 			tex2Dstore(AutoAccumStore, int2(tid.xy), float4(clamp(conf, -cost * AutoMaskMoveMemory, 1.0), held, motion, 1.0));
 			//The offset, not the average: `now` is this frame's colour, which the closing stores as
-			//`before` and next frame's read adds back, so the store never holds a value wide enough
-			//for half precision to lose the creep the channel exists for.
+			//`before`, and next frame's read adds it back. Half precision then keeps the creep the channel
+			//exists for.
 			tex2Dstore(AutoDriftStore, int2(tid.xy), float4(next - now, 1.0));
 		}
 	}
@@ -608,14 +585,10 @@ sampler AutoDilate { Texture = texAutoDilate; };
 		float share = float(changedCount) / max(float(activeCount), 1.0);
 		tex2Dstore(AutoStatStore, int2(0, 0), share);
 
-		//A pixel that did not change has no bin, so the bins sum to the count changing at the first
-		//level, and each level's own bin is what the level below it subtracts -- at the test for level
-		//L, `above` is exactly the count the verdict calls motion at deadband L. The step is therefore
-		//the smallest level 1-8 leaving no more than AutoMaskNoiseFloor percent above it; running out
-		//of the range means no level separates this frame's noise from its content, so the slider's own
-		//value stands. prose-ok
-		//The floor is read against the pixels that could move, as the premise is: an inert region cannot
-		//change and would otherwise tighten the rule in proportion to how much of the screen it covers.
+		//A pixel that did not change has no bin, so the bins sum to the count changing at the first level
+		//and each level's bin is what the level below subtracts: at the test for level L, `above` is
+		//exactly what the verdict calls motion at deadband L. The step is the smallest level 1-8 leaving
+		//no more than AutoMaskNoiseFloor percent of the pixels that could move above it, else the value stands.
 		if (AutoMaskAutoStep){
 			float floorCount = AutoMaskNoiseFloor * 0.01 * max(float(activeCount), 1.0);
 			float step = AutoMaskDeadband();
@@ -630,9 +603,8 @@ sampler AutoDilate { Texture = texAutoDilate; };
 				above -= tex2Dfetch(AutoMotionHist, int2(level - 1, 0));
 			}
 			//A step is committed only once AUTOMASK_STEP_DWELL frames have answered the same level: the
-			//walk is fed by motion measured against the step it sets, so a mover covering more than the
-			//floor holds it above that mover's own size and the red goes off screen-wide. A scene change
-			//answers one level and holds it; movement in and out of the floor's tail does not.
+			//walk is fed by motion measured against the step it sets, so a mover larger than the floor
+			//would hold the step above itself and turn the red screen-wide.
 			float4 prevStep = tex2Dfetch(AutoStepStore, int2(0, 0));
 			float committed = prevStep.r;
 			float candidate = prevStep.g;
@@ -657,10 +629,9 @@ sampler AutoDilate { Texture = texAutoDilate; };
 	}
 
 #if AutoMaskDiagnostics == 1
-	//Reads the picture as a coarse grid of cells and reduces it to the region readings the instrument is
-	//for: how many pieces the mask is in, how much of it sits inside a contour, and how the widely-changed
-	//cells clump. A cell is a share of itself, sampled at a few points, so the reading is of a region and
-	//not of its every pixel. Each read is a relaxation over the grid, a full `AUTOMASK_TILE_ROUNDS`.
+	//Reads the picture as a coarse grid of cells and reduces it to the region readings: how many pieces
+	//the mask is in, how much of it sits inside a contour, and how the widely-changed cells clump. Each
+	//read is a relaxation over the grid.
 	[numthreads(AUTOMASK_TILE_GRID, AUTOMASK_TILE_GRID, 1)]
 	void CS_Tile(uint3 tid : SV_DispatchThreadID)
 	{
@@ -677,26 +648,21 @@ sampler AutoDilate { Texture = texAutoDilate; };
 			for (int tx = 0; tx < AUTOMASK_TILE_TAPS; tx++){
 				float2 uv = (origin + (float2(tx, ty) + 0.5) * tapStep) * float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT);
 				masked += step(0.5, tex2Dlod(AutoHistory, float4(uv, 0.0, 0.0)).a);
-				//The accumulator's own graded motion, read rather than recomputed: a panel appearing over
-				//a stopped scene is a contiguous patch of pixels the mask calls strongly moving with no
-				//mask on them, which is the case the screen-wide premise cannot see.
+				//The accumulator's own graded motion, read rather than recomputed: a panel over a stopped
+				//scene is a patch the mask calls strongly moving with no mask on it.
 				wide += step(AUTOMASK_TILE_WIDE, tex2Dlod(AutoAccumB, float4(uv, 0.0, 0.0)).b);
 			}
 		}
 		float taps = float(AUTOMASK_TILE_TAPS * AUTOMASK_TILE_TAPS);
-		//The premise, read from the share `CS_Finish` has just published: an arrival is a panel appearing
-		//over a *stopped* world, so while the world is being drawn every moving cell is that drawing and
-		//none of it is an arrival. Without this the class is simply "what moved", which on a camera pan is
-		//the whole screen -- the screen-wide orange wash in the screenshots.
+		//The premise, from the share `CS_Finish` has just published: an arrival is a panel over a
+		//*stopped* world, so while the world is drawn every moving cell is that drawing and none is an
+		//arrival.
 		bool stopped = !AutoMaskDrawn(tex2Dlod(MotionStat, float4(0.5, 0.5, 0.0, 0.0)).r);
 		//A cell is mask before it is an arrival candidate: a wide change inside a region the mask
 		//already covers is that region being redrawn, not a panel appearing over it.
 		tileState[cell] = masked >= AUTOMASK_TILE_HITS ? 1u
 		              : ((stopped && wide / taps >= AUTOMASK_TILE_WIDE) ? 3u : 0u);
-		//Written for the map pass to draw, so the tile view shows the region the readings were taken
-		//over rather than a reconstruction of it. The coverage goes in .g and the wide share in .b, so
-		//the map can show how much of a cell each reading found rather than only which class it landed
-		//in -- a cell the mask touches at 5% and one it fills both read as interface.
+		//Written for the map pass to draw: the coverage in .g and the wide share in .b.
 		tex2Dstore(AutoTileKindStore, int2(tid.xy), float4(float(tileState[cell]) * 0.25,
 			masked / taps, wide / taps, 1.0));
 
@@ -729,9 +695,8 @@ sampler AutoDilate { Texture = texAutoDilate; };
 			atomicAdd(tileArea[tileLabel[cell]], 1u);
 		barrier();
 
-		//The same relaxation over the widely-changed cells, so the arrival reading is a count of
-		//contiguous patches rather than of cells. A patch of one counts: a panel the grid barely
-		//resolved is a reading, not a failure.
+		//The same relaxation over the widely-changed cells, so the arrival reading counts contiguous
+		//patches rather than cells. A patch of one counts.
 		tileWide[cell] = tileState[cell] == 3u ? cell : cells;
 		barrier();
 		for (uint pr = 0u; pr < AUTOMASK_TILE_ROUNDS; pr++){
@@ -769,8 +734,7 @@ sampler AutoDilate { Texture = texAutoDilate; };
 			tileHole[cell] = tileScratch[cell];
 			barrier();
 		}
-		//Class 2 is an enclosed cell, so the map draws the region this reading counted. The cell's own
-		//class was written once above; this is a second write of one cell, not a second pass.
+		//Class 2 is an enclosed world cell: the contour closes around it.
 		if (tileState[cell] == 0u && tileHole[cell] == 0u)
 			tex2Dstore(AutoTileKindStore, int2(tid.xy), float4(0.5, 0.0, 0.0, 1.0));
 
@@ -799,10 +763,8 @@ sampler AutoDilate { Texture = texAutoDilate; };
 					holes++;
 				}
 			}
-			//Each reading stored on the scale its own bar is drawn against, so a bar means the same thing
-			//at any resolution: the two counts against `AUTOMASK_TILE_COUNT_MAX` -- the count that fills
-			//their bar -- and the three shares as the shares they are. The largest component is a share
-			//of the mask, which is what says whether the mask is one region or a long tail of specks.
+			//Each reading stored on the scale its own bar is drawn against: the two counts against
+			//`AUTOMASK_TILE_COUNT_MAX` and the three shares as the shares they are.
 			float countScale = 1.0 / float(AUTOMASK_TILE_COUNT_MAX);
 			float perCell = 1.0 / float(cells);
 			float perMask = maskCells > 0u ? 1.0 / float(maskCells) : 0.0;
@@ -826,8 +788,8 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	float3 nowLevels = round(now * 255.0);
 	float3 beforeLevels = round(before * 255.0);
 	now = nowLevels / 255.0;
-	//A pixel pinned at all 0 or all 255 shows no difference while it stays there, but that is
-	//saturation, not stillness, so a wholly clipped colour voids the still verdict.
+	//A pinned colour shows no difference while it stays there, but that is saturation, not stillness,
+	//so a wholly clipped colour voids the still verdict.
 	float clipped = AutoMaskClipped(now, before);
 	float3 diff = abs(nowLevels - beforeLevels);
 	float maxDiff = max(diff.r, max(diff.g, diff.b));
@@ -836,9 +798,8 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	float deadband = AutoMaskDeadband();
 	#if AutoMaskDepthMotion == 1
 		//The depth reading joins the motion the reduce counts, not the verdict: a change in depth is the
-		//world being redrawn, which the overlay cannot have written, so it only ever raises the share.
-		//Metres against the far plane ReShade supplies, so the step means the same in every game, and no
-		//depth bound leaves the difference zero. The tick reads depth alone, the picture's ramp unbuilt.
+		//world being redrawn, which the overlay cannot have written, so it only ever raises the share. No
+		//depth bound leaves the difference zero. The tick reads depth alone.
 		float depthNow = ReShade::GetLinearizedDepth(texcoord);
 		float depthBefore = tex2D(AutoDepth, texcoord).r;
 		float depthMoved = AutoMaskDepthMoved(depthNow, depthBefore, AutoMaskDepthEps);
@@ -853,8 +814,8 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	//Whether this pixel sits on a floor or ceiling, which the depth reading leaves out.
 	bool upright = false;
 	#if AutoMaskDepthMotion == 1
-		//A floor or ceiling faces up, so a walk across it changes no pixel's depth there: the
-		//orientation is read from the neighbours, the same reconstruction the probe draws.
+		//A floor or ceiling faces up, so a walk across it changes no pixel's depth there: the depth is
+		//read from the neighbours, the reconstruction the probe draws.
 		float2 halfFOV = tan(radians(AutoMaskDepthFOV) * 0.5) * float2(BUFFER_ASPECT_RATIO, 1.0);
 		float2 depthDx = float2(BUFFER_RCP_WIDTH, 0.0);
 		float2 depthDy = float2(0.0, BUFFER_RCP_HEIGHT);
@@ -893,8 +854,7 @@ float4 PS_Accum(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Targe
 	held = state.y;
 
 	//.a carries whether the verdict could speak at all, which the two reduce passes below read: the
-	//share is taken over the pixels that flag, so a black or clipped region cannot dilute it -- a floor
-	//or ceiling is dropped the same way, since depth can never read a sideways camera move across it.
+	//share is taken over the pixels that flag, so a black or clipped region cannot dilute it.
 	return float4(clamp(conf, -cost * AutoMaskMoveMemory, 1.0), held, motion,
 		(clipped == 0.0 && !upright) ? 1.0 : 0.0);
 }
@@ -936,9 +896,8 @@ float4 PS_MotionAvg(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_T
 }
 #endif
 
-//The closing's luma and the luma bound on a tap. The horizontal pass is the only reader of the frame,
-//so the luma it computes at the centre and at each tap goes through one copy. `inRange` is passed to the
-//test rather than computed in it, so the loop index stays at the call site where it was.
+//The closing's luma and the luma bound on a tap, through one copy: the horizontal pass is the only
+//reader of the frame. `inRange` is passed in rather than recomputed, so the loop index stays at the call site.
 float AutoMaskLuma(float3 rgb)
 {
 	return dot(rgb, float3(0.299, 0.587, 0.114));
@@ -951,9 +910,8 @@ float AutoMaskEdgeKeep(float luma, float lumaCentre, bool inRange)
 }
 
 //Horizontal closing bounded by luma edge, plus the row's still count for the isolation gate and the
-//centre verdict the vertical pass reads the column and the diagonals off. It also carries both
-//ping-pong back-edges: the accumulator's, whose read is the centre tap this pass already takes, and,
-//on the compute path, the drift pair's, which is its own read here rather than a pass of its own.
+//centre verdict the vertical pass reads its column and diagonals off. It also carries both ping-pong
+//back-edges: the accumulator's and, on the compute path, the drift pair's.
 #if AutoMaskCompute == 1
 float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
 	out float4 carry : SV_Target1, out float4 driftCarry : SV_Target2) : SV_Target
@@ -967,7 +925,7 @@ float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
 	//The box has its own radius, one pixel wide at least so the gate always has a share to read.
 	float reach = max(floor(AutoMaskIsolation + 0.5), 1.0);
 	//The live side: this frame's verdict, which the accumulator wrote to B. Writing it back to A here
-	//is the back-edge, so next frame's accumulator reads this frame -- the pass that used to copy it.
+	//is the back-edge, so next frame's accumulator reads this frame.
 	float4 centre = tex2D(AutoAccumB, texcoord);
 	float mask = centre.r;
 	#if AutoMaskCompute == 1
@@ -989,8 +947,8 @@ float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
 		float2 uv = texcoord + float2(i * texel.x, 0.0);
 		bool inRange = abs(float(i)) <= r;
 		//A tap past the grow radius is dead to the luma bound however it reads, so the frame is not
-		//sampled for it: `keep` is zero by the same bound, and the fetch would buy a bound that cannot
-		//apply. The branch is on the loop index against a uniform radius, so the wavefront stays agreed.
+		//sampled for it. The branch is on the loop index against a uniform radius, so the wavefront stays
+		//agreed.
 		float keep = 0.0;
 		if (inRange)
 			keep = AutoMaskEdgeKeep(AutoMaskLuma(tex2D(ReShade::BackBuffer, uv).rgb), lumaCentre, true);
@@ -1001,7 +959,7 @@ float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
 	}
 	//.b is the centre's own verdict, which the vertical pass needs to count a column or a diagonal:
 	//those runs cross this pass rather than lying along it, so a row count cannot supply them. .a is the
-	//centre luma, which that pass would otherwise recompute from the frame at every tap it takes.
+	//centre luma, which that pass would otherwise recompute at every tap.
 	carry = centre;
 	#if AutoMaskCompute == 1
 		driftCarry = float4(drift.rgb, 1.0);
@@ -1010,9 +968,8 @@ float4 PS_DilateH(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
 }
 
 //Vertical closing bounded by luma edge, plus the box's still count and the isolation gate's line test.
-//It also carries both stores that used to be passes: next frame's history — the frame it was drawn over
-//with the settled mask in the alpha — and, with the depth check in, this frame's linearized depth, which
-//the accumulator read earlier so nothing samples what this writes.
+//It also carries next frame's history -- the frame it was drawn over with the settled mask in the alpha
+//-- and, with the depth check in, this frame's linearized depth.
 #if AutoMaskDepthMotion == 1
 float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
 	out float4 depthStore : SV_Target1) : SV_Target
@@ -1033,9 +990,9 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	float column = centre.b;
 	float diagDown = centre.b;
 	float diagUp = centre.b;
-	//As the horizontal pass: the loop spans the larger of the two radii, and its centre step is the
-	//four taps above, so it is skipped rather than re-sampling the texel this pass already took. The
-	//luma it bounds each tap by rides in the tap's own .a, so the frame is not read for it again here.
+	//As the horizontal pass: the loop spans the larger of the two radii, and its centre step is the four
+	//taps above, so it is skipped. The luma it bounds each tap by rides in the tap's own .a, so the frame
+	//is not read for it again.
 	float span = min(max(r, reach), AUTOMASK_DILATE_MAX);
 
 	for (int i = -int(span); i <= int(span); i++){
@@ -1059,12 +1016,9 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	}
 
 	//Every masked pixel is tested, not only the ones the verdict claimed: what the closing radius grew
-	//around a speck has that speck's thin neighbourhood and goes with it. The box is the isolation
-	//radius, so the share is the same test at every position of it. A line through the pixel is the
-	//second door: a stroke holds more than half of its own length along one axis, where the box share
-	//asks it to fill a share of a box it is too thin to fill. Both doors keep -- the box was there
-	//first, so nothing it kept is lost, and the line only ever rescues what the box dropped. prose-ok
-	//The whole test is the gate's own, so off it is skipped rather than computed and discarded.
+	//around a speck has that speck's thin neighbourhood and goes with it. A line through the pixel is
+	//the second door: a stroke holds more than half of its own length along one axis where the box
+	//share would ask it to fill a box it is too thin to fill. The gate's own test, so off it is skipped.
 	[branch]
 	if (AutoMaskIsolated){
 		float rowCount = centre.g * AUTOMASK_COUNT_SCALE;
@@ -1076,7 +1030,7 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	}
 
 	//Next frame's history: the frame this pass was drawn over, with the settled mask in the alpha. The
-	//restore reads the frame back where the mask is set, so the map target and the store pass are gone.
+	//restore reads the frame back where the mask is set.
 	#if AutoMaskDepthMotion == 1
 		//This frame's depth, for the next frame's comparison. A frame with no depth bound stores the
 		//depth buffer's own constant, so comparing it against itself next frame is no change.
@@ -1122,10 +1076,8 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 		ui_step = 1.0;
 	> = 8.0;
 
-	//Confidence view, the reading ui-isolation-options.md 5.5 asks for: the accumulator's confidence
-	//drawn as a grade rather than decided, so the pixels sitting just under the protection line -- the
-	//mass a count of crossings throws away -- can be seen. Both accumulators carry it, so unlike the
-	//tile view it needs no compute path.
+	//Confidence view: the accumulator's confidence drawn as a grade, so the pixels just under the
+	//protection line -- the mass a count of crossings throws away -- can be seen.
 	uniform bool UIDebugConfidence <
 		__UNIFORM_SLIDER_BOOL1
 		ui_label = "Diagnostics: confidence view";
@@ -1134,9 +1086,8 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	> = false;
 
 	#if AutoMaskDepthMotion == 1
-		//The probe the animated-neighbour case asks for before anything discards a surface: the depth
-		//buffer's own orientation, so the pixels a walking camera can never move -- the floor and ceiling,
-		//whose normal points up -- can be seen against the scene before a filter is built on them.
+		//The depth buffer's own orientation, so the pixels a walking camera can never move -- the floor and
+		//ceiling, whose normal points up -- can be seen against the scene.
 		uniform bool UIDebugDepthNormal <
 			__UNIFORM_SLIDER_BOOL1
 			ui_label = "Diagnostics: depth normals";
@@ -1146,9 +1097,9 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 	#endif
 
 	#if AutoMaskCompute == 1
-		//The one view that is compute-only, because the tile map the region readings are taken over
-		//exists only there. It replaces the other views while it is on, rather than tinting with them,
-		//because what it draws is a whole-cell class rather than a per-pixel reading.
+		//The one view that is compute-only, because the tile map exists only there. It replaces the other
+		//views while it is on rather than tinting with them, because it draws a whole-cell class rather
+		//than a per-pixel reading.
 		uniform bool UIDebugTile <
 			__UNIFORM_SLIDER_BOOL1
 			ui_label = "Diagnostics: tile view";
@@ -1157,25 +1108,24 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 		> = false;
 	#endif
 
-	//Packs the view's own channels, one map pass for every view: the motion view in .r, the verdict in
-	//.g, the accumulator's charge in .b, the tile view's own colour in .rgb, and the screen state always
-	//in .a. The view selector decides nothing here; it only decides what `PS_Restore` draws from this map.
+	//Packs every view's channels into one map: the motion view in .r, the verdict in .g, the
+	//accumulator's charge in .b, the tile view's own colour in .rgb, and the screen state always in .a.
+	//The view selector only decides what `PS_Restore` draws from this map.
 	float4 PS_DebugMap(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	{
 		float4 accum = tex2D(AutoAccumB, texcoord);
 		float verdict = step(0.5, accum.r);
-		//The accumulator's charge, clamped: the restore below splits it at the 0.5 verdict step into the
-		//two flat colours it draws, and below zero draws nothing. Stored raw rather than pre-classed so
-		//the threshold and the verdict stay the same number.
+		//The accumulator's charge, clamped: the restore splits it at the 0.5 verdict step into the two
+		//flat colours it draws, and below zero draws nothing. Stored raw so the threshold and the verdict
+		//stay the same number.
 		float confidence = saturate(accum.r);
 		float changed = saturate(accum.b * UIDebugGain);
 		float drawn = AutoMaskDrawn(tex2D(MotionStat, float2(0.5, 0.5)).r);
 		float screen = drawn ? 1.0 : 0.0;
 
-		//The normals probe: reconstructs the camera-space position of this pixel and of its right and
-		//lower neighbours, crosses their differences for the surface's normal, and draws how much of it
-		//faces up or down. White is the floor and ceiling -- the surfaces a walking camera cannot change
-		//the depth of -- and black is a wall facing the way you walk, which it can.
+		//The normals probe: reconstructs the camera-space position of this pixel and its right and lower
+		//neighbours, crosses their differences for the surface's normal, and draws how much of it faces up
+		//or down. White is the floor and ceiling, black a wall facing the way you walk.
 		#if AutoMaskDepthMotion == 1
 			if (UIDebugDepthNormal){
 				float2 halfAngle = tan(radians(AutoMaskDepthFOV) * 0.5) * float2(BUFFER_ASPECT_RATIO, 1.0);
@@ -1191,12 +1141,11 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 		#endif
 
 		//The compute path packs the tile view's own colour in .rgb and the screen state in .a, so one map
-		//pass serves every view; the pixel path has no tile view and shares the .b below.
+		//pass serves every view; the pixel path shares the .b below.
 		#if AutoMaskCompute == 1
-			//The tile view draws the region the readings are taken over: each cell in the class it landed
-			//in, so a wide change with no mask under it -- the arrival candidate, the case the premise
-			//cannot see -- is visible as the region it is rather than as a number. The class is sampled
-			//point-wise from a 16x16 target, so a pixel shows the cell it falls in.
+			//The tile view draws the region the readings are taken over: each cell in the class it landed in,
+			//so a wide change with no mask under it -- the arrival candidate -- shows as the region it is.
+			//Sampled point-wise from a 16x16 target, so a pixel shows the cell it falls in.
 			if (UIDebugTile){
 				float4 tile = tex2D(AutoTileKind, texcoord);
 				float cls = tile.r * 4.0;
@@ -1217,30 +1166,28 @@ float4 PS_DilateV(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float3 live = tex2D(ReShade::BackBuffer, texcoord).rgb;
-	//The frame the closing stored, with the mask in the alpha: one target serves both the pixels to put
-	//back and the reading of where to put them.
+	//The frame the closing stored, with the mask in the alpha: one target serves the pixels to put back
+	//and the reading of where to put them.
 	float4 stored = tex2D(AutoHistory, texcoord);
 	float3 color = lerp(live, stored.rgb, step(0.5, stored.a));
 
 	#if AutoMaskDiagnostics == 1
-		//Tint over the restore, drawn after it so it sits on top of the stored UI: red where the
-		//motion view sees a change, green where the verdict view sees protection, a cyan grade where the
-		//confidence view reads, and the tile view's own colours where the grid reading is being watched.
+		//Tint over the restore, drawn after it so it sits on top of the stored UI: red where the motion
+		//view sees a change, green where the verdict view sees protection, a cyan grade where the
+		//confidence view reads, and the tile view's own colours.
 		float4 debug = tex2D(AutoDebug, texcoord);
 		float tint = UIDebugMotion ? debug.r : debug.g;
 		float3 mark = UIDebugMotion ? float3(1.0, 0.0, 0.0) : float3(0.0, 1.0, 0.0);
-		//The confidence view draws two flat colours rather than a brightness ramp, so no shade has to be
-		//judged: cyan where the verdict would already claim the pixel, magenta where it is earning but
-		//has not crossed -- the band a weighted count would weigh -- and nothing at all below zero. It is
-		//read from the channel the tile view overrides below.
+		//The confidence view draws two flat colours rather than a brightness ramp: cyan where the verdict
+		//would already claim the pixel, magenta where it is earning but has not crossed, and nothing below
+		//zero. Read from the channel the tile view overrides below.
 		if (!UIDebugMotion && UIDebugConfidence){
 			mark = debug.b >= 0.5 ? float3(0.0, 1.0, 1.0) : float3(1.0, 0.0, 1.0);
 			tint = debug.b > 0.0 ? 1.0 : 0.0;
 		}
 		#if AutoMaskCompute == 1
-			//The tile view's own colour, packed by the map above, rather than a per-pixel mark: the
-			//blend is how strong that colour is, and the class is the mark. It overrides the
-			//confidence grade, which shares its blue channel.
+			//The tile view's own colour, packed by the map above, rather than a per-pixel mark: the blend
+			//is how strong that colour is, and the class is the mark. It overrides the confidence grade.
 			if (UIDebugTile){
 				mark = saturate(debug.rgb);
 				tint = max(mark.r, max(mark.g, mark.b));
@@ -1249,15 +1196,13 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 		color = lerp(color, mark, tint * 0.7);
 
 		#if AutoMaskDepthMotion == 1
-			//The normals probe replaces the picture rather than tinting it: it is a field, not a mark,
-			//and only the shade carries the reading. The corner marker below still draws.
+			//The normals probe replaces the picture rather than tinting it: it is a field, not a mark, and
+			//only the shade carries the reading.
 			if (UIDebugDepthNormal)
 				color = debug.rgb;
 		#endif
 
-		//The five region readings as bars across the top, in their documented order and colour, each
-		//filled left to right to its own value. Read from the target the region pass filled, so a bar is
-		//the frame's own number rather than a constant.
+		//The five region readings as bars across the top, each filled left to right to its own value.
 		#if AutoMaskCompute == 1
 			if (UIDebugTile && texcoord.y < 0.02){
 				float4 a = tex2D(AutoTileStat, float2(0.25, 0.0));
@@ -1346,13 +1291,13 @@ technique AutoMask
 		PixelShader = PS_DilateV;
 		RenderTarget = texAutoHistory;
 		#if AutoMaskDepthMotion == 1
-			//The depth store rides here rather than in a pass of its own: this pass already runs after
-			//the accumulator's read of the depth target, so nothing samples what this writes.
+			//The depth store rides here: this pass runs after the accumulator's read of the depth target,
+			//so nothing samples what this writes.
 			RenderTarget1 = texAutoDepth;
 		#endif
 	}
 	#if AutoMaskCompute == 1 && AutoMaskDiagnostics == 1
-		//The tile map and its readings, last: the closing above writes the frame the history did not yet
+		//The tile map and its readings, last: the closing above wrote the frame the history did not yet
 		//hold, and both readings are of the mask and the accumulator that pass leaves behind.
 		pass {
 			ComputeShader = CS_Tile;
