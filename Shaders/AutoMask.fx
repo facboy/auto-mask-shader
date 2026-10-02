@@ -13,7 +13,7 @@
 
 //Switches
 #ifndef AutoMaskDiagnostics
-	#define AutoMaskDiagnostics	0		// [0 or 1] 1 draws the generated map over the frame
+	#define AutoMaskDiagnostics	0		// [0 or 1] 1 draws the diagnostics overlay over the frame
 #endif
 
 #ifndef AutoMaskAntiBloom
@@ -657,7 +657,7 @@ sampler AutoDilate { Texture = texAutoDilate; };
 		//already covers is that region being redrawn, not a panel appearing over it.
 		tileState[cell] = masked >= AUTOMASK_TILE_HITS ? 1u
 		              : ((stopped && wide / taps >= AUTOMASK_TILE_WIDE) ? 3u : 0u);
-		//Written for the map pass to draw: the coverage in .g and the wide share in .b.
+		//.r is the class the tile view draws; .g, .b and .a are written but read nowhere.
 		tex2Dstore(AutoTileKindStore, int2(tid.xy), float4(float(tileState[cell]) * 0.25,
 			masked / taps, wide / taps, 1.0));
 
@@ -1116,8 +1116,8 @@ float4 PS_Restore(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 
 	#if AutoMaskDiagnostics == 1
 		//Tint over the restore, drawn after it so it sits on top of the stored UI: red where the motion
-		//view sees a change, green where the verdict view sees protection, a cyan grade where the
-		//confidence view reads, and the tile view's own colours. The readings come off the accumulator and
+		//view sees a change, green where the verdict view sees protection, the confidence view's two flat
+		//colours, and the tile view's own colours. The readings come off the accumulator and
 		//the statistic directly, so the overlay needs no map pass or target of its own.
 		float4 accum = tex2D(AutoAccumB, texcoord);
 		float verdict = step(0.5, accum.r);

@@ -96,13 +96,14 @@ texel in the corner rather than a screen-constant value decided once per pixel.
 
 ## 4. Smaller items
 
-- **`changed` is computed under every view.** `saturate(accum.b * UIDebugGain)` fills the motion view's
-  red at every pixel, but red is read only by that view; the verdict, confidence, tile and normals views
-  ignore it. One `mul_sat` a pixel, and a `[branch]` on the view uniform would cost more than it saves.
-  Left.
+- **`changed` is computed under every non-tile view.** `saturate(accum.b * UIDebugGain)` fills the motion
+  view's red at every pixel, but red is read only by that view; the verdict, confidence and normals views
+  ignore it. The tile view takes its own branch, where it is not built. One `mul_sat` a pixel, and a
+  `[branch]` on the view uniform would cost more than it saves. Left.
 - **The tile coverage channels are dead.** `texAutoTileKind`'s green, blue and alpha are written from the
-  cell's mask share, wide share and a constant, and nothing reads them: the tile view draws only red.
-  Either the drawing uses the channels or the comment beside the store is corrected.
+  cell's mask share, wide share and a constant, and nothing reads them: the tile view draws only red. The
+  store comment now says so. The channels stay written rather than dropped: the store is one `float4`, so
+  removing them saves no write.
 - **`CS_Tile`'s three relaxations.** `tileLabel`, `tileWide` and `tileHole` each run a full
   `AUTOMASK_TILE_ROUNDS` = `G²` = 256 rounds. That bound is exact for a serpentine region of the longest
   path, so a cheaper scheme would change what each reading means, and the pass is one thread group of
