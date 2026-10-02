@@ -24,8 +24,7 @@ samples do not: the depth block takes no back-buffer tap, and the one accumulato
 taps at all, `AutoMaskNeighbour`'s four admission ones, ships off. §2's bound took the closing from a
 fixed seven-tap window (16 + 16 samples, 51 and 71 static) to 8 + 8, §5's skipped centre step to 6 + 6,
 and §6's luma hand-off to 6 + 3. §7's store fold hands the vertical pass one more back-buffer tap — the
-frame the store pass used to read — taking the closing to 6 + 4, in exchange for a whole
-full-resolution pass.
+frame §3's store pass read — taking the closing to 6 + 4, in exchange for a whole full-resolution pass.
 
 The one part of the shipped chain the per-pixel table cannot carry is the pixel path's own reduce.
 `PS_Motion` (27 slots) reads four taps a coarse texel over a 16×16 grid and `PS_MotionAvg` (24) sums

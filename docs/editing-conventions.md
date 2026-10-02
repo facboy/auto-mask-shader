@@ -7,8 +7,18 @@ annotation, the frame-count sliders' conversion, the prose budget, or the drift 
   docs and this file alike. It buys words for what a reader cannot work out — a value, a cause, a
   consequence — not framing that describes the writing instead of the subject, nor a clause restating the
   sentence before it. Reasoning earns a sentence only where it changes what an editor would do — a cap
-  that would cross another threshold, a widget family that must match a declared type. What a value used
-  to be belongs in the review docs.
+  that would cross another threshold, a widget family that must match a declared type.
+- **A doc describes what ships now, not how it changed.** The reader's question is what the shader does,
+  not what it did, so a fact framed by the design it replaced makes them work out which design is current
+  — and once one landed change is narrated, the next seems to belong there too. Weighing a shipped design
+  against a retired one is a real claim and stays: `RGBA16F` *where* the whole-value form could not resolve
+  the creep. So does language that is not history at all — `no longer`, `the old behaviour`, a first
+  *pass* of the frame. `check-docs` refuses only the stale forms, and `--list` prints them.
+  **A record of an investigation is the exception**, because its argument is the thing being kept:
+  `docs/review.md`, `docs/drift-snap-review.md`, `docs/optical-flow.md` and
+  `docs/ui-isolation-options.md` are read to know what a design answered, so they may name the design and
+  what it was measured against — but even there, a superseded claim is folded into the corrected one
+  rather than left beside it for the reader to reconcile.
 - The uniform widget is chosen by the annotation macro's family, and the family by what the value means:
   the duration settings (`AutoMaskRise`, `AutoMaskFall`, `AutoMaskForget`, `AutoMaskMoveMemory`, and the
   compute path's `AutoMaskDrift`) use `__UNIFORM_DRAG_FLOAT1`, a drag widget over free values rather

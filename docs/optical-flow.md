@@ -197,8 +197,8 @@ configurations produced the tables:
 - It answers the existence question — *is there a correct offset, and can a search find it* — and the
   accumulation arithmetic of §3, which does not depend on the image at all.
 - It is **not** a measurement of any real game's sky, and says nothing about doing this at full resolution
-  on a GPU, the cost of the search, or a real skybox's texture and loop behaviour. §6.1 was the experiment
-  that would answer those, and it has since been run and answered them negatively (§6.2).
+  on a GPU, the cost of the search, or a real skybox's texture and loop behaviour. §6.1's experiment was
+  run against a real sky and answered those negatively (§6.2).
 - The "SAD min / median" column is a crude confidence measure. For the pure-gradient row it is `0.00 /
   1.18` yet the offset found is wrong: the min is zero at *every* horizontal offset there, which is why
   the ratio, not the minimum, is the reading.

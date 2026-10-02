@@ -2,8 +2,8 @@
 
 ## 1. Scope and standing
 
-What element-level isolation could do better. **Options, not a plan**: nothing here is scoped. Four of
-them have since been settled by building or measuring:
+What element-level isolation could do better. **Options, not a plan**: nothing here is scoped. Four of them
+have been settled by building or measuring:
 
 - §5.1's four-axis door **shipped**, and §5.3's admission test **shipped**.
 - §5.6's tile map and §6's readings **were built** as the instrument that decides the rest, and the map

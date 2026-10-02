@@ -42,9 +42,9 @@ Nothing here is automatically testable, so verification is a review pass plus an
   points' bytecode sha256 and instruction count must come out identical — stronger than "the off path is
   unchanged", because it covers the compute path too. `docs/refactor-candidates.md` §1 holds the rules a
   fold has to clear.
-- **It must fail loudly on missing data.** An earlier version of the companion tool reported a clean pass
-  while emitting no bytecode at all, because a missing hash compares equal to another missing hash. Ten
-  cases must keep exiting non-zero, each exercised by hand before committing a change here: an empty
+- **It must fail loudly on missing data.** The tool's contract is that missing data exits non-zero rather
+  than reporting a clean pass, because a missing hash compares equal to another missing hash. Ten cases
+  must keep exiting non-zero, each exercised by hand before committing a change here: an empty
   `Shaders/`; a technique whose passes the parser cannot find (cross-checked against the `pass` keyword
   count, so a pattern miss cannot look like a technique with fewer passes); a technique binding a shader
   that does not exist; a shader whose syntax is broken; a compute pass missing one of its dispatch sizes;
@@ -95,19 +95,24 @@ Nothing here is automatically testable, so verification is a review pass plus an
 ## The prose budget, which the same tool refuses
 
 `uv run tools/verify_shaders.py check-docs` reads `README.md`, `AGENTS.md` and `docs/*.md` and exits
-non-zero on the framing the budget bans: phrases that describe the writing rather than its subject, or
-restate the sentence before them. `--list` prints each phrase with its reason, and
-`docs/editing-conventions.md` holds the reasoning.
+non-zero on two things the budget bans. The first is framing that describes the writing rather than its
+subject, or restates the sentence before it; the second is the stale form of a design's history, because a
+doc describes what ships, not how it changed. `--list` prints every phrase with its reason, and
+`docs/editing-conventions.md` holds the reasoning and the exception for a record of an investigation.
 
 - It is the only rule here whose absence was silent: the compile check never opens a `.md`, so nothing
   caught the framing until a review pass did. A pass means only "no phrase from the list", and judgement
   stays with the review.
 - The framing is matched by its verb, not by a noun alone: `this section explains X` is refused while
   `this section calls the pair the cheap half` is an internal cross-reference and is left alone. A phrase
-  that is genuinely the subject of a line carries `prose-ok` to skip it.
+  that is genuinely the subject of a line carries `prose-ok` to skip it. Naming a retired design to weigh
+  the shipped one against it is a real claim and is left alone; only `has since been` and its like are
+  refused, and a line whose subject *is* such a phrase quotes it in backticks, which the scan blanks
+  before matching — a span opened and closed across a line break included.
 - It needs no `fxc`, so a docs-only run works without the Windows SDK.
 - Exercise it by hand before committing a change to the list: add a refused phrase to a doc and it must
-  exit non-zero naming the phrase, then add `prose-ok` on that line and it must pass.
+  exit non-zero naming the phrase, then add `prose-ok` on that line and it must pass. Both the framing
+  and the stale-form lists are exercised the same way.
 - **The same run covers the HLSL half of the budget**, which the phrase list cannot: a `//` comment block
   in any `Shaders/*.fx` or `*.fxh` longer than `COMMENT_BLOCK_MAX` (4 lines) is refused the same way.
   Adjacent `//` lines are one block, so wrapping a comment lengthens it rather than spreading it; the
@@ -221,11 +226,12 @@ looking at is current.
   against ReShade v6.8.0's own parser and codegen instead, which emits
   `groupshared uint V__groupHist[8];` and `InterlockedAdd(V__groupHist[bin], 1u, _res)`. A construct this
   check cannot judge has to be verified against ReShade's source, not inferred from a passing compile.
-- **The premise's denominator, which a large dark region used to break.** The share is
-  `changed / pixels that could change`; it used to be `changed / every pixel`, so a frame with a big
-  black or letterboxed region had a ceiling no movement could reach, and a high **Motion needed to trust
-  stillness** then read the world as stopped while it was plainly moving — the corner marker yellow
-  during a walk, and on the tile view the whole screen red because a stopped world makes every wide cell
+- **The premise's denominator, which a large dark region defeats.** The share is
+  `changed / pixels that could change` rather than `changed / every pixel`, so a frame with a big
+  black or letterboxed region has no ceiling below what movement can reach — were the share over every
+  pixel, a high **Motion needed to trust
+  stillness** would read the world as stopped while it was plainly moving, giving the corner marker yellow
+  during a walk and the whole screen red on the tile view because a stopped world makes every wide cell
   an arrival. Watch the corner marker over a scene with a large permanent black area: it must be magenta
   while moving, at any setting the movement can actually reach. Two properties are checkable off-GPU and
   were: the corrected share agrees with a direct `changed / active` count over 300 random frames on
@@ -279,8 +285,8 @@ looking at is current.
   animated-neighbour form of the large-dark-region case above — that one capped the share so the world
   read stopped while it was moving, this one lets the world read drawn over a patch that never moved —
   and it is the option `docs/ui-isolation-options.md` §5.10 records. Raising **Motion needed to trust
-  stillness** is the only shipped lever and it only helps while the animating region is small. **The
-  reading has since been taken in a game and the answer is rare**: these views exist but are very few,
+  stillness** is the only shipped lever and it only helps while the animating region is small. **A played
+  game puts the answer at rare**: these views exist but are very few,
   so `AutoMaskDepthOnly` in a per-game preset covers them. A pan that shows large picture motion with a
   flat depth term is not this case — a rotation swings the sampled distance at every silhouette — so
   the flat term there is a far-plane or depth-settings fault, recognised by the opposite symptom: a

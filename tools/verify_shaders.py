@@ -456,19 +456,29 @@ def workspace_sources() -> list[Path]:
 
 
 # ---------------------------------------------------------------------- check-docs
-# The prose budget every `.md` here and the README keep: state the fact and stop,
-# without framing that describes the writing rather than its subject. It is the one
-# rule with no other consequence -- the compile check never opens a `.md` -- so the
-# mechanically detectable half of it is refused here rather than left to memory.
-# docs/editing-conventions.md holds the reasoning; `--list` prints the entries.
+# Two prose rules, no compile consequence (the compile check never opens a `.md`), so
+# the mechanically detectable half of each is refused here rather than left to memory.
+# `docs/editing-conventions.md` holds the reasoning; `--list` prints the entries.
 #
-# The framing is matched by its *verb*, not by a noun alone: "this section explains
-# X" is the banned construction, while "this section calls the cheapest half the
-# pair" is an internal cross-reference. So the noun alone is not refused.
+# 1. The *framing* budget: state the fact and stop, without describing the writing
+#    rather than its subject. Matched by its verb, not a noun alone -- "this section
+#    explains X" is banned, "this section calls the cheapest half the pair" is an
+#    internal cross-reference. Deliberately NOT here, each usually a real claim:
+#    `which is why` (a causal link is information), `load-bearing` (a design fact),
+#    `should`/`must` (an instruction, which is what a convention is).
 #
-# Deliberately NOT here, because each is usually a real claim: `which is why` and
-# `that is why` (a causal link is information), `load-bearing` (a fact about the
-# design), and `should`/`must` (an instruction, which is what a convention is).
+# 2. The *time* budget, the same idea applied to history: a doc describes what ships,
+#    not how it changed, because a fact framed by the design it replaced makes the
+#    reader work out which design is current. Comparing a shipped design against a
+#    retired one is a real claim and stays ("the store is RGBA16F where the
+#    whole-value one could not resolve the creep"); the *stale* forms that leave the
+#    reader to infer which is current do not. Deliberately NOT here, each being
+#    ordinary comparison language: `used to`, `no longer`, `the old`, `previously`
+#    alone, and `the first pass` where the pass is a pass of the frame.
+#
+# A record of a closed investigation is the exception to rule 2 -- its argument is the
+# thing being kept -- but it carries `prose-ok` on a line that genuinely names the
+# design, so this list stays exact rather than file-scoped.
 PROSE_PHRASES = (
     (r"this (?:section|document|review|file|page|chapter)\s+(?:explains?|describes?|shows?|outlines?|"
      r"lists?|covers?|presents?|states?|sets out|summarises|summarizes|examines)",
@@ -492,6 +502,28 @@ PROSE_PHRASES = (
      "a worth-label rather than the argument itself"),
     (r"the purpose of this|the goal (?:here )?is to (?:explain|describe|show)",
      "describes the writing's intent rather than its subject"),
+    (r"(?:has|have|had) since been",
+     "frames the current design by the one it followed; state what ships"),
+    (r"(?:first|earlier|later|previous|original) version",
+     "frames the current design by the one it followed; state what ships"),
+    (r"in an? (?:earlier|previous|original) (?:version|cut|draft|attempt)",
+     "frames the current design by the one it followed; state what ships"),
+    (r"(?:was|were|is|are) subsequently|subsequently (?:replaced|moved|removed|landed|built)",
+     "frames the current design by the one it followed; state what ships"),
+    (r"(?:this|that|which|it) used to be",
+     "frames the current design by the one it followed; state what ships"),
+    (r"\bused to (?:be|read|write|carry|hold|store|live)\b",
+     "frames the current design by the one it followed; state what ships"),
+    (r"(?:was|were) originally|originally (?:shipped|built|written|stored|measured|landed|named)",
+     "frames the current design by the one it followed; state what ships"),
+    (r"previously (?:stated|described|shipped|used|landed|read|held|written|named|called|covered)",
+     "frames the current design by the one it followed; state what ships"),
+    (r"(?:the|a|its|an) (?:previous|earlier|former|original|prior) "
+     r"(?:design|implementation|channel|store|version|form|shape|behaviour|behavior|rule|spelling|"
+     r"comparison|arithmetic|target|pass|shader|filter|gate)",
+     "frames the current design by the one it followed; state what ships"),
+    (r"formerly|at the time of writing",
+     "frames the current design by the one it followed; state what ships"),
 )
 PROSE = tuple((re.compile(r"(?<![\w-])(?:%s)(?![\w-])" % pattern, re.I), why)
               for pattern, why in PROSE_PHRASES)
@@ -518,18 +550,22 @@ def prose_lines(text: str) -> list[tuple[int, str]]:
     """The lines with fenced code and inline code spans blanked out.
 
     A phrase inside code is not prose, and this file's own list quotes the
-    phrases, so the span is dropped rather than reported.
+    phrases, so the span is dropped rather than reported. A span is blanked
+    across the whole text rather than line by line, because a wrapped quote --
+    a phrase opened in backticks on one line and closed on the next -- is one
+    span to markdown and was two half-spans to a line-wise strip. Newlines are
+    preserved so the reported line numbers stay the file's own.
     """
-    kept: list[tuple[int, str]] = []
+    kept: list[str] = []
     in_fence = False
-    for number, line in enumerate(text.splitlines(), 1):
+    for line in text.splitlines():
         if PROSE_FENCE.match(line):
             in_fence = not in_fence
             continue
-        if in_fence:
-            continue
-        kept.append((number, re.sub(r"`[^`]*`", "", line)))
-    return kept
+        kept.append("" if in_fence else line)
+    joined = "\n".join(kept)
+    blanked = re.sub(r"`[^`]*`", lambda span: re.sub(r"[^\n]", " ", span.group(0)), joined)
+    return list(enumerate(blanked.splitlines(), 1))
 
 
 def comment_block_hits() -> list[str]:

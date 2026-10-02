@@ -27,16 +27,16 @@ below):
 
 | helper | folds |
 | --- | --- |
-| `AutoMaskDrawn(share)` | the premise, previously stated five times in two spellings |
+| `AutoMaskDrawn(share)` | the premise, stated five times in two spellings before the fold |
 | `AutoMaskDecay(conf, held, stable, drawn, earn, cost)` | the hold, the credit, the bridge and the banked debt |
 
 Each takes what it needs **already sampled**, so neither path's sampling form moved onto the other's. The
 drift terms stay behind `#if AutoMaskCompute == 1` in the `.fx`, because its ramp and the two extra rail
 comparisons are the compute path's alone and the pixel path is documented as having no drift pass.
 
-`AutoMaskPublished(uv)` was folded here too, but has since been moved back into `AutoMask.fx` beside
+`AutoMaskPublished(uv)` was folded here too, and now sits back in `AutoMask.fx` beside
 `PS_AntiBloom`, its only remaining caller: it samples (`tex2D(AutoHistory, uv)`), which the header's
-helpers do not, and `PS_Restore` and `CS_Tile` now read the history alpha inline from a fetch they
+helpers do not, and `PS_Restore` and `CS_Tile` read the history alpha inline from a fetch they
 already make. It is the same test the drift terms fail — a helper with one consumer is naming rather than
 a fold — so it belongs in the `.fx`.
 
